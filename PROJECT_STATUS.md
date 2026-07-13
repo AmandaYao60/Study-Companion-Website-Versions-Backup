@@ -1,110 +1,71 @@
 # Project Status
 
-## Current Feature
+## Current Phase
 
-CameraFeed webcam, MediaPipe face tracking, gesture tracking, and Privacy Shield logic have been refactored.
+Phase 1 proof of concept: local browser-based study monitoring with real MediaPipe face and gesture inference, a privacy-first camera UI, debug telemetry, and dashboard visualization.
 
-## Completed Changes
+## Completed
 
-### Camera lifecycle
+- Real MediaPipe `FaceLandmarker` loading through `@mediapipe/tasks-vision`.
+- Real MediaPipe `GestureRecognizer` loading with `numHands: 2`.
+- Camera permission flow using `navigator.mediaDevices.getUserMedia`.
+- Explicit Disable Webcam control that pauses video, clears `srcObject`, stops tracks, clears detection state, disables Privacy Shield, and stops monitoring through `stopCamera`.
+- Canvas rendering stops when the camera is disabled or monitoring is paused.
+- Real face contour, eye, brow, lip, iris, mesh-dot, and hand skeleton rendering when detections exist.
+- React `No Face Detected` overlay when monitoring is active, camera is enabled, AI is loaded, and no face landmarks are returned.
+- Simple AI-loading fallback face plus loading/delayed-warning canvas messages before models are ready.
+- Privacy Shield blur/background layer with real landmark rendering and real-landmark bounding box.
+- AppContext telemetry from face blendshapes, facial transformation matrices, gestures, face landmarks, and multi-hand landmarks.
+- Rolling telemetry table and CSV export for raw face/hand landmark coordinates.
+- Dashboard SVG gauges, line chart, radar chart, and summary statistics.
 
-- Added a Disable Webcam button.
-- Webcam shutdown now pauses the video element, clears its `srcObject`, stops the media stream, clears cached detections, and disables Privacy Shield.
-- Canvas rendering stops when the webcam is disabled.
+## In Progress
 
-### Monitoring lifecycle
+- Improving the accuracy and cooldown behavior of heuristic metric updates.
+- Clarifying scientific limitations of focus, fatigue, stress, and arousal inference.
+- Keeping documentation aligned with the current source code.
 
-- Canvas rendering stops when monitoring is paused.
-- Paused monitoring uses the React standby overlay instead of simulated landmarks.
-- No fallback landmarks are displayed when monitoring is inactive.
+## Next Tasks
 
-### Face detection states
+- Run browser QA with camera permissions on supported browsers.
+- Decide whether two visible hands should always reduce focus after sustained detection.
+- Add cooldowns or aggregation to gesture logs and metric effects.
+- Add local persistence if session history should survive refresh.
+- Replace PDF export placeholder with a real report export path.
+- Fix mojibake UI strings in source files in a separate source-code task.
+- Add tests for metric heuristics and critical UI state transitions.
 
-- Added `hasDetectedFace` React state.
-- `hasDetectedFace` is updated from:
-  `faceResults?.faceLandmarks?.length > 0`
-- When the AI model is loaded but no face is detected:
-  - canvas remains empty
-  - JSX displays `No Face Detected`
-- This behavior applies in both normal mode and Privacy Shield mode.
+## Known Issues
 
-### Privacy Shield
+- `git` is not available on PATH in the current shell environment.
+- Metrics are heuristic and not clinically validated.
+- Stress and arousal are only partially grounded in observed CV signals.
+- The fallback simulation in `AppContext.js` can still update metrics when monitoring runs without real tracking.
+- Telemetry is stored in React state and is lost on page refresh unless exported.
+- CSV exports contain landmark coordinates and should be handled as sensitive data.
+- Some source strings display mojibake characters.
 
-- Removed the centered Privacy Shield message.
-- Privacy Shield now uses only a dark blue background layer.
-- The canvas remains above the privacy background.
-- Real face landmarks remain visible in Privacy Shield mode.
-- The tracking bounding box is calculated from real MediaPipe landmarks.
-- Removed the simulated tracking box and simulated `FACE_TRACK_ACTIVE` label.
+## Protected Behaviors
 
-### AI loading fallback
-
-- Removed the complex simulated `baseLandmarks` animation.
-- Removed simulated:
-  - blinking
-  - yawning
-  - head-pose movement
-  - micro-jitter
-  - fake mesh connections
-- Added a lightweight static `drawFallbackFace()` placeholder.
-- Added loading and delayed-warning messages.
-- After 8 seconds, the UI displays troubleshooting guidance.
-
-### MediaPipe inference
-
-- Inference runs only when:
-  - monitoring is active
-  - camera is enabled
-  - AI models are loaded
-  - video data is ready
-- Inference is throttled using `inferenceFps`.
-- `inferenceRunning` prevents overlapping inference calls.
-- Detection refs and face state are reset during cleanup.
-
-### Hand tracking
-
-- Gesture Recognizer is configured with:
-  `numHands: 2`
-- CameraFeed iterates through every returned hand landmark set.
-- Both hand skeletons can be rendered.
-- AppContext stores landmarks with a `handId`.
-- AppContext processes the top gesture from each detected hand.
-- A highest-confidence gesture is selected as the primary gesture.
-- Duplicate gesture effects are prevented using unique gesture names.
-- Sustained two-hand activity is treated as a possible distraction signal.
-
-## Current CameraFeed State Flow
-
-1. Camera disabled:
-   - Camera Offline overlay
-   - empty canvas
-
-2. Camera enabled, monitoring paused:
-   - Monitoring Paused overlay
-   - empty canvas
-
-3. Monitoring active, AI not loaded:
-   - static fallback face
-   - loading or warning message
-
-4. Monitoring active, AI loaded, no face:
-   - empty canvas
-   - `No Face Detected`
-
-5. Monitoring active, face detected:
-   - real face mesh
-   - detected hand skeletons
-   - optional Privacy Shield bounding box
+- Do not restore the old animated simulated `baseLandmarks` camera mesh.
+- Do not draw fallback landmarks after AI has loaded and no face is detected.
+- Do not draw canvas overlays when monitoring is paused.
+- Do not draw canvas overlays when the camera is disabled.
+- Keep `No Face Detected` as a React overlay state.
+- Keep Privacy Shield as a background layer with real landmark rendering above it.
+- Preserve multi-hand landmark storage with separate `handId` values.
+- Preserve explicit webcam disable behavior.
 
 ## Important Files
 
 - `src/components/CameraFeed.js`
 - `src/context/AppContext.js`
-
-## Remaining Considerations
-
-- Consider moving `faceContours` and `handConnections` to module-level constants outside the React component.
-- Consider separating face drawing and hand drawing into helper functions.
-- Review whether sustained two-hand activity should always reduce focus.
-- Consider applying time-based cooldowns to gesture logs and metric changes.
-- Verify whether hands should still be drawn when no face is detected.
+- `src/components/DebugPanel.js`
+- `src/components/DashboardCharts.js`
+- `src/components/Navbar.js`
+- `src/app/page.js`
+- `src/app/monitor/page.js`
+- `src/app/dashboard/page.js`
+- `docs/ARCHITECTURE.md`
+- `docs/AI_PIPELINE.md`
+- `docs/DECISIONS.md`

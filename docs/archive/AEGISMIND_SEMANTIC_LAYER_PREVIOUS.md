@@ -1,3 +1,9 @@
+﻿# Historical Notice
+
+This document was created before the current source-only documentation refresh. It may include project-context synthesis that is not active architecture. Use the current repository files and the active docs at the repository root and docs/ as source of truth.
+
+---
+
 # AegisMind Semantic Layer
 
 Last reviewed: 2026-07-11
@@ -18,7 +24,7 @@ Primary source context:
 
 The existing site is named `ai-study-companion` and lives at:
 
-`C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main`
+`C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main`
 
 It currently supports:
 
@@ -239,10 +245,11 @@ Notion sources:
 
 Local code sources:
 
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\package.json`
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\src\context\AppContext.js`
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\src\components\CameraFeed.js`
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\src\components\DebugPanel.js`
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\src\components\DashboardCharts.js`
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\src\app\monitor\page.js`
-- `C:\Users\fengf\Desktop\AI项目\AegisMind-AI-Study-Companion-main\src\app\dashboard\page.js`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\package.json`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\src\context\AppContext.js`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\src\components\CameraFeed.js`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\src\components\DebugPanel.js`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\src\components\DashboardCharts.js`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\src\app\monitor\page.js`
+- `C:\Users\fengf\Desktop\AI椤圭洰\AegisMind-AI-Study-Companion-main\src\app\dashboard\page.js`
+

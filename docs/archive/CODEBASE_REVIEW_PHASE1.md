@@ -1,6 +1,12 @@
+﻿# Historical Notice
+
+This document describes an earlier simulated proof-of-concept. It is retained only as historical documentation. Do not treat its statements about simulated AI models, procedural-only camera meshes, or future MediaPipe integration as current architecture. Current documentation is in docs/ARCHITECTURE.md and docs/AI_PIPELINE.md.
+
+---
+
 # AegisMind AI Study Companion - Codebase Review
 
-AegisMind is a premium, privacy-focused front-end application designed to act as an AI study companion. It uses computer vision (currently procedurally simulated) to track a student's cognitive and physiological states—Focus, Stress, Fatigue, and Arousal—and provide real-time recommendations.
+Historical note: this earlier review described AegisMind as a premium, privacy-focused front-end AI study companion and described its computer vision layer as procedurally simulated at that time to track a student's cognitive and physiological states鈥擣ocus, Stress, Fatigue, and Arousal鈥攁nd provide real-time recommendations.
 
 ---
 
@@ -10,21 +16,21 @@ The project is built on **Next.js 16.2.9** and **React 19.2.4** styled with **Ta
 
 ```
 src/
-├── app/
-│   ├── dashboard/
-│   │   └── page.js         # Analytics Dashboard
-│   ├── monitor/
-│   │   └── page.js         # Study & Monitoring Workspace
-│   ├── globals.css         # Tailwind v4 import & custom root themes
-│   ├── layout.js           # Root layout with font settings & AppProvider
-│   └── page.js             # Hero Landing Page / Overview
-├── components/
-│   ├── CameraFeed.js       # Live video capture & simulated face-mesh canvas overlay
-│   ├── DashboardCharts.js  # Pure SVG rendering of gauges, line, and radar charts
-│   ├── DebugPanel.js       # Developer controls (state overrides & event injectors)
-│   └── Navbar.js           # App Navigation Header with Production/Debug toggles
-└── context/
-    └── AppContext.js       # Global state provider and simulation engine loop
+鈹溾攢鈹€ app/
+鈹?  鈹溾攢鈹€ dashboard/
+鈹?  鈹?  鈹斺攢鈹€ page.js         # Analytics Dashboard
+鈹?  鈹溾攢鈹€ monitor/
+鈹?  鈹?  鈹斺攢鈹€ page.js         # Study & Monitoring Workspace
+鈹?  鈹溾攢鈹€ globals.css         # Tailwind v4 import & custom root themes
+鈹?  鈹溾攢鈹€ layout.js           # Root layout with font settings & AppProvider
+鈹?  鈹斺攢鈹€ page.js             # Hero Landing Page / Overview
+鈹溾攢鈹€ components/
+鈹?  鈹溾攢鈹€ CameraFeed.js       # Live video capture & simulated face-mesh canvas overlay
+鈹?  鈹溾攢鈹€ DashboardCharts.js  # Pure SVG rendering of gauges, line, and radar charts
+鈹?  鈹溾攢鈹€ DebugPanel.js       # Developer controls (state overrides & event injectors)
+鈹?  鈹斺攢鈹€ Navbar.js           # App Navigation Header with Production/Debug toggles
+鈹斺攢鈹€ context/
+    鈹斺攢鈹€ AppContext.js       # Global state provider and simulation engine loop
 ```
 
 ---
@@ -66,7 +72,7 @@ Rather than relying on third-party charting libraries like Chart.js or Recharts,
 
 ## 3. Key Limitations of the Current Nutshell Implementation
 
-1.  **AI Models are Simulated**: There is no actual local or remote machine learning running. The tracking mesh is procedural rather than derived from camera pixel analysis.
+1.  **Historical outdated limitation**: There is no actual local or remote machine learning running. The tracking mesh is procedural rather than derived from camera pixel analysis.
 2.  **No Persistence**: Telemetry histories are stored in ephemeral React state; reloading the page clears all session analytics.
 3.  **Placeholders for Key Interventions**: Exporting reports (PDF compile) and database logging are currently browser alert hooks rather than actual file operations or integrations.
 
@@ -88,7 +94,7 @@ graph TD
 ```
 
 ### Phase 2: True Edge-AI Integration (In-Browser Inference)
-*   **Webcam Landmark Extraction**: Replace the mock wireframe with actual face tracking using TensorFlow.js, MediaPipe Face Mesh (`@tensorflow-models/face-landmarks-detection`), or ONNX runtime. Processing can run in a background WebWorker to maintain UI smoothness.
+*   **Webcam Landmark Extraction**: Earlier recommendation: replace the then-mock wireframe with actual face tracking using TensorFlow.js, MediaPipe Face Mesh (`@tensorflow-models/face-landmarks-detection`), or ONNX runtime. Processing can run in a background WebWorker to maintain UI smoothness.
 *   **Gesture & Posture Recognition**:
     *   Integrate **MediaPipe Hands** to detect hand-on-face gestures (e.g., hand resting on chin vs rubbing eyes).
     *   Integrate **PoseNet / BlazePose** to track shoulders and spine angle, enabling slouch detection.
@@ -109,3 +115,5 @@ Create a client-side fusing engine to map raw landmarks into psychological state
 *   **Adaptive Pomodoro**: Coordinate study intervals dynamically (e.g., prompt a break early if fatigue spikes, or extend work time if the user is in a deep flow state).
 *   **Notification Silencing / Focus Mode**: Integrate with OS APIs or browser extension APIs to automatically block distracting sites when high-focus states are detected.
 *   **Stress Relief Tools**: Trigger subtle audio prompts, ambient soundscapes, or guided breathing overlays when high stress levels are flagged.
+
+
