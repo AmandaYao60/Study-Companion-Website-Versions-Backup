@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAppState } from "../context/AppContext";
-  const faceContours = {
+  const FACE_CONTOUR = {
     leftEye: [33, 160, 158, 133, 153, 144, 33],
     rightEye: [362, 385, 387, 263, 373, 380, 362],
 
@@ -28,7 +28,7 @@ import { useAppState } from "../context/AppContext";
     rightIris: [469, 470, 471, 472, 469],
     leftIris: [474, 475, 476, 477, 474]
   };
-  const handConnections = [
+  const HAND_CONNECTIONS = [
     [0, 1, 2, 3, 4],
     [0, 5, 6, 7, 8],
     [0, 9, 10, 11, 12],
@@ -36,6 +36,105 @@ import { useAppState } from "../context/AppContext";
     [0, 17, 18, 19, 20], 
     [5, 9, 13, 17, 0]
   ];
+
+  const AFFECT_INPUT_SIZE = 224;
+  const AFFECT_INFERENCE_INTERVAL_MS = 1000;
+  const FACE_CROP_PADDING_RATIO = 0.15;
+
+  const AFFECT_API_URL =
+    process.env.NEXT_PUBLIC_AFFECT_API_URL ||
+    "http://127.0.0.1:8000";
+  
+  const getFaceBoundingBox = (
+    landmarks,
+    videoWidth,
+    videoHeight
+  ) => {
+    if (
+      !Array.isArray(landmarks) ||
+      landmarks.length === 0 ||
+      videoWidth <= 0 ||
+      videoHeight <= 0
+    ) {
+      return null;
+    }
+
+    let minX = 1;
+    let minY = 1;
+    let maxX = 0;
+    let maxY = 0;
+
+    for (const landmark of landmarks) {
+      minX = Math.min(minX, landmark.x);
+      minY = Math.min(minY, landmark.y);
+      maxX = Math.max(maxX, landmark.x);
+      maxY = Math.max(maxY, landmark.y);
+    }
+
+    // MediaPipe landmarks are normalized into the [0, 1] range.
+    let x = minX * videoWidth;
+    let y = minY * videoHeight;
+    let width = (maxX - minX) * videoWidth;
+    let height = (maxY - minY) * videoHeight;
+
+    const paddingX = width * FACE_CROP_PADDING_RATIO;
+    const paddingY = height * FACE_CROP_PADDING_RATIO;
+
+    x -= paddingX;
+    y -= paddingY;
+    width += paddingX * 2;
+    height += paddingY * 2;
+
+    // Make the crop square because the affect model expects
+    // a square input.
+    const sideLength = Math.max(width, height);
+
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+
+    let squareX = centerX - sideLength / 2;
+    let squareY = centerY - sideLength / 2;
+
+    // Keep the crop inside the video frame.
+    squareX = Math.max(0, squareX);
+    squareY = Math.max(0, squareY);
+
+    const boundedSideLength = Math.min(
+      sideLength,
+      videoWidth - squareX,
+      videoHeight - squareY
+    );
+
+    if (boundedSideLength < 40) {
+      return null;
+    }
+
+    return {
+      x: squareX,
+      y: squareY,
+      size: boundedSideLength,
+    };
+  };
+
+  const canvasToBlob = (canvas) =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(
+            new Error(
+              "Failed to create a face image from the canvas."
+            )
+          );
+        }
+      },
+      "image/webp",
+      0.85
+    );
+  });
+
 
 export default function CameraFeed() {
   const {
@@ -47,6 +146,7 @@ export default function CameraFeed() {
     showCameraDialog,
     setShowCameraDialog,
     isPrivacyMode,
+    isDebugMode,
     setIsPrivacyMode,
     cameraStream,
     
@@ -67,6 +167,10 @@ export default function CameraFeed() {
   const detectionsRef = useRef({ face: null, gesture: null });
   const aiLoadingStartRef = useRef(null);
   const inferenceAnimationRef = useRef(null);
+  
+  const faceCropCanvasRef = useRef(null);
+  const lastAffectInferenceRef = useRef(0);
+  const isAffectInferenceRunningRef = useRef(false);
 
 
   // Handle stream binding to video element
@@ -94,6 +198,7 @@ export default function CameraFeed() {
   // Handle camera deactivation and cleanup
   const handleDisableWebcam = () => {
     detectionsRef.current = { face: null, gesture: null };
+    lastAffectInferenceRef.current = 0;
 
     if (videoRef.current) {
       videoRef.current.pause();
@@ -116,6 +221,155 @@ export default function CameraFeed() {
       aiLoadingStartRef.current = null;
     }
   }, [isMonitoring, isCameraAllowed, isAiLoaded]);
+
+  // Function to send the cropped face image to the affect analysis API
+  const sendFaceCropForAffectAnalysis = useCallback(
+    async (faceLandmarks) => {
+      const video = videoRef.current;
+      const cropCanvas = faceCropCanvasRef.current;
+
+      if (!video || !cropCanvas) {
+        return;
+      }
+
+      if (
+        !isMonitoring ||
+        !isCameraAllowed ||
+        !isAiLoaded ||
+        isPrivacyMode
+      ) {
+        return;
+      }
+
+      if (
+        video.readyState <
+          HTMLMediaElement.HAVE_CURRENT_DATA ||
+        video.videoWidth === 0 ||
+        video.videoHeight === 0
+      ) {
+        return;
+      }
+
+      if (isAffectInferenceRunningRef.current) {
+        return;
+      }
+
+      const boundingBox = getFaceBoundingBox(
+        faceLandmarks,
+        video.videoWidth,
+        video.videoHeight
+      );
+
+      if (!boundingBox) {
+        return;
+      }
+
+      const cropContext =
+        cropCanvas.getContext("2d");
+
+      if (!cropContext) {
+        return;
+      }
+
+      cropCanvas.width = AFFECT_INPUT_SIZE;
+      cropCanvas.height = AFFECT_INPUT_SIZE;
+
+      cropContext.clearRect(
+        0,
+        0,
+        AFFECT_INPUT_SIZE,
+        AFFECT_INPUT_SIZE
+      );
+
+      cropContext.drawImage(
+        video,
+
+        boundingBox.x,
+        boundingBox.y,
+        boundingBox.size,
+        boundingBox.size,
+
+        0,
+        0,
+        AFFECT_INPUT_SIZE,
+        AFFECT_INPUT_SIZE
+      );
+
+      isAffectInferenceRunningRef.current = true;
+
+      try {
+        const faceBlob =
+          await canvasToBlob(cropCanvas);
+
+        const formData = new FormData();
+
+        formData.append(
+          "face",
+          faceBlob,
+          "face-crop.webp"
+        );
+
+        const response = await fetch(
+          `${AFFECT_API_URL}/predict-affect`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        if (!response.ok) {
+          const errorBody = await response
+            .json()
+            .catch(() => null);
+
+          throw new Error(
+            errorBody?.detail ||
+              `Affect API returned ${response.status}.`
+          );
+        }
+
+        const result = await response.json();
+
+        if (isDebugMode) {
+          console.log("Affect prediction:", {
+            ...result,
+            valence: Number(result.valence.toFixed(3)),
+            arousal: Number(result.arousal.toFixed(3)),
+          });
+        }
+
+      } catch (error) {
+        console.error(
+          "Failed to run affect analysis:",
+          error
+        );
+      } finally {
+        isAffectInferenceRunningRef.current =
+          false;
+      }
+    },
+    [
+      isMonitoring,
+      isCameraAllowed,
+      isAiLoaded,
+      isPrivacyMode,
+      isDebugMode,
+    ]
+  );
+
+  //Clear the face crop canvas when monitoring stops, camera is disabled, or privacy mode is enabled
+  useEffect(() => {
+    if (isMonitoring && isCameraAllowed && !isPrivacyMode) return;
+    const cropCanvas = faceCropCanvasRef.current;
+    if (!cropCanvas) return;
+    const cropContext = cropCanvas.getContext("2d");
+    if (!cropContext) return;
+    cropContext.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+  }, [
+    isMonitoring,
+    isCameraAllowed,
+    isPrivacyMode,
+  ]);
 
   // Real MediaPipe Inference and Frame Sampler Loop
   useEffect(() => {
@@ -178,6 +432,18 @@ export default function CameraFeed() {
           };
 
           updateAiMetrics(faceResults, gestureResults, latencyTime);
+
+          // Determine if we should run affect analysis based on the current state and timing
+          const exactlyOneFace = faceResults?.faceLandmarks?.length === 1;
+          const affectIntervalReached = now - lastAffectInferenceRef.current >= AFFECT_INFERENCE_INTERVAL_MS;
+          const shouldRunAffectAnalysis = exactlyOneFace && !isPrivacyMode && affectIntervalReached;
+
+          if (shouldRunAffectAnalysis) {
+            lastAffectInferenceRef.current = now;
+
+            void sendFaceCropForAffectAnalysis(faceResults.faceLandmarks[0]);
+          }
+
         } 
         catch (err) {
           console.error("Inference execution error:", err);
@@ -196,6 +462,7 @@ export default function CameraFeed() {
       active = false;
       detectionsRef.current = { face: null, gesture: null };
       setHasDetectedFace(false);
+      lastAffectInferenceRef.current = 0;
 
       if (inferenceAnimationRef.current) {
         cancelAnimationFrame(inferenceAnimationRef.current);
@@ -210,6 +477,8 @@ export default function CameraFeed() {
     faceLandmarkerRef,
     gestureRecognizerRef,
     updateAiMetrics,
+    isPrivacyMode,
+    sendFaceCropForAffectAnalysis,
   ]);
 
   // Canvas Drawing Loop for Face and Gesture Meshes
@@ -347,7 +616,7 @@ export default function CameraFeed() {
 
         // Define a function to project the normalized landmarks of MediaPipe to canvas pixel coordinates
         const project = (pt) => ({
-          x: pt.x * width,
+          x: (1-pt.x) * width,
           y: pt.y * height
         });
 
@@ -380,19 +649,19 @@ export default function CameraFeed() {
         };
 
         // Face outline and main features
-        drawContour(faceContours.oval);
+        drawContour(FACE_CONTOUR.oval);
 
-        drawContour(faceContours.leftEye);
-        drawContour(faceContours.rightEye);
+        drawContour(FACE_CONTOUR.leftEye);
+        drawContour(FACE_CONTOUR.rightEye);
 
-        drawContour(faceContours.leftBrow, {closePath: false});
-        drawContour(faceContours.rightBrow, {closePath: false});
+        drawContour(FACE_CONTOUR.leftBrow, {closePath: false});
+        drawContour(FACE_CONTOUR.rightBrow, {closePath: false});
 
-        drawContour(faceContours.lowerLip);
-        drawContour(faceContours.upperLip);
+        drawContour(FACE_CONTOUR.lowerLip);
+        drawContour(FACE_CONTOUR.upperLip);
         
-        drawContour(faceContours.leftIris, {strokeStyle: "rgba(52, 211, 153, 0.95)",});
-        drawContour(faceContours.rightIris, {strokeStyle: "rgba(52, 211, 153, 0.95)",});
+        drawContour(FACE_CONTOUR.leftIris, {strokeStyle: "rgba(52, 211, 153, 0.95)",});
+        drawContour(FACE_CONTOUR.rightIris, {strokeStyle: "rgba(52, 211, 153, 0.95)",});
 
         // 2. Draw all 478 mesh dots
         ctx.fillStyle = "rgba(6, 182, 212, 0.9)";
@@ -410,7 +679,7 @@ export default function CameraFeed() {
           ctx.shadowColor = "rgba(245, 158, 11, 0.5)";
 
           detections.gesture.landmarks.forEach((handLandmarks) => {
-            handConnections.forEach((conn) => {
+            HAND_CONNECTIONS.forEach((conn) => {
               ctx.beginPath();
               const start = project(handLandmarks[conn[0]]);
               ctx.moveTo(start.x, start.y);
@@ -539,6 +808,11 @@ export default function CameraFeed() {
             className={`absolute inset-0 h-full w-full object-cover transition-all duration-700 ${
               isPrivacyMode ? "blur-2xl opacity-20 scale-95" : "opacity-70"
             }`}
+            style={{
+              transform: isPrivacyMode
+                ? "scaleX(-1) scale(0.95)"
+                : "scaleX(-1)",
+            }}
           />
         )}
 
@@ -547,6 +821,35 @@ export default function CameraFeed() {
           ref={canvasRef}
           className="absolute inset-0 z-10 h-full w-full object-cover pointer-events-none"
         />
+
+        <canvas
+          ref={faceCropCanvasRef}
+          width={AFFECT_INPUT_SIZE}
+          height={AFFECT_INPUT_SIZE}
+          className={
+            isDebugMode && !isPrivacyMode
+              ? `absolute bottom-2 right-2 z-30 h-28 w-28 -scale-x-100 border border-red-400 bg-black`
+              : "hidden"
+          }
+          aria-label={
+            isDebugMode
+              ? "Affect model face crop preview"
+              : undefined
+          }
+          aria-hidden={!isDebugMode}
+        />
+
+        {isDebugMode && !isPrivacyMode && (
+          <span className="
+            absolute bottom-[7.5rem] right-2 z-30
+            rounded bg-red-950/80 px-1.5 py-0.5
+            text-[9px] font-semibold uppercase
+            tracking-wide text-red-300
+            pointer-events-none
+          ">
+            Affect Crop Debug
+          </span>
+        )}
 
         {/* Privacy Mask Visual Effects */}
         {isPrivacyMode && (
@@ -697,12 +1000,11 @@ export default function CameraFeed() {
             </div>
             <h3 className="text-center text-lg font-bold text-white">Request Camera Access</h3>
             <p className="text-center text-xs text-slate-400 mt-2">
-              AegisMind requires your camera to capture facial gestures and landmarks. 
-              Our algorithms run 
-              <strong className="font-semibold text-slate-300">
-                entirely in your browser
-              </strong>
-              . No video or image data is ever sent to a server.
+              AegisMind requires camera access to analyze
+              facial gestures and landmarks. Facial data is
+              processed locally on your device. Cropped face
+              frames may be sent to the local affect-analysis
+              service and are not stored.
             </p>
             
             {/* Privacy note */}
@@ -711,9 +1013,14 @@ export default function CameraFeed() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
               <div>
-                <p className="text-[10px] font-bold text-white">Local-Only AI Processing</p>
+                <p className="text-[10px] font-bold text-white">
+                  Local-Only AI Processing
+                </p>
                 <p className="text-[10px] text-slate-500 mt-0.5">
-                  Privacy Shield mode can be toggled at any time to blur the camera feed and display only the anonymous landmark wireframe.
+                  MediaPipe runs in the browser. Optional
+                  valence-arousal analysis is performed by a
+                  local service on this device. Privacy Shield
+                  pauses affect-image transmission.
                 </p>
               </div>
             </div>

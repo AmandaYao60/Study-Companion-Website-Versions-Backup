@@ -16,7 +16,7 @@ export default function DashboardCharts() {
   // Helper to calculate circular gauge path
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
-  
+    //Helper to calculate the length of the hidden part based on the percentage value
   const getStrokeDashoffset = (value) => {
     return circumference - (value / 100) * circumference;
   };
@@ -67,7 +67,7 @@ export default function DashboardCharts() {
     const startPoint = getCoordinates(0, 0, history.length);
     const endPoint = getCoordinates(history.length - 1, 0, history.length);
     
-    return `${linePath} L ${endPoint.x} ${drawableHeight + paddingTop} L ${startPoint.x} ${drawableHeight + paddingTop} Z`;
+    return `${linePath} L ${endPoint.x} ${endPoint.y} L ${startPoint.x} ${startPoint.y} Z`;
   };
 
   // --- SVG RADAR CHART CALCULATIONS ---

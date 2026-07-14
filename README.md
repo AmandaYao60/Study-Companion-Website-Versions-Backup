@@ -35,6 +35,14 @@ The project is documentation-driven: current behavior must be verified against t
 npm install
 ```
 
+Install the affect-analysis service dependencies:
+
+```bash
+cd affect-service
+pip install -r requirements.txt
+
+Recommended Python version: 3.11 or 3.12
+
 ## Development Commands
 
 ```bash
@@ -46,9 +54,16 @@ npm run start
 
 Open `http://localhost:3000` after starting the development server.
 
+Start the local affect-analysis service:
+
+```bash
+cd affect-service
+uvicorn app:app --reload --port 8000
+
+
 ## Privacy Approach
 
-Camera frames are used locally in the browser for MediaPipe inference. The app does not define a backend upload path for video or image data. Privacy Shield blurs the live video layer while keeping real landmark rendering visible above a dark background layer. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
+Camera frames are used locally in the browser for MediaPipe inference. MediaPipe inference runs in the browser. Optional valence-arousal analysis sends cropped face images to a local FastAPI service running on the same device. These images are processed in memory and are not stored by the application. Privacy Shield blurs the live video layer while keeping real landmark rendering visible above a dark background layer. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
 
 ## Documentation
 
