@@ -3,6 +3,84 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 
 const AppContext = createContext();
+const EYE_LANDMARKS = {
+  left: [33, 160, 158, 133, 153, 144],
+  right: [362, 385, 387, 263, 373, 380],
+};
+
+const EYE_CLOSED_THRESHOLD = 0.35;
+const EYE_CALIBRATION_WINDOW_MS = 8000;
+const MIN_EYE_CALIBRATION_SAMPLES = 12;
+const MIN_OPEN_EAR_SAMPLE = 0.12;
+const OBSERVATION_WINDOW_MS = 60000;
+const ATTENTION_WINDOW_MS = 10000;
+const FATIGUE_WINDOW_MS = 30000;
+const ESTIMATOR_INTERVAL_MS = 1000;
+const LONG_CLOSURE_MS = 1200;
+const BLINK_MIN_MS = 80;
+const BLINK_MAX_MS = 450;
+const BLINK_BASELINE_MIN_MS = 30000;
+
+const clamp = (value, min, max) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+};
+
+const calculateDistance = (a, b, videoWidth, videoHeight) => {
+  if (!a || !b || videoWidth <= 0 || videoHeight <= 0) return null;
+  const dx = (a.x - b.x) * videoWidth;
+  const dy = (a.y - b.y) * videoHeight;
+  const distance = Math.hypot(dx, dy);
+  return Number.isFinite(distance) ? distance : null;
+};
+
+const calculateEyeAspectRatio = (landmarks, indices, videoWidth, videoHeight) => {
+  if (!Array.isArray(landmarks) || !Array.isArray(indices) || indices.length < 6) {
+    return null;
+  }
+
+  const [p1, p2, p3, p4, p5, p6] = indices.map((index) => landmarks[index]);
+  if (![p1, p2, p3, p4, p5, p6].every(Boolean)) return null;
+
+  const verticalOne = calculateDistance(p2, p6, videoWidth, videoHeight);
+  const verticalTwo = calculateDistance(p3, p5, videoWidth, videoHeight);
+  const horizontal = calculateDistance(p1, p4, videoWidth, videoHeight);
+
+  if (!verticalOne || !verticalTwo || !horizontal) return null;
+
+  const ear = (verticalOne + verticalTwo) / (2 * horizontal);
+  return Number.isFinite(ear) ? ear : null;
+};
+
+const calculateMean = (values) => {
+  const validValues = values.filter(Number.isFinite);
+  if (validValues.length === 0) return null;
+  return validValues.reduce((sum, value) => sum + value, 0) / validValues.length;
+};
+
+const calculateMedian = (values) => {
+  const validValues = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (validValues.length === 0) return null;
+  const middle = Math.floor(validValues.length / 2);
+  return validValues.length % 2 === 0
+    ? (validValues[middle - 1] + validValues[middle]) / 2
+    : validValues[middle];
+};
+
+const calculateStandardDeviation = (values) => {
+  const validValues = values.filter(Number.isFinite);
+  if (validValues.length < 2) return 0;
+  const mean = calculateMean(validValues);
+  if (!Number.isFinite(mean)) return 0;
+  const variance = calculateMean(validValues.map((value) => (value - mean) ** 2));
+  return Number.isFinite(variance) ? Math.sqrt(variance) : 0;
+};
+
+const getRecentObservations = (observations, timestamp, windowMs) =>
+  observations.filter((observation) => timestamp - observation.timestamp <= windowMs);
+
+const roundForDebug = (value, digits = 3) =>
+  Number.isFinite(value) ? Number(value.toFixed(digits)) : null;
 
 export const useAppState = () => {
   const context = useContext(AppContext);
@@ -36,13 +114,30 @@ export const AppProvider = ({ children }) => {
 
   const faceLandmarkerRef = useRef(null);
   const gestureRecognizerRef = useRef(null);
+  const previousGestureRef = useRef("None");
   const isAiInitializingRef = useRef(false);
 
   // Keep track of blink detection state
   const eyesClosedStartRef = useRef(null);
   const wasEyesClosedRef = useRef(false);
   const blinkTimestampsRef = useRef([]); // for rolling blink rate
+  const blinkEventsRef = useRef([]);
+  const longClosureRecordedRef = useRef(false);
+  const longClosureTimestampsRef = useRef([]);
   const bothHandsFrameCountRef = useRef(0);
+
+  // Rolling attention/fatigue estimator state
+  const observationsRef = useRef([]);
+  const eyeCalibrationSamplesRef = useRef([]);
+  const baselineOpenEARRef = useRef(null);
+  const baselineBlinkRateRef = useRef(null);
+  const monitoringSessionStartedAtRef = useRef(null);
+  const lastEstimatorUpdateRef = useRef(0);
+  const lastDebugLogRef = useRef(0);
+  const attentionEstimateRef = useRef(85);
+  const fatigueEstimateRef = useRef(15);
+  const latestFocusRef = useRef(85);
+  const latestFatigueRef = useRef(15);
 
   // Mental States (0 - 100)
   const [focus, setFocus] = useState(85);
@@ -69,6 +164,25 @@ export const AppProvider = ({ children }) => {
 
   const streamRef = useRef(null);
 
+  // Cleanup camera stream and MediaPipe models when AppProvider unmounts
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current
+          .getTracks()
+          .forEach((track) => track.stop());
+
+        streamRef.current = null;
+      }
+
+      faceLandmarkerRef.current?.close?.();
+      gestureRecognizerRef.current?.close?.();
+
+      faceLandmarkerRef.current = null;
+      gestureRecognizerRef.current = null;
+    };
+  }, []);
+
   // Helper to add log messages
   const addLog = useCallback((message, type = "info") => {
     const time = new Date().toTimeString().split(" ")[0];
@@ -78,11 +192,44 @@ export const AppProvider = ({ children }) => {
     ]);
   }, []);
 
+  useEffect(() => {
+    latestFocusRef.current = focus;
+  }, [focus]);
+
+  useEffect(() => {
+    latestFatigueRef.current = fatigue;
+  }, [fatigue]);
+
+  const resetEstimatorSession = useCallback((attentionValue = 80, fatigueValue = 10) => {
+    observationsRef.current = [];
+    eyeCalibrationSamplesRef.current = [];
+    baselineOpenEARRef.current = null;
+    baselineBlinkRateRef.current = null;
+    monitoringSessionStartedAtRef.current = null;
+    lastEstimatorUpdateRef.current = 0;
+    lastDebugLogRef.current = 0;
+    attentionEstimateRef.current = clamp(attentionValue, 0, 100);
+    fatigueEstimateRef.current = clamp(fatigueValue, 0, 100);
+    blinkTimestampsRef.current = [];
+    blinkEventsRef.current = [];
+    longClosureTimestampsRef.current = [];
+    eyesClosedStartRef.current = null;
+    wasEyesClosedRef.current = false;
+    longClosureRecordedRef.current = false;
+    bothHandsFrameCountRef.current = 0;
+  }, []);
+
+  useEffect(() => {
+    if (!isMonitoring) return;
+    resetEstimatorSession(latestFocusRef.current, latestFatigueRef.current);
+  }, [isMonitoring, resetEstimatorSession]);
+
   // AI Web-SDK loaders and updates
   const loadAiModels = useCallback(async () => {
     if (typeof window === "undefined") return;
     if (isAiLoaded || isAiInitializingRef.current) return;
     isAiInitializingRef.current = true;
+    setAiError(null);
     setAiLoadingProgress(10);
     addLog("Loading AI Models resolver...", "info");
     
@@ -121,9 +268,13 @@ export const AppProvider = ({ children }) => {
       setIsAiLoaded(true);
       addLog("AI Web-SDK models loaded successfully.", "success");
     } catch (err) {
-      console.error("AI Model Loading Error:", err);
-      setAiError(err.message);
-      addLog("Failed to load AI models: " + err.message, "error");
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("AI Model Loading Error:", err);
+    setAiError(errorMessage);
+    setAiLoadingProgress(0);
+    addLog(`Failed to load AI models: ${errorMessage}`, "error");
+    } finally {
+      isAiInitializingRef.current = false;
     }
   }, [isAiLoaded, addLog]);
 
@@ -134,67 +285,80 @@ export const AppProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [loadAiModels]);
 
-  const updateAiMetrics = useCallback((faceResults, gestureResults, latencyTime) => {
+  const updateAiMetrics = useCallback((faceResults, gestureResults, latencyTime, videoDimensions = {}) => {
     setLatency(latencyTime);
 
-    let currentEyeOpenness = 1.0;
+    const timestamp = Date.now();
+    const timeStr = new Date().toTimeString().split(" ")[0];
+    const videoWidth = Number(videoDimensions.videoWidth) || 0;
+    const videoHeight = Number(videoDimensions.videoHeight) || 0;
+
+    let currentEyeOpenness = null;
+    let averageEAR = null;
+    let normalizedEyeOpenness = null;
+    let blendshapeEyeOpenness = null;
     let yawValue = 0;
     let pitchValue = 0;
     let rollValue = 0;
     let isBlinkDetected = false;
     let isLongClosureDetected = false;
+    let eyesClosed = false;
+    let activeG = "None";
+    let handsCount = 0;
+    let detectedGestures = [];
 
-    const timestamp = Date.now();
-    const timeStr = new Date().toTimeString().split(" ")[0];
-
-    let frameLandmarks = {
+    const frameLandmarks = {
       timestamp,
       face: [],
       hand: []
     };
 
-    if (faceResults && faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
+    const faceDetected = faceResults?.faceLandmarks?.length > 0;
+
+    if (faceDetected) {
       const landmarks = faceResults.faceLandmarks[0];
       frameLandmarks.face = landmarks.map((pt, idx) => ({ id: idx, x: pt.x, y: pt.y, z: pt.z }));
 
-      if (faceResults.faceBlendshapes && faceResults.faceBlendshapes.length > 0) {
+      const leftEAR = calculateEyeAspectRatio(landmarks, EYE_LANDMARKS.left, videoWidth, videoHeight);
+      const rightEAR = calculateEyeAspectRatio(landmarks, EYE_LANDMARKS.right, videoWidth, videoHeight);
+      averageEAR = calculateMean([leftEAR, rightEAR]);
+
+      if (faceResults.faceBlendshapes?.length > 0) {
         const blendshapes = faceResults.faceBlendshapes[0].categories;
         const blinkLeft = blendshapes.find(b => b.categoryName === "eyeBlinkLeft")?.score || 0;
         const blinkRight = blendshapes.find(b => b.categoryName === "eyeBlinkRight")?.score || 0;
-        
-        currentEyeOpenness = parseFloat((1 - (blinkLeft + blinkRight) / 2).toFixed(2));
-        setEyeOpenness(currentEyeOpenness);
+        blendshapeEyeOpenness = clamp(1 - (blinkLeft + blinkRight) / 2, 0, 1);
+      }
 
-        const eyesClosed = currentEyeOpenness < 0.22;
-        if (eyesClosed) {
-          if (!wasEyesClosedRef.current) {
-            eyesClosedStartRef.current = timestamp;
-            wasEyesClosedRef.current = true;
-          } else {
-            const duration = timestamp - eyesClosedStartRef.current;
-            if (duration > 1200) {
-              isLongClosureDetected = true;
-              addLog("Long eye closure detected (fatigue warning).", "warning");
-              setFatigue((prev) => Math.min(100, Math.round(prev + 0.5)));
-              setFocus((prev) => Math.max(0, Math.round(prev - 0.8)));
-            }
-          }
-        } else {
-          if (wasEyesClosedRef.current) {
-            const duration = timestamp - eyesClosedStartRef.current;
-            wasEyesClosedRef.current = false;
-            eyesClosedStartRef.current = null;
+      if (Number.isFinite(averageEAR) && averageEAR >= MIN_OPEN_EAR_SAMPLE && !baselineOpenEARRef.current) {
+        if (!monitoringSessionStartedAtRef.current) {
+          monitoringSessionStartedAtRef.current = timestamp;
+        }
 
-            if (duration >= 80 && duration <= 450) {
-              isBlinkDetected = true;
-              blinkTimestampsRef.current.push(timestamp);
-              addLog("Blink detected.", "debug");
-            }
-          }
+        const calibrationElapsed = timestamp - monitoringSessionStartedAtRef.current;
+        if (calibrationElapsed <= EYE_CALIBRATION_WINDOW_MS) {
+          eyeCalibrationSamplesRef.current.push(averageEAR);
         }
       }
 
-      if (faceResults.facialTransformationMatrixes && faceResults.facialTransformationMatrixes.length > 0) {
+      if (!baselineOpenEARRef.current && monitoringSessionStartedAtRef.current) {
+        const calibrationElapsed = timestamp - monitoringSessionStartedAtRef.current;
+        if (
+          calibrationElapsed >= EYE_CALIBRATION_WINDOW_MS &&
+          eyeCalibrationSamplesRef.current.length >= MIN_EYE_CALIBRATION_SAMPLES
+        ) {
+          baselineOpenEARRef.current = calculateMedian(eyeCalibrationSamplesRef.current);
+        }
+      }
+
+      if (Number.isFinite(averageEAR) && Number.isFinite(baselineOpenEARRef.current) && baselineOpenEARRef.current > 0) {
+        normalizedEyeOpenness = clamp(averageEAR / baselineOpenEARRef.current, 0, 1.2);
+        currentEyeOpenness = normalizedEyeOpenness;
+        setEyeOpenness(normalizedEyeOpenness);
+        eyesClosed = normalizedEyeOpenness < EYE_CLOSED_THRESHOLD;
+      }
+
+      if (faceResults.facialTransformationMatrixes?.length > 0) {
         const matrix = faceResults.facialTransformationMatrixes[0].data;
         const r01 = matrix[1];
         const r11 = matrix[5];
@@ -210,17 +374,9 @@ export const AppProvider = ({ children }) => {
       }
     }
 
-    let activeG = "None";
-    let handsCount = 0;
-    let detectedGestures = [];
-
-    if (
-      gestureResults?.landmarks &&
-      gestureResults.landmarks.length > 0
-    ) {
+    if (gestureResults?.landmarks?.length > 0) {
       handsCount = gestureResults.landmarks.length;
 
-      // Store landmarks from every detected hand
       gestureResults.landmarks.forEach((hand, handIndex) => {
         hand.forEach((point, pointIndex) => {
           frameLandmarks.hand.push({
@@ -233,13 +389,10 @@ export const AppProvider = ({ children }) => {
         });
       });
 
-      // Store the highest-confidence gesture from each hand
       detectedGestures = (gestureResults.gestures ?? [])
         .map((gestureCandidates, handIndex) => {
           const topGesture = gestureCandidates?.[0];
-
           if (!topGesture) return null;
-
           return {
             handId: handIndex,
             name: topGesture.categoryName,
@@ -253,7 +406,6 @@ export const AppProvider = ({ children }) => {
             gesture.name !== "None"
         );
 
-      // Choose the highest-confidence gesture as the primary gesture
       if (detectedGestures.length > 0) {
         const primaryGesture = detectedGestures.reduce(
           (best, current) =>
@@ -263,43 +415,23 @@ export const AppProvider = ({ children }) => {
         activeG = primaryGesture.name;
         setCurrentGesture(activeG);
       } else {
+        activeG = "None";
         setCurrentGesture("None");
       }
-
-      // Avoid applying the same gesture effect twice
-      const uniqueGestureNames = [
-        ...new Set(
-          detectedGestures.map((gesture) => gesture.name)
-        ),
-      ];
-
-      uniqueGestureNames.forEach((gestureName) => {
-        addLog(`Gesture detected: ${gestureName}`, "info");
-
-        if (gestureName === "Closed_Fist") {
-          setFocus((previous) =>
-            Math.min(100, previous + 2)
-          );
-        } else if (gestureName === "Thumb_Up") {
-          addLog(
-            "Thumbs Up! Positive session reinforcement.",
-            "success"
-          );
-
-          setFocus((previous) =>
-            Math.min(100, previous + 5)
-          );
-
-          setStress((previous) =>
-            Math.max(0, previous - 5)
-          );
+      
+      if (activeG !== previousGestureRef.current) {
+        if (activeG !== "None") {
+          addLog(`Gesture detected: ${activeG}`, "info");
         }
-      });
+        previousGestureRef.current = activeG;
+      }
     } else {
+      activeG = "None";
       setCurrentGesture("None");
+      previousGestureRef.current = "None";
+ 
     }
 
-    // Track sustained two-hand activity
     if (handsCount >= 2) {
       bothHandsFrameCountRef.current += 1;
     } else {
@@ -311,34 +443,218 @@ export const AppProvider = ({ children }) => {
         "Sustained two-hand activity detected.",
         "warning"
       );
-
-      setFocus((previous) =>
-        Math.max(0, previous - 3)
-      );
     }
 
-    // Existing blink-rate logic continues here
-    const oneMinAgo = timestamp - 60000;
-    blinkTimestampsRef.current =
-      blinkTimestampsRef.current.filter(
-        (time) => time > oneMinAgo
-      );
+    if (faceDetected && normalizedEyeOpenness !== null) {
+      if (eyesClosed) {
+        if (!wasEyesClosedRef.current) {
+          eyesClosedStartRef.current = timestamp;
+          wasEyesClosedRef.current = true;
+          longClosureRecordedRef.current = false;
+        } else {
+          const duration = timestamp - eyesClosedStartRef.current;
+          if (duration > LONG_CLOSURE_MS && !longClosureRecordedRef.current) {
+            isLongClosureDetected = true;
+            longClosureRecordedRef.current = true;
+            longClosureTimestampsRef.current.push(timestamp);
+            addLog("Long eye closure detected.", "warning");
+          }
+        }
+      } else if (wasEyesClosedRef.current) {
+        const duration = timestamp - eyesClosedStartRef.current;
+        wasEyesClosedRef.current = false;
+        eyesClosedStartRef.current = null;
+        longClosureRecordedRef.current = false;
 
+        if (duration >= BLINK_MIN_MS && duration <= BLINK_MAX_MS) {
+          isBlinkDetected = true;
+          blinkTimestampsRef.current.push(timestamp);
+          blinkEventsRef.current.push(timestamp);
+          addLog("Blink detected.", "debug");
+        }
+      }
+    } else if (!faceDetected) {
+      wasEyesClosedRef.current = false;
+      eyesClosedStartRef.current = null;
+      longClosureRecordedRef.current = false;
+    }
+
+    const oneMinAgo = timestamp - OBSERVATION_WINDOW_MS;
+    blinkTimestampsRef.current = blinkTimestampsRef.current.filter((time) => time > oneMinAgo);
+    blinkEventsRef.current = blinkEventsRef.current.filter((time) => time > oneMinAgo);
+    longClosureTimestampsRef.current = longClosureTimestampsRef.current.filter((time) => time > oneMinAgo);
     setBlinkRate(blinkTimestampsRef.current.length);
 
     if (isMonitoring) {
-      if (currentEyeOpenness < 0.65) {
-        setFatigue((prev) => Math.min(100, Math.round(prev + 0.2)));
-        setFocus((prev) => Math.max(0, Math.round(prev - 0.2)));
+      observationsRef.current.push({
+        timestamp,
+        faceDetected,
+        averageEAR,
+        normalizedEyeOpenness,
+        eyesClosed,
+        yaw: yawValue,
+        pitch: pitchValue,
+        roll: rollValue,
+        handsCount,
+      });
+
+      observationsRef.current = observationsRef.current.filter(
+        (observation) => timestamp - observation.timestamp <= OBSERVATION_WINDOW_MS
+      );
+    }
+
+    const recentQualityWindow = getRecentObservations(observationsRef.current, timestamp, ATTENTION_WINDOW_MS);
+    const validFaceSamples = recentQualityWindow.filter((observation) => observation.faceDetected).length;
+    const totalSamples = recentQualityWindow.length;
+    const dataQualityRatio = totalSamples > 0 ? validFaceSamples / totalSamples : 0;
+    const dataQuality =
+      dataQualityRatio >= 0.8
+        ? "good"
+        : dataQualityRatio >= 0.5
+          ? "limited"
+          : "insufficient";
+
+    const eyeCalibrationReady = Number.isFinite(baselineOpenEARRef.current) && baselineOpenEARRef.current > 0;
+    const shouldRunEstimator =
+      isMonitoring &&
+      timestamp - lastEstimatorUpdateRef.current >= ESTIMATOR_INTERVAL_MS;
+
+    let facePresenceScore = null;
+    let forwardPoseScore = null;
+    let headStabilityScore = null;
+    let attentionRaw = null;
+    let perclosScore = null;
+    let closedEyeRatio = null;
+    let longClosuresLastMinute = longClosureTimestampsRef.current.length;
+    let longClosureScore = clamp(longClosuresLastMinute * 25, 0, 100);
+    let blinkRateScore = 0;
+    let fatigueRaw = null;
+
+    if (shouldRunEstimator) {
+      lastEstimatorUpdateRef.current = timestamp;
+
+      const attentionWindow = getRecentObservations(observationsRef.current, timestamp, ATTENTION_WINDOW_MS);
+      const faceSamples = attentionWindow.filter((observation) => observation.faceDetected);
+
+      facePresenceScore = attentionWindow.length > 0
+        ? (faceSamples.length / attentionWindow.length) * 100
+        : null;
+
+      const poseScores = faceSamples.map((observation) => {
+        const yawScore = clamp(1 - Math.abs(observation.yaw) / 45, 0, 1);
+        const pitchScore = clamp(1 - Math.abs(observation.pitch) / 35, 0, 1);
+        return Math.min(yawScore, pitchScore) * 100;
+      });
+
+      forwardPoseScore = calculateMean(poseScores);
+
+      const yawValues = faceSamples.map((observation) => observation.yaw);
+      const pitchValues = faceSamples.map((observation) => observation.pitch);
+      const yawStandardDeviation = calculateStandardDeviation(yawValues);
+      const pitchStandardDeviation = calculateStandardDeviation(pitchValues);
+      const movementLevel = Math.sqrt(yawStandardDeviation ** 2 + pitchStandardDeviation ** 2);
+      headStabilityScore = movementLevel <= 4
+        ? 100
+        : clamp(100 - (movementLevel - 4) * 6, 0, 100);
+
+      const estimatorDataReliable = dataQualityRatio >= 0.5 && eyeCalibrationReady;
+
+      if (
+        estimatorDataReliable &&
+        Number.isFinite(facePresenceScore) &&
+        Number.isFinite(forwardPoseScore) &&
+        Number.isFinite(headStabilityScore)
+      ) {
+        attentionRaw =
+          facePresenceScore * 0.30 +
+          forwardPoseScore * 0.50 +
+          headStabilityScore * 0.20;
+
+        const attentionEstimate =
+          attentionEstimateRef.current * 0.8 + attentionRaw * 0.2;
+        attentionEstimateRef.current = clamp(attentionEstimate, 0, 100);
+        setFocus(Math.round(attentionEstimateRef.current));
       }
-      
-      const isLookingAway = Math.abs(yawValue) > 22 || Math.abs(pitchValue) > 18;
-      if (isLookingAway) {
-        setFocus((prev) => Math.max(0, Math.round(prev - 0.5)));
-        setArousal((prev) => Math.max(0, Math.round(prev - 0.3)));
-      } else {
-        setFocus((prev) => Math.min(100, Math.round(prev + 0.1)));
+
+      const fatigueWindow = getRecentObservations(observationsRef.current, timestamp, FATIGUE_WINDOW_MS);
+      const validEyeSamples = fatigueWindow.filter(
+        (observation) => Number.isFinite(observation.normalizedEyeOpenness)
+      );
+      const closedEyeSamples = validEyeSamples.filter((observation) => observation.eyesClosed);
+      closedEyeRatio = validEyeSamples.length > 0
+        ? closedEyeSamples.length / validEyeSamples.length
+        : null;
+
+      if (Number.isFinite(closedEyeRatio)) {
+        perclosScore = clamp(((closedEyeRatio - 0.05) / 0.25) * 100, 0, 100);
       }
+
+      const sessionAge = monitoringSessionStartedAtRef.current
+        ? timestamp - monitoringSessionStartedAtRef.current
+        : 0;
+
+      if (
+        !baselineBlinkRateRef.current &&
+        sessionAge >= BLINK_BASELINE_MIN_MS &&
+        dataQualityRatio >= 0.5
+      ) {
+        const elapsedMinutes = Math.max(sessionAge / 60000, 1 / 60);
+        baselineBlinkRateRef.current = blinkTimestampsRef.current.length / elapsedMinutes;
+      }
+
+      if (baselineBlinkRateRef.current) {
+        const currentWindowMinutes = Math.min(Math.max(sessionAge / 60000, 1 / 60), 1);
+        const currentBlinkRate = blinkTimestampsRef.current.length / currentWindowMinutes;
+        const blinkRateDeviation =
+          Math.abs(currentBlinkRate - baselineBlinkRateRef.current) /
+          Math.max(baselineBlinkRateRef.current, 1);
+        blinkRateScore = blinkRateDeviation <= 0.3 ? 0 : clamp(((blinkRateDeviation - 0.3) / 0.7) * 100, 0, 100);
+      }
+
+      if (estimatorDataReliable && Number.isFinite(perclosScore)) {
+        fatigueRaw =
+          perclosScore * 0.55 +
+          longClosureScore * 0.30 +
+          blinkRateScore * 0.15;
+
+        const fatigueEstimate =
+          fatigueEstimateRef.current * 0.85 + fatigueRaw * 0.15;
+        fatigueEstimateRef.current = clamp(fatigueEstimate, 0, 100);
+        setFatigue(Math.round(fatigueEstimateRef.current));
+      }
+    }
+
+    if (
+      isDebugMode &&
+      isMonitoring &&
+      timestamp - lastDebugLogRef.current >= ESTIMATOR_INTERVAL_MS
+    ) {
+      lastDebugLogRef.current = timestamp;
+      console.table([
+        {
+          averageEAR: roundForDebug(averageEAR),
+          baselineOpenEAR: roundForDebug(baselineOpenEARRef.current),
+          normalizedEyeOpenness: roundForDebug(normalizedEyeOpenness),
+          blendshapeEyeOpenness: roundForDebug(blendshapeEyeOpenness),
+          eyeCalibrationStatus: eyeCalibrationReady ? "ready" : "collecting",
+          facePresenceScore: roundForDebug(facePresenceScore, 1),
+          forwardPoseScore: roundForDebug(forwardPoseScore, 1),
+          headStabilityScore: roundForDebug(headStabilityScore, 1),
+          attentionRaw: roundForDebug(attentionRaw, 1),
+          attentionEstimate: roundForDebug(attentionEstimateRef.current, 1),
+          closedEyeRatio: roundForDebug(closedEyeRatio, 3),
+          perclosScore: roundForDebug(perclosScore, 1),
+          longClosuresLastMinute,
+          longClosureScore: roundForDebug(longClosureScore, 1),
+          currentBlinkRate: blinkTimestampsRef.current.length,
+          baselineBlinkRate: roundForDebug(baselineBlinkRateRef.current, 1),
+          blinkRateScore: roundForDebug(blinkRateScore, 1),
+          fatigueRaw: roundForDebug(fatigueRaw, 1),
+          fatigueEstimate: roundForDebug(fatigueEstimateRef.current, 1),
+          dataQuality,
+          observationCount: observationsRef.current.length,
+        },
+      ]);
     }
 
     const tableRow = {
@@ -352,11 +668,11 @@ export const AppProvider = ({ children }) => {
       gesture: activeG,
       hands: handsCount
     };
-
-    setTelemetryTable((prev) => [tableRow, ...prev.slice(0, 49)]);
-    setRawLandmarksHistory((prev) => [frameLandmarks, ...prev.slice(0, 49)]);
-  }, [isMonitoring, addLog]);
-
+    if (isMonitoring) {
+      setTelemetryTable((prev) => [tableRow, ...prev.slice(0, 49)]);
+      setRawLandmarksHistory((prev) => [frameLandmarks, ...prev.slice(0, 49)]);
+    }
+  }, [isMonitoring, isDebugMode, addLog]);
   const exportTelemetryCSV = () => {
     if (rawLandmarksHistory.length === 0) {
       alert("No raw landmarks recorded yet. Start camera monitoring to capture data.");
@@ -445,11 +761,13 @@ export const AppProvider = ({ children }) => {
     setArousal(45);
     setYawnCount(0);
     setBlinkRate(12);
+    setEyeOpenness(1.0);
     setHeadPose({ yaw: 0, pitch: 0, roll: 0 });
     setCurrentGesture("None");
     setMetricsHistory([]);
     setTelemetryTable([]);
     setRawLandmarksHistory([]);
+    resetEstimatorSession(80, 10);
     addLog("Metrics reset to baseline.", "info");
   };
 

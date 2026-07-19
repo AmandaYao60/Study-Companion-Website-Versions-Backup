@@ -57,8 +57,9 @@ Open `http://localhost:3000` after starting the development server.
 Start the local affect-analysis service:
 
 ```bash
-cd affect-service
-uvicorn app:app --reload --port 8000
+.\affect-service\.venv\Scripts\Activate.ps1
+cd .\affect-service
+python -m uvicorn app:app --reload --port 8000
 
 
 ## Privacy Approach

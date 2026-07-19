@@ -175,10 +175,18 @@ export default function CameraFeed() {
 
   // Handle stream binding to video element
   useEffect(() => {
-    if (videoRef.current && cameraStream) {
-      videoRef.current.srcObject = cameraStream;
-      videoRef.current.play().catch(err => console.error("Error playing video:", err));
-    }
+    const video = videoRef.current;
+    if (!video || !cameraStream) return;
+    video.srcObject = cameraStream;
+    video.play().catch((error) => {
+      if (error.name !== "AbortError") {
+        console.error("Error playing video:", error);
+      }
+    });
+    return () => {
+      video.pause();
+      video.srcObject = null;
+    };
   }, [cameraStream]);
 
   // Handle camera activation when allowed
@@ -197,16 +205,10 @@ export default function CameraFeed() {
 
   // Handle camera deactivation and cleanup
   const handleDisableWebcam = () => {
-    detectionsRef.current = { face: null, gesture: null };
+    detectionsRef.current = {face: null, gesture: null};
     lastAffectInferenceRef.current = 0;
-
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.srcObject = null;
-    }
-
+    setHasDetectedFace(false);
     stopCamera();
-
     setErrorMsg("");
     setIsPrivacyMode(false);
   };
@@ -395,7 +397,7 @@ export default function CameraFeed() {
         video.videoHeight > 0;
 
       const modelsReady =
-        faceLandmarkerRef?.current || gestureRecognizerRef?.current;
+        Boolean(faceLandmarkerRef.current) && Boolean(gestureRecognizerRef.current);
 
       if (!videoReady || !modelsReady || inferenceRunning) {
         inferenceAnimationRef.current = requestAnimationFrame(sampleAndRunInference);
@@ -431,7 +433,15 @@ export default function CameraFeed() {
             gesture: gestureResults,
           };
 
-          updateAiMetrics(faceResults, gestureResults, latencyTime);
+          updateAiMetrics(
+            faceResults,
+            gestureResults,
+            latencyTime,
+            {
+              videoWidth: video.videoWidth,
+              videoHeight: video.videoHeight,
+            }
+          );
 
           // Determine if we should run affect analysis based on the current state and timing
           const exactlyOneFace = faceResults?.faceLandmarks?.length === 1;
@@ -803,15 +813,14 @@ export default function CameraFeed() {
         {isCameraAllowed && (
           <video
             ref={videoRef}
+            autoPlay
             muted
             playsInline
             className={`absolute inset-0 h-full w-full object-cover transition-all duration-700 ${
               isPrivacyMode ? "blur-2xl opacity-20 scale-95" : "opacity-70"
             }`}
             style={{
-              transform: isPrivacyMode
-                ? "scaleX(-1) scale(0.95)"
-                : "scaleX(-1)",
+              transform: isPrivacyMode ? "scaleX(-1) scale(0.95)" : "scaleX(-1)",
             }}
           />
         )}
