@@ -147,6 +147,26 @@ This separation is intentional: no-face state is a React UI message, not simulat
 - The Focus panel presentation hides real camera pixels but keeps the video element available for local inference and face cropping.
 - Raw landmark CSV export can include biometric-derived coordinate data and should be handled carefully.
 
+## Session Domain Layer
+
+`src/services/session/` defines the first durable, framework-independent session-history model. It is intentionally outside React components and outside `AppContext` so future Dashboard, persistence, and summary algorithms can evolve without changing the browser-local AI inference pipeline.
+
+The domain separates four levels of data:
+
+- `MetricObservation`: short-lived inference observations that can be aggregated later. These are not intended for durable storage.
+- `MetricSample`: future interval records, approximately 10 seconds each, containing means for attention, fatigue, valence, and arousal plus data coverage and data-quality metadata.
+- `SessionStatistics`: descriptive statistics computed across a completed session's interval samples.
+- `SessionSummary`: structured, replaceable rule-based summary sections generated from session-level statistics.
+
+Stored session records use `attention` as the canonical future Dashboard metric name. The existing live estimator still exposes `focus` in `AppContext`; that mapping is deliberately left for a later integration phase. The new model does not include the current Dashboard's `stress` metric or the old simulated 0-100 arousal value. Its `arousal` field refers to the browser-local EmotiEffLib continuous valence-arousal output and may be `null` when affect data is missing.
+
+`repositories/sessionRepository.js` documents an asynchronous repository contract compatible with future `study_sessions` and `metric_samples` tables. `memorySessionRepository.js` implements the same contract for deterministic local use while keeping sessions and metric samples separate. A future Supabase repository should be able to replace the memory implementation without making React components depend on the storage backend.
+
+The session persistence boundary excludes camera images, face crops, face landmarks, hand landmarks, ONNX tensors, model logits, raw MediaPipe matrices, debug logs, full telemetry rows, and raw biometric coordinate exports. Persisted session data should contain only aggregated user-facing study metrics and required metadata.
+
+Schema, pipeline, aggregation, and summary algorithm versions are stored with session records so historical sessions remain interpretable after algorithms change. Future re-analysis should be explicit rather than silently overwriting old summaries. `circumplexConfig.js` contains illustrative emotion reference regions for later charting; they are not diagnostic boundaries, and the model's categorical emotion must come from EmotiEffLib rather than being inferred solely from valence-arousal coordinates.
+
 ## Persistence Limitations
 
 The app currently stores session state in React memory. Route changes preserve the shared session clock while the provider remains mounted, but reloading the page clears metrics history, telemetry rows, raw landmarks, event logs beyond initial defaults, and camera state. There is no IndexedDB, SQLite, backend database, or durable report storage in the current code.
+
