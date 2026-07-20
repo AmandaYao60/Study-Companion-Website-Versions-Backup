@@ -40,7 +40,7 @@ The app can preserve and render landmarks from two detected hands. It also store
 
 ## Video Readiness Checks
 
-`CameraFeed.js` runs inference only when:
+`CameraFeed.js` runs the same MediaPipe and ONNX inference effects in both the normal Monitor presentation and the Focus Space floating panel. It runs inference only when:
 
 - Monitoring is active.
 - Camera is enabled.
@@ -75,7 +75,7 @@ When monitoring is active, camera is enabled, AI is loaded, and `hasDetectedFace
 
 ## Face Landmark Rendering
 
-When face landmarks exist, `CameraFeed.js` renders:
+When face landmarks exist, `CameraFeed.js` renders a landmark canvas. The Monitor presentation also shows real camera pixels; the Focus panel presentation keeps the video element mounted and playing but visually hides the pixels while preserving inference.
 
 - Face oval contour.
 - Left and right eye contours.
@@ -83,7 +83,6 @@ When face landmarks exist, `CameraFeed.js` renders:
 - Lower and upper lip contours.
 - Left and right iris contours.
 - All face landmark dots.
-- Privacy bounding box when Privacy Shield is enabled.
 
 Landmarks are projected from normalized MediaPipe coordinates into the 640 by 480 canvas coordinate space.
 
@@ -218,12 +217,16 @@ Unsupported conclusions:
 - Reliable emotional state classification.
 - Reliable attention diagnosis across users, lighting conditions, cameras, or cultures.
 
+## Focus Space Shell
+
+The `/focus` route is a Phase 2 shell. It contains a lightweight visual-stage placeholder and a draggable floating monitor panel. The final adaptive particle environment and task system are not implemented yet. The panel reuses `CameraFeed` with `presentation="focus-panel"`; it does not create a second inference pipeline.
+
 ## Scientific and Product Limitations
 
 - No calibration wizard exists yet.
 - No validated user baseline is stored.
 - Stress and arousal are not yet grounded in physiological measurement.
 - Current gesture categories may not correspond to study posture semantics.
-- The app does not currently run a dedicated facial emotion classifier.
+- Browser-local EmotiEffLib ONNX affect inference is present, but the displayed study metrics remain heuristic and product-level.
 - There is no confidence-aware mental-state model.
 - Telemetry is volatile unless exported manually.

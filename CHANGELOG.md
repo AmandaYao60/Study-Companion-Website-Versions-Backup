@@ -8,12 +8,14 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 
 ### Added
 
+- Added standalone `/focus` Focus Space route with a lightweight visual-stage placeholder.
+- Added a draggable floating monitor panel that reuses `CameraFeed` in `focus-panel` presentation.
+- Added shared session clock state so `/monitor` and `/focus` show consistent elapsed time.
 - Real browser-side MediaPipe face landmark inference through `@mediapipe/tasks-vision`.
 - MediaPipe gesture recognition configured for up to two hands.
 - Explicit Disable Webcam control in `CameraFeed`.
 - React `hasDetectedFace` state and `No Face Detected` overlay.
 - Simple AI-loading fallback face and delayed troubleshooting message.
-- Real landmark privacy bounding box when Privacy Shield is enabled.
 - Multi-hand landmark persistence with separate `handId` values.
 - Per-hand top-gesture extraction with highest-confidence primary gesture selection.
 - Sustained two-hand activity warning and weak focus-reduction heuristic.
@@ -22,7 +24,6 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 ### Changed
 
 - Camera canvas rendering now depends on active monitoring, enabled camera, AI loading state, and real detection state.
-- Privacy Shield uses a background layer while preserving real landmark rendering.
 - Gesture effects are applied once per unique detected gesture name instead of once per hand candidate.
 - `stopCamera` also stops monitoring state.
 - Documentation now treats current source files as the only source of truth.
@@ -44,7 +45,7 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 
 ### Removed
 
+- Removed Privacy Mode / Privacy Shield UI and inference guards; Focus Space now owns the landmarks-only presentation.
 - Old animated simulated `baseLandmarks` face mesh behavior from `CameraFeed`.
 - Simulated camera-overlay blinking, yawning, head-pose movement, micro-jitter, fake mesh connections, and fake fallback tracking boxes from `CameraFeed`.
-- Centered duplicate Privacy Shield message.
 - Current-architecture claims that MediaPipe integration is future work.

@@ -36,5 +36,4 @@ Preserve these current behaviors unless the user explicitly asks for a behavior 
 - The old animated simulated landmark system must not be restored.
 - When AI is loaded but no face is detected, fallback landmarks are not drawn.
 - `No Face Detected` is rendered through React UI state.
-- Privacy Shield uses a background layer and keeps real landmark rendering.
 - AppContext stores multi-hand landmarks with separate `handId` values.

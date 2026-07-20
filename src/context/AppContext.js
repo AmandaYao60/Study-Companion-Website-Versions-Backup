@@ -93,13 +93,17 @@ export const useAppState = () => {
 export const AppProvider = ({ children }) => {
   // Global Mode States
   const [isDebugMode, setIsDebugMode] = useState(false);
-  const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
   // Monitoring & Camera States
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isCameraAllowed, setIsCameraAllowed] = useState(false);
   const [showCameraDialog, setShowCameraDialog] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
+  const [sessionClock, setSessionClock] = useState({
+    accumulatedMs: 0,
+    runningSince: null,
+    isRunning: false,
+  });
 
   // AI Web-SDK loading states
   const [isAiLoaded, setIsAiLoaded] = useState(false);
@@ -181,7 +185,50 @@ export const AppProvider = ({ children }) => {
   const [metricsHistory, setMetricsHistory] = useState([]);
 
   const streamRef = useRef(null);
+  const sessionClockRef = useRef(sessionClock);
 
+  useEffect(() => {
+    sessionClockRef.current = sessionClock;
+  }, [sessionClock]);
+
+  const getSessionElapsedMs = useCallback(() => {
+    const clock = sessionClockRef.current;
+    if (!clock.isRunning || !clock.runningSince) {
+      return clock.accumulatedMs;
+    }
+
+    return clock.accumulatedMs + Date.now() - clock.runningSince;
+  }, []);
+
+  const startSessionClock = useCallback(() => {
+    setSessionClock((previous) => {
+      if (previous.isRunning) return previous;
+      return {
+        accumulatedMs: previous.accumulatedMs,
+        runningSince: Date.now(),
+        isRunning: true,
+      };
+    });
+  }, []);
+
+  const pauseSessionClock = useCallback(() => {
+    setSessionClock((previous) => {
+      if (!previous.isRunning || !previous.runningSince) return previous;
+      return {
+        accumulatedMs: previous.accumulatedMs + Date.now() - previous.runningSince,
+        runningSince: null,
+        isRunning: false,
+      };
+    });
+  }, []);
+
+  const resetSessionClock = useCallback(() => {
+    setSessionClock({
+      accumulatedMs: 0,
+      runningSince: null,
+      isRunning: false,
+    });
+  }, []);
   // Cleanup camera stream and MediaPipe models when AppProvider unmounts
   useEffect(() => {
     return () => {
@@ -813,6 +860,7 @@ export const AppProvider = ({ children }) => {
     setCameraStream(null);
     setIsCameraAllowed(false);
     setIsMonitoring(false);
+    resetSessionClock();
     resetAffectState();
     setAffectModelStatus("idle");
     addLog("Camera stream stopped.", "info");
@@ -826,11 +874,13 @@ export const AppProvider = ({ children }) => {
         setShowCameraDialog(true);
       } else {
         setIsMonitoring(true);
+        startSessionClock();
         addLog("Mental state monitoring started.", "success");
       }
     } else {
       // Pausing
       setIsMonitoring(false);
+      pauseSessionClock();
       addLog("Mental state monitoring paused.", "warning");
     }
   };
@@ -851,6 +901,7 @@ export const AppProvider = ({ children }) => {
     setRawLandmarksHistory([]);
     resetEstimatorSession(80, 10);
     resetAffectState();
+    resetSessionClock();
     addLog("Metrics reset to baseline.", "info");
   };
 
@@ -977,8 +1028,6 @@ export const AppProvider = ({ children }) => {
       value={{
         isDebugMode,
         setIsDebugMode,
-        isPrivacyMode,
-        setIsPrivacyMode,
         isMonitoring,
         setIsMonitoring,
         isCameraAllowed,
@@ -990,6 +1039,8 @@ export const AppProvider = ({ children }) => {
         stopCamera,
         toggleMonitoring,
         resetMetrics,
+        sessionClock,
+        getSessionElapsedMs,
         focus,
         setFocus,
         stress,

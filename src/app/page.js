@@ -41,8 +41,8 @@ export default function LandingPage() {
   const privacyLayers = [
     {
       level: "Frontend Level",
-      name: "Privacy Shield Filter",
-      desc: "Instantly blurs the camera feed. On-screen, you see only a geometric vector wireframe tracking your landmarks, ensuring your face is never visible."
+      name: "Local Landmark View",
+      desc: "Focus Space can show a landmarks-only monitoring panel while the real camera pixels stay hidden inside that focused presentation."
     },
     {
       level: "Database Level",
@@ -140,9 +140,9 @@ export default function LandingPage() {
           </div>
 
           <div className="max-w-2xl">
-            <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest block mb-2">Privacy Shield Framework</span>
+            <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest block mb-2">Local AI Privacy Model</span>
             <h2 className="text-2xl font-black text-white sm:text-3xl">
-              Designed for Absolute Privacy
+              Designed for Local Processing
             </h2>
             <p className="mt-4 text-sm leading-relaxed text-slate-400">
               We understand that camera-based monitoring is sensitive. AegisMind is built from the ground up to respect your boundaries. You are always in control of your data.

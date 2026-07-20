@@ -2,19 +2,18 @@
 
 ## Current Phase
 
-Phase 1 proof of concept: local browser-based study monitoring with real MediaPipe face and gesture inference, a privacy-first camera UI, debug telemetry, and dashboard visualization.
+Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now provides a standalone visual-stage placeholder with a floating landmarks-only monitor panel.
 
 ## Completed
 
 - Real MediaPipe `FaceLandmarker` loading through `@mediapipe/tasks-vision`.
 - Real MediaPipe `GestureRecognizer` loading with `numHands: 2`.
 - Camera permission flow using `navigator.mediaDevices.getUserMedia`.
-- Explicit Disable Webcam control that pauses video, clears `srcObject`, stops tracks, clears detection state, disables Privacy Shield, and stops monitoring through `stopCamera`.
+- Explicit Disable Webcam control that pauses video, clears `srcObject`, stops tracks, clears detection state, resets the session clock, and stops monitoring through `stopCamera`.
 - Canvas rendering stops when the camera is disabled or monitoring is paused.
 - Real face contour, eye, brow, lip, iris, mesh-dot, and hand skeleton rendering when detections exist.
 - React `No Face Detected` overlay when monitoring is active, camera is enabled, AI is loaded, and no face landmarks are returned.
 - Simple AI-loading fallback face plus loading/delayed-warning canvas messages before models are ready.
-- Privacy Shield blur/background layer with real landmark rendering and real-landmark bounding box.
 - AppContext telemetry from face blendshapes, facial transformation matrices, gestures, face landmarks, and multi-hand landmarks.
 - Rolling telemetry table and CSV export for raw face/hand landmark coordinates.
 - Dashboard SVG gauges, line chart, radar chart, and summary statistics.
@@ -28,6 +27,7 @@ Phase 1 proof of concept: local browser-based study monitoring with real MediaPi
 ## Next Tasks
 
 - Run browser QA with camera permissions on supported browsers.
+- QA `/focus` fullscreen behavior and floating monitor dragging across desktop/mobile layouts.
 - Decide whether two visible hands should always reduce focus after sustained detection.
 - Add cooldowns or aggregation to gesture logs and metric effects.
 - Add local persistence if session history should survive refresh.
@@ -68,9 +68,9 @@ Current mitigation:
 - Do not draw canvas overlays when monitoring is paused.
 - Do not draw canvas overlays when the camera is disabled.
 - Keep `No Face Detected` as a React overlay state.
-- Keep Privacy Shield as a background layer with real landmark rendering above it.
 - Preserve multi-hand landmark storage with separate `handId` values.
 - Preserve explicit webcam disable behavior.
+- Do not reintroduce Privacy Mode; Focus Space hides real pixels only in the floating panel presentation.
 
 ## Important Files
 

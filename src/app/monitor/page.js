@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useAppState } from "../../context/AppContext";
 import CameraFeed from "../../components/CameraFeed";
 import DebugPanel from "../../components/DebugPanel";
+import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 
 export default function MonitorPage() {
   const {
@@ -12,31 +13,10 @@ export default function MonitorPage() {
     focus,
     stress,
     fatigue,
-    currentGesture,
-    isCameraAllowed
+    currentGesture
   } = useAppState();
 
-  const [sessionSeconds, setSessionSeconds] = useState(0);
-
-  // Simple session timer
-  useEffect(() => {
-    if (!isMonitoring) return;
-    const interval = setInterval(() => {
-      setSessionSeconds((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isMonitoring]);
-
-  const formatTime = (totalSecs) => {
-    const hrs = Math.floor(totalSecs / 3600);
-    const mins = Math.floor((totalSecs % 3600) / 60);
-    const secs = totalSecs % 60;
-    return [
-      hrs > 0 ? String(hrs).padStart(2, "0") : null,
-      String(mins).padStart(2, "0"),
-      String(secs).padStart(2, "0")
-    ].filter(Boolean).join(":");
-  };
+  const { formatted } = useSmoothSessionTimer(250);
 
   // Dynamic AI Companion Advice based on current mental states
   const getAICompanionAdvice = () => {
@@ -105,7 +85,7 @@ export default function MonitorPage() {
           <div className="text-left">
             <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Session Time</span>
             <span className="font-mono text-xl font-bold text-white">
-              {formatTime(sessionSeconds)}
+              {formatted}
             </span>
           </div>
           <div className="h-8 w-[1px] bg-white/10" />
@@ -132,7 +112,7 @@ export default function MonitorPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Column 1 & 2: Camera Feed & Companion Advice */}
         <div className="lg:col-span-2 space-y-6">
-          <CameraFeed />
+          <CameraFeed presentation="monitor" showControls />
 
           {/* AI Companion Advice Card */}
           <div className={`relative overflow-hidden rounded-2xl border p-5 shadow-xl transition-all duration-500 ${

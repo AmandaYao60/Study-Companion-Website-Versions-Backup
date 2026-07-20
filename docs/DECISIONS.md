@@ -34,13 +34,13 @@ Rationale: Detection status is application state, not a fake tracking visualizat
 
 Consequences or trade-offs: Overlay styling is easier to reason about, and canvas remains reserved for model output or pre-load fallback.
 
-## Privacy Shield Does Not Use a Centered Duplicate Message
+## Privacy Mode Was Removed
 
-Decision: Privacy Shield uses a background layer and badge, not a centered duplicate privacy message.
+Decision: Privacy Mode and Privacy Shield UI/guards were removed for Phase 2.
 
-Rationale: The user already opted into Privacy Shield; the primary visual should stay on landmark rendering.
+Rationale: Focus Space now provides the landmarks-only presentation without pausing browser-local inference or adding a parallel camera path.
 
-Consequences or trade-offs: The interface is less repetitive, but Privacy Shield status depends on the badge/background treatment.
+Consequences or trade-offs: The Monitor page always shows the real camera preview when enabled. Focus Space hides real pixels only inside the floating panel presentation while preserving the same `CameraFeed` inference implementation.
 
 ## AI-Loading Fallback Is Intentionally Simple
 
@@ -50,13 +50,13 @@ Rationale: A simple placeholder communicates waiting without pretending that rea
 
 Consequences or trade-offs: It is less visually dynamic than the removed animation, but more honest.
 
-## Real Landmarks Drive the Privacy Tracking Box
+## Focus Panel Reuses CameraFeed
 
-Decision: Privacy Shield bounding boxes are calculated from real MediaPipe landmarks.
+Decision: The Focus Space floating monitor uses `CameraFeed` with a presentation prop instead of copying camera/inference code.
 
-Rationale: The box should represent actual detection geometry.
+Rationale: Phase 1 inference is frozen and should remain owned by one component path.
 
-Consequences or trade-offs: No box appears if no face is detected after AI has loaded.
+Consequences or trade-offs: Presentation concerns live in `CameraFeed`, but MediaPipe and ONNX behavior stay centralized.
 
 ## Multiple Hands Are Preserved With Separate Hand IDs
 

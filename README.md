@@ -7,7 +7,8 @@ The project is documentation-driven: current behavior must be verified against t
 ## Current Features
 
 - Overview page describing the AegisMind concept and privacy model.
-- Study Space page with camera permission flow, monitoring controls, Privacy Shield, and companion feedback.
+- Study Space page with camera permission flow, monitoring controls, real camera preview, and companion feedback.
+- Focus Space route with a lightweight visual-stage placeholder, fullscreen controls, and a floating landmarks-only monitor panel.
 - Real MediaPipe face landmark inference through `@mediapipe/tasks-vision`.
 - MediaPipe gesture recognition configured for up to two hands.
 - Browser-local EmotiEffLib ONNX affect inference through `onnxruntime-web`.
@@ -52,7 +53,7 @@ Open `http://localhost:3000` after starting the development server.
 
 ## Privacy Approach
 
-Camera frames are processed locally in the browser. MediaPipe face/gesture inference and EmotiEffLib ONNX affect inference run on the client through browser APIs and `onnxruntime-web`; face images are not uploaded to a backend service and are not stored by the application. Privacy Shield blurs the live video layer while keeping real landmark rendering visible above a dark background layer and pauses affect inference. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
+Camera frames are processed locally in the browser. MediaPipe face/gesture inference and EmotiEffLib ONNX affect inference run on the client through browser APIs and `onnxruntime-web`; face images are not uploaded to a backend service and are not stored by the application. The Focus Space floating monitor hides real camera pixels while keeping the same live landmark canvas and inference pipeline active. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
 
 ## Documentation
 
@@ -68,4 +69,5 @@ Camera frames are processed locally in the browser. MediaPipe face/gesture infer
 - Metrics are heuristic and should not be treated as clinical or psychological diagnosis.
 - Session data is stored in React state and is lost on refresh unless exported manually.
 - PDF report export is currently a placeholder alert.
+- The final Focus Space particle environment and task system are not implemented yet.
 - Some UI strings in source files still contain mojibake from prior encoding issues.

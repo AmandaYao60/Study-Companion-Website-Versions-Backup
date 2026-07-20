@@ -12,6 +12,7 @@ export default function Navbar() {
   const navItems = [
     { name: "Overview", path: "/" },
     { name: "Study Space", path: "/monitor" },
+    { name: "Focus Space", path: "/focus" },
     { name: "Analytics", path: "/dashboard" }
   ];
 

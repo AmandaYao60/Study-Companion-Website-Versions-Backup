@@ -10,6 +10,7 @@ src/
     layout.js
     page.js
     monitor/page.js
+    focus/page.js
     dashboard/page.js
     globals.css
   components/
@@ -17,6 +18,14 @@ src/
     CameraFeed.js
     DebugPanel.js
     DashboardCharts.js
+    focus/
+      FocusSpace.js
+      FocusStagePlaceholder.js
+      FocusMonitorWindow.js
+      FocusSessionControls.js
+  hooks/
+    useDraggablePanel.js
+    useSmoothSessionTimer.js
   context/
     AppContext.js
 ```
@@ -26,7 +35,8 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 ## Primary Pages
 
 - `src/app/page.js`: Overview page. Presents the Phase 1 POC, feature cards, privacy approach, and links to Study Space and Analytics.
-- `src/app/monitor/page.js`: Study and monitoring workspace. Combines `CameraFeed`, companion advice, session timer, and either `DebugPanel` or a production sidebar.
+- `src/app/monitor/page.js`: Technical camera and calibration workspace. Combines `CameraFeed`, companion advice, shared session timer, and either `DebugPanel` or a production sidebar.
+- `src/app/focus/page.js`: Focus Space shell. Renders a fullscreen-capable visual-stage placeholder and, while monitoring is active, a draggable floating monitor panel that reuses `CameraFeed` in `focus-panel` presentation.
 - `src/app/dashboard/page.js`: Analytics view. Renders `DashboardCharts`, session diagnosis copy, debug sliders when Debug Mode is enabled, and placeholder PDF export.
 
 ## Component Responsibilities
@@ -50,7 +60,8 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 - Keeps the canvas empty when monitoring is paused, the camera is disabled, or AI is loaded and no face is detected.
 - Displays `No Face Detected` through React UI state.
 - Displays a simple loading fallback face only before AI models are loaded.
-- Uses a Privacy Shield background layer while preserving real landmark drawing.
+- Supports `monitor` and `focus-panel` presentations from the same inference implementation.
+- In `focus-panel`, keeps the video element mounted for inference while visually hiding real camera pixels and showing the landmark canvas.
 
 ### DebugPanel
 
@@ -77,8 +88,8 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 
 `src/context/AppContext.js` is the central client-side state provider. It owns:
 
-- Global UI mode: Debug Mode and Privacy Shield.
-- Monitoring and camera state.
+- Global UI mode: Debug Mode.
+- Monitoring, camera, and shared session-clock state.
 - MediaPipe model loading state and model refs.
 - Cognitive metrics: focus, stress, fatigue, arousal.
 - CV telemetry: blink rate, yawn count, head pose, current gesture, FPS, latency.
@@ -103,7 +114,7 @@ User enables camera
   -> FaceLandmarker / GestureRecognizer run in browser
   -> CameraFeed updates detection refs and face-detected UI state
   -> AppContext.updateAiMetrics() updates telemetry and metrics
-  -> Monitor page displays advice and current state
+  -> Monitor page or Focus Space displays advice/current state
   -> DebugPanel displays telemetry and controls
   -> DashboardCharts visualizes current and historical metrics
 ```
@@ -113,7 +124,6 @@ User enables camera
 Canvas is responsible for:
 
 - Real MediaPipe face contours, iris contours, mesh dots, and hand skeletons.
-- The Privacy Shield tracking box computed from real landmarks.
 - The temporary loading fallback face and loading/warning messages before AI models are loaded.
 
 React overlays are responsible for:
@@ -121,7 +131,6 @@ React overlays are responsible for:
 - Camera offline UI.
 - Monitoring paused UI.
 - `No Face Detected` state.
-- Privacy Shield background layer.
 - Buttons and controls.
 
 This separation is intentional: no-face state is a React UI message, not simulated canvas tracking.
@@ -134,10 +143,10 @@ This separation is intentional: no-face state is a React UI message, not simulat
 
 - Video processing is designed to run locally in the browser.
 - No backend upload route for camera frames is defined in the current repository.
-- Privacy Shield blurs the video element and places a dark background layer below the canvas.
-- Real landmarks can still be rendered while Privacy Shield is active.
+- The normal Monitor presentation shows the real camera preview when enabled.
+- The Focus panel presentation hides real camera pixels but keeps the video element available for local inference and face cropping.
 - Raw landmark CSV export can include biometric-derived coordinate data and should be handled carefully.
 
 ## Persistence Limitations
 
-The app currently stores session state in React memory. Reloading the page clears metrics history, telemetry rows, raw landmarks, event logs beyond initial defaults, and camera state. There is no IndexedDB, SQLite, backend database, or durable report storage in the current code.
+The app currently stores session state in React memory. Route changes preserve the shared session clock while the provider remains mounted, but reloading the page clears metrics history, telemetry rows, raw landmarks, event logs beyond initial defaults, and camera state. There is no IndexedDB, SQLite, backend database, or durable report storage in the current code.
