@@ -1,8 +1,8 @@
 # AegisMind AI Study Companion
 
-AegisMind is a privacy-focused Next.js proof of concept for webcam-assisted study monitoring. It runs MediaPipe vision models in the browser to observe face landmarks, blink-related blendshapes, head pose, and hand gestures, then maps those signals into live study-session metrics such as focus, stress, fatigue, and arousal.
+AegisMind is a privacy-focused Next.js proof of concept for webcam-assisted study monitoring. It runs MediaPipe vision models and browser-side ONNX affect inference locally to observe face landmarks, head pose, hand gestures, and valence-arousal cues, then maps those signals into live study-session metrics such as focus, stress, fatigue, and arousal.
 
-The project is documentation-driven: current behavior must be verified against the source files in this repository, especially `src/components/CameraFeed.js` and `src/context/AppContext.js`.
+The project is documentation-driven: current behavior must be verified against the source files in this repository, especially `src/components/CameraFeed.js`, `src/context/AppContext.js`, and `src/services/affect/`.
 
 ## Current Features
 
@@ -10,6 +10,7 @@ The project is documentation-driven: current behavior must be verified against t
 - Study Space page with camera permission flow, monitoring controls, Privacy Shield, and companion feedback.
 - Real MediaPipe face landmark inference through `@mediapipe/tasks-vision`.
 - MediaPipe gesture recognition configured for up to two hands.
+- Browser-local EmotiEffLib ONNX affect inference through `onnxruntime-web`.
 - Canvas rendering of real face and hand landmarks when a face is detected.
 - Explicit Disable Webcam control that stops the media stream and clears video state.
 - Empty canvas when monitoring is paused or the camera is disabled.
@@ -20,10 +21,11 @@ The project is documentation-driven: current behavior must be verified against t
 
 ## Technology Stack
 
-- Next.js `16.2.9`
+- Next.js `16.2.10`
 - React `19.2.4`
 - Tailwind CSS `4`
 - MediaPipe Tasks Vision `0.10.35`
+- ONNX Runtime Web `1.27.0`
 - Browser WebRTC camera API
 - Canvas 2D overlays
 - Inline SVG charts
@@ -35,13 +37,7 @@ The project is documentation-driven: current behavior must be verified against t
 npm install
 ```
 
-Install the affect-analysis service dependencies:
-
-```bash
-cd affect-service
-pip install -r requirements.txt
-
-Recommended Python version: 3.11 or 3.12
+The browser affect model is loaded from `public/models/emotieff/enet_b0_8_va_mtl.onnx`. No separate Python affect service is required for the current browser pipeline.
 
 ## Development Commands
 
@@ -54,17 +50,9 @@ npm run start
 
 Open `http://localhost:3000` after starting the development server.
 
-Start the local affect-analysis service:
-
-```bash
-.\affect-service\.venv\Scripts\Activate.ps1
-cd .\affect-service
-python -m uvicorn app:app --reload --port 8000
-
-
 ## Privacy Approach
 
-Camera frames are used locally in the browser for MediaPipe inference. MediaPipe inference runs in the browser. Optional valence-arousal analysis sends cropped face images to a local FastAPI service running on the same device. These images are processed in memory and are not stored by the application. Privacy Shield blurs the live video layer while keeping real landmark rendering visible above a dark background layer. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
+Camera frames are processed locally in the browser. MediaPipe face/gesture inference and EmotiEffLib ONNX affect inference run on the client through browser APIs and `onnxruntime-web`; face images are not uploaded to a backend service and are not stored by the application. Privacy Shield blurs the live video layer while keeping real landmark rendering visible above a dark background layer and pauses affect inference. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
 
 ## Documentation
 

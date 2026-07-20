@@ -26,6 +26,14 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Gesture effects are applied once per unique detected gesture name instead of once per hand candidate.
 - `stopCamera` also stops monitoring state.
 - Documentation now treats current source files as the only source of truth.
+- Updated Next.js and `eslint-config-next` from 16.2.9 to 16.2.10.
+- Added `onnxruntime-web` for planned browser-based affect inference.
+
+### Known Issues
+
+- The PostCSS advisory GHSA-qx2v-qp2m-jg93 remains present through
+  Next.js's internal dependency. No compatible automated fix is currently
+  available.
 
 ### Fixed
 

@@ -20,6 +20,8 @@ Before making changes, future coding agents must:
 - Run `npm run build`.
 - Report every changed file.
 - Avoid committing unless the user explicitly requests a commit.
+- Do not run `npm audit fix --force`. It currently proposes downgrading
+  Next.js from 16.x to 9.3.3.
 
 ## Protected CameraFeed Behavior
 

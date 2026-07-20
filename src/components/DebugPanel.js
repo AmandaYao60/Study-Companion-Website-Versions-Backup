@@ -329,7 +329,7 @@ export default function DebugPanel() {
                     telemetryTable.map((row) => (
                       <tr key={row.id} className="hover:bg-white/5">
                         <td className="p-2 border-r border-white/5 text-slate-500">{row.time}</td>
-                        <td className="p-2 border-r border-white/5 text-cyan-400 font-bold">{row.eyeOpenness.toFixed(2)}</td>
+                        <td className="p-2 border-r border-white/5 text-cyan-400 font-bold">{Number.isFinite(row.eyeOpenness) ? row.eyeOpenness.toFixed(2) : "n/a"}</td>
                         <td className={`p-2 border-r border-white/5 font-bold ${row.blink === "Yes" ? "text-amber-400 animate-pulse" : "text-slate-500"}`}>{row.blink}</td>
                         <td className="p-2 border-r border-white/5 text-slate-400">{row.yaw}°/{row.pitch}°</td>
                         <td className={`p-2 border-r border-white/5 font-semibold ${row.gesture !== "None" ? "text-emerald-400" : "text-slate-500"}`}>{row.gesture}</td>

@@ -45,6 +45,22 @@ Phase 1 proof of concept: local browser-based study monitoring with real MediaPi
 - CSV exports contain landmark coordinates and should be handled as sensitive data.
 - Some source strings display mojibake characters.
 
+### Next.js PostCSS dependency advisory
+
+Next.js 16.2.10 bundles PostCSS 8.4.31, which is flagged by
+GHSA-qx2v-qp2m-jg93. No non-breaking npm audit fix is currently
+available.
+
+Do not run `npm audit fix --force`, because npm currently proposes
+downgrading Next.js to 9.3.3, which would break the current
+Next.js 16 and React 19 project setup.
+
+Current mitigation:
+
+- The application does not accept or process user-supplied CSS.
+- The advisory is being monitored for a compatible Next.js update.
+- Run `npm audit` again before production deployment.
+
 ## Protected Behaviors
 
 - Do not restore the old animated simulated `baseLandmarks` camera mesh.

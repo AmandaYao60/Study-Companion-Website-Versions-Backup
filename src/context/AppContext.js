@@ -138,12 +138,30 @@ export const AppProvider = ({ children }) => {
   const fatigueEstimateRef = useRef(15);
   const latestFocusRef = useRef(85);
   const latestFatigueRef = useRef(15);
+  const debugModeRef = useRef(false);
+
+  // Affect smoothing state
+  const smoothedValenceRef = useRef(null);
+  const smoothedArousalRef = useRef(null);
 
   // Mental States (0 - 100)
   const [focus, setFocus] = useState(85);
   const [stress, setStress] = useState(30);
   const [fatigue, setFatigue] = useState(15);
   const [arousal, setArousal] = useState(45);
+
+  // Local affect model state
+  const [affectState, setAffectState] = useState({
+    valence: null,
+    arousal: null,
+    emotion: null,
+    confidence: null,
+    valid: false,
+    source: null,
+    updatedAt: null,
+    latencyMs: null,
+  });
+  const [affectModelStatus, setAffectModelStatus] = useState("idle");
 
   // CV Telemetry (Debug Info)
   const [blinkRate, setBlinkRate] = useState(12); // blinks per minute
@@ -195,6 +213,10 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     latestFocusRef.current = focus;
   }, [focus]);
+
+  useEffect(() => {
+    debugModeRef.current = isDebugMode;
+  }, [isDebugMode]);
 
   useEffect(() => {
     latestFatigueRef.current = fatigue;
@@ -284,6 +306,63 @@ export const AppProvider = ({ children }) => {
     }, 0);
     return () => clearTimeout(timer);
   }, [loadAiModels]);
+
+  const updateAffectMetrics = useCallback((result) => {
+    if (
+      !result ||
+      result.valid === false ||
+      !Number.isFinite(result.valence) ||
+      !Number.isFinite(result.arousal)
+    ) {
+      return;
+    }
+
+    const smoothingAlpha = 0.2;
+    const previousValence = smoothedValenceRef.current;
+    const previousArousal = smoothedArousalRef.current;
+
+    const nextValence =
+      previousValence === null
+        ? result.valence
+        : previousValence * (1 - smoothingAlpha) +
+          result.valence * smoothingAlpha;
+
+    const nextArousal =
+      previousArousal === null
+        ? result.arousal
+        : previousArousal * (1 - smoothingAlpha) +
+          result.arousal * smoothingAlpha;
+
+    smoothedValenceRef.current = nextValence;
+    smoothedArousalRef.current = nextArousal;
+
+    setAffectState({
+      valence: nextValence,
+      arousal: nextArousal,
+      emotion: typeof result.emotion === "string" ? result.emotion : null,
+      confidence: Number.isFinite(result.confidence) ? result.confidence : null,
+      valid: true,
+      source: result.source ?? "browser-onnx",
+      updatedAt: Date.now(),
+      latencyMs: Number.isFinite(result.latencyMs) ? result.latencyMs : null,
+    });
+  }, []);
+
+  const resetAffectState = useCallback(() => {
+    smoothedValenceRef.current = null;
+    smoothedArousalRef.current = null;
+
+    setAffectState({
+      valence: null,
+      arousal: null,
+      emotion: null,
+      confidence: null,
+      valid: false,
+      source: null,
+      updatedAt: null,
+      latencyMs: null,
+    });
+  }, []);
 
   const updateAiMetrics = useCallback((faceResults, gestureResults, latencyTime, videoDimensions = {}) => {
     setLatency(latencyTime);
@@ -625,7 +704,7 @@ export const AppProvider = ({ children }) => {
     }
 
     if (
-      isDebugMode &&
+      debugModeRef.current &&
       isMonitoring &&
       timestamp - lastDebugLogRef.current >= ESTIMATOR_INTERVAL_MS
     ) {
@@ -672,7 +751,8 @@ export const AppProvider = ({ children }) => {
       setTelemetryTable((prev) => [tableRow, ...prev.slice(0, 49)]);
       setRawLandmarksHistory((prev) => [frameLandmarks, ...prev.slice(0, 49)]);
     }
-  }, [isMonitoring, isDebugMode, addLog]);
+  }, [isMonitoring, addLog]);
+
   const exportTelemetryCSV = () => {
     if (rawLandmarksHistory.length === 0) {
       alert("No raw landmarks recorded yet. Start camera monitoring to capture data.");
@@ -733,6 +813,8 @@ export const AppProvider = ({ children }) => {
     setCameraStream(null);
     setIsCameraAllowed(false);
     setIsMonitoring(false);
+    resetAffectState();
+    setAffectModelStatus("idle");
     addLog("Camera stream stopped.", "info");
   };
 
@@ -768,6 +850,7 @@ export const AppProvider = ({ children }) => {
     setTelemetryTable([]);
     setRawLandmarksHistory([]);
     resetEstimatorSession(80, 10);
+    resetAffectState();
     addLog("Metrics reset to baseline.", "info");
   };
 
@@ -915,6 +998,11 @@ export const AppProvider = ({ children }) => {
         setFatigue,
         arousal,
         setArousal,
+        affectState,
+        updateAffectMetrics,
+        resetAffectState,
+        affectModelStatus,
+        setAffectModelStatus,
         blinkRate,
         setBlinkRate,
         yawnCount,

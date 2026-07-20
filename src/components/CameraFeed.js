@@ -2,7 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAppState } from "../context/AppContext";
-  const FACE_CONTOUR = {
+import { getAffectSession, predictAffectFromCanvas } from "../services/affect/browserAffectModel";
+
+const FACE_CONTOUR = {
     leftEye: [33, 160, 158, 133, 153, 144, 33],
     rightEye: [362, 385, 387, 263, 373, 380, 362],
 
@@ -27,25 +29,21 @@ import { useAppState } from "../context/AppContext";
 
     rightIris: [469, 470, 471, 472, 469],
     leftIris: [474, 475, 476, 477, 474]
-  };
-  const HAND_CONNECTIONS = [
+};
+const HAND_CONNECTIONS = [
     [0, 1, 2, 3, 4],
     [0, 5, 6, 7, 8],
     [0, 9, 10, 11, 12],
     [0, 13, 14, 15, 16],
     [0, 17, 18, 19, 20], 
     [5, 9, 13, 17, 0]
-  ];
+];
 
-  const AFFECT_INPUT_SIZE = 224;
-  const AFFECT_INFERENCE_INTERVAL_MS = 1000;
-  const FACE_CROP_PADDING_RATIO = 0.15;
+const AFFECT_INPUT_SIZE = 224;
+const AFFECT_INFERENCE_INTERVAL_MS = 1000;
+const FACE_CROP_PADDING_RATIO = 0.15;
 
-  const AFFECT_API_URL =
-    process.env.NEXT_PUBLIC_AFFECT_API_URL ||
-    "http://127.0.0.1:8000";
-  
-  const getFaceBoundingBox = (
+const getFaceBoundingBox = (
     landmarks,
     videoWidth,
     videoHeight
@@ -114,27 +112,7 @@ import { useAppState } from "../context/AppContext";
       y: squareY,
       size: boundedSideLength,
     };
-  };
-
-  const canvasToBlob = (canvas) =>
-  new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(
-            new Error(
-              "Failed to create a face image from the canvas."
-            )
-          );
-        }
-      },
-      "image/webp",
-      0.85
-    );
-  });
-
+};
 
 export default function CameraFeed() {
   const {
@@ -155,7 +133,11 @@ export default function CameraFeed() {
     inferenceFps,
     faceLandmarkerRef,
     gestureRecognizerRef,
-    updateAiMetrics
+    updateAiMetrics,
+    updateAffectMetrics,
+
+    affectModelStatus,
+    setAffectModelStatus,
   } = useAppState();
 
   const videoRef = useRef(null);
@@ -171,7 +153,59 @@ export default function CameraFeed() {
   const faceCropCanvasRef = useRef(null);
   const lastAffectInferenceRef = useRef(0);
   const isAffectInferenceRunningRef = useRef(false);
+  const affectRunTokenRef = useRef(0);
+  const pipelineStateRef = useRef({
+    isMonitoring: false,
+    isCameraAllowed: false,
+    isAiLoaded: false,
+    isPrivacyMode: false,
+    isDebugMode: false,
+    affectModelStatus: "idle",
+  });
 
+  useEffect(() => {
+    pipelineStateRef.current = {
+      isMonitoring,
+      isCameraAllowed,
+      isAiLoaded,
+      isPrivacyMode,
+      isDebugMode,
+      affectModelStatus,
+    };
+  }, [
+    isMonitoring,
+    isCameraAllowed,
+    isAiLoaded,
+    isPrivacyMode,
+    isDebugMode,
+    affectModelStatus,
+  ]);
+
+  // Preload the browser affect model once CameraFeed mounts.
+  useEffect(() => {
+    if (!isCameraAllowed) {
+      setAffectModelStatus("idle");
+      return;
+    }
+    let active = true;
+    const loadAffectModel = async () => {
+      setAffectModelStatus("loading");
+      try {
+        await getAffectSession();
+        if (active) setAffectModelStatus("ready");
+      } catch (error) {
+        console.error("Failed to load affect model:", error);
+        if (active) setAffectModelStatus("error");
+      }
+    };
+    void loadAffectModel();
+    return () => {
+      active = false;
+    };
+  }, [
+    isCameraAllowed,
+    setAffectModelStatus,
+  ]);
 
   // Handle stream binding to video element
   useEffect(() => {
@@ -205,8 +239,10 @@ export default function CameraFeed() {
 
   // Handle camera deactivation and cleanup
   const handleDisableWebcam = () => {
-    detectionsRef.current = {face: null, gesture: null};
+    detectionsRef.current = { face: null, gesture: null };
     lastAffectInferenceRef.current = 0;
+    affectRunTokenRef.current += 1;
+    isAffectInferenceRunningRef.current = false;
     setHasDetectedFace(false);
     stopCamera();
     setErrorMsg("");
@@ -224,144 +260,106 @@ export default function CameraFeed() {
     }
   }, [isMonitoring, isCameraAllowed, isAiLoaded]);
 
-  // Function to send the cropped face image to the affect analysis API
-  const sendFaceCropForAffectAnalysis = useCallback(
+  // Run browser-local ONNX affect inference on a temporary face crop.
+  const runAffectAnalysis = useCallback(
     async (faceLandmarks) => {
       const video = videoRef.current;
       const cropCanvas = faceCropCanvasRef.current;
+      const state = pipelineStateRef.current;
 
-      if (!video || !cropCanvas) {
-        return;
-      }
-
+      if (!video || !cropCanvas) return;
       if (
-        !isMonitoring ||
-        !isCameraAllowed ||
-        !isAiLoaded ||
-        isPrivacyMode
+        !state.isMonitoring ||
+        !state.isCameraAllowed ||
+        !state.isAiLoaded ||
+        state.isPrivacyMode ||
+        state.affectModelStatus !== "ready"
       ) {
         return;
       }
-
       if (
-        video.readyState <
-          HTMLMediaElement.HAVE_CURRENT_DATA ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
         video.videoWidth === 0 ||
         video.videoHeight === 0
       ) {
         return;
       }
+      if (isAffectInferenceRunningRef.current) return;
 
-      if (isAffectInferenceRunningRef.current) {
-        return;
-      }
-
-      const boundingBox = getFaceBoundingBox(
-        faceLandmarks,
-        video.videoWidth,
-        video.videoHeight
-      );
-
-      if (!boundingBox) {
-        return;
-      }
-
-      const cropContext =
-        cropCanvas.getContext("2d");
-
-      if (!cropContext) {
-        return;
-      }
+      const boundingBox = getFaceBoundingBox(faceLandmarks, video.videoWidth, video.videoHeight);
+      if (!boundingBox) return;
+      const cropContext = cropCanvas.getContext("2d");
+      if (!cropContext) return;
 
       cropCanvas.width = AFFECT_INPUT_SIZE;
       cropCanvas.height = AFFECT_INPUT_SIZE;
 
-      cropContext.clearRect(
-        0,
-        0,
-        AFFECT_INPUT_SIZE,
-        AFFECT_INPUT_SIZE
-      );
-
+      cropContext.clearRect(0, 0, AFFECT_INPUT_SIZE, AFFECT_INPUT_SIZE);
       cropContext.drawImage(
         video,
-
         boundingBox.x,
         boundingBox.y,
         boundingBox.size,
         boundingBox.size,
-
         0,
         0,
         AFFECT_INPUT_SIZE,
         AFFECT_INPUT_SIZE
       );
 
+      const requestToken = affectRunTokenRef.current + 1;
+      affectRunTokenRef.current = requestToken;
       isAffectInferenceRunningRef.current = true;
 
       try {
-        const faceBlob =
-          await canvasToBlob(cropCanvas);
+        const inferenceStartedAt = performance.now();
+        const result = await predictAffectFromCanvas(cropCanvas);
+        const latencyMs = Math.round(performance.now() - inferenceStartedAt);
+        const latestState = pipelineStateRef.current;
 
-        const formData = new FormData();
-
-        formData.append(
-          "face",
-          faceBlob,
-          "face-crop.webp"
-        );
-
-        const response = await fetch(
-          `${AFFECT_API_URL}/predict-affect`,
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
-
-        if (!response.ok) {
-          const errorBody = await response
-            .json()
-            .catch(() => null);
-
-          throw new Error(
-            errorBody?.detail ||
-              `Affect API returned ${response.status}.`
-          );
+        if (
+          requestToken !== affectRunTokenRef.current ||
+          !latestState.isMonitoring ||
+          !latestState.isCameraAllowed ||
+          latestState.isPrivacyMode ||
+          latestState.affectModelStatus !== "ready"
+        ) {
+          return;
         }
 
-        const result = await response.json();
+        updateAffectMetrics({ ...result, latencyMs });
 
-        if (isDebugMode) {
-          console.log("Affect prediction:", {
-            ...result,
-            valence: Number(result.valence.toFixed(3)),
-            arousal: Number(result.arousal.toFixed(3)),
+        if (latestState.isDebugMode) {
+          console.log("Affect inference result:", {
+            mode: "browser",
+            latencyMs,
+            result,
           });
         }
-
       } catch (error) {
-        console.error(
-          "Failed to run affect analysis:",
-          error
-        );
+        const latestState = pipelineStateRef.current;
+        if (
+          requestToken === affectRunTokenRef.current &&
+          latestState.isMonitoring &&
+          latestState.isCameraAllowed
+        ) {
+          setAffectModelStatus("error");
+          console.error("Failed to run affect analysis:", error);
+        }
       } finally {
-        isAffectInferenceRunningRef.current =
-          false;
+        if (requestToken === affectRunTokenRef.current) {
+          isAffectInferenceRunningRef.current = false;
+        }
       }
     },
-    [
-      isMonitoring,
-      isCameraAllowed,
-      isAiLoaded,
-      isPrivacyMode,
-      isDebugMode,
-    ]
+    [updateAffectMetrics, setAffectModelStatus]
   );
 
-  //Clear the face crop canvas when monitoring stops, camera is disabled, or privacy mode is enabled
+  // Clear the face crop canvas and invalidate pending affect results when the pipeline is inactive.
   useEffect(() => {
     if (isMonitoring && isCameraAllowed && !isPrivacyMode) return;
+    affectRunTokenRef.current += 1;
+    isAffectInferenceRunningRef.current = false;
     const cropCanvas = faceCropCanvasRef.current;
     if (!cropCanvas) return;
     const cropContext = cropCanvas.getContext("2d");
@@ -446,12 +444,16 @@ export default function CameraFeed() {
           // Determine if we should run affect analysis based on the current state and timing
           const exactlyOneFace = faceResults?.faceLandmarks?.length === 1;
           const affectIntervalReached = now - lastAffectInferenceRef.current >= AFFECT_INFERENCE_INTERVAL_MS;
-          const shouldRunAffectAnalysis = exactlyOneFace && !isPrivacyMode && affectIntervalReached;
+          const shouldRunAffectAnalysis =
+            exactlyOneFace &&
+            !isPrivacyMode &&
+            affectModelStatus === "ready" &&
+            affectIntervalReached;
 
           if (shouldRunAffectAnalysis) {
             lastAffectInferenceRef.current = now;
 
-            void sendFaceCropForAffectAnalysis(faceResults.faceLandmarks[0]);
+            void runAffectAnalysis(faceResults.faceLandmarks[0]);
           }
 
         } 
@@ -473,6 +475,8 @@ export default function CameraFeed() {
       detectionsRef.current = { face: null, gesture: null };
       setHasDetectedFace(false);
       lastAffectInferenceRef.current = 0;
+      affectRunTokenRef.current += 1;
+      isAffectInferenceRunningRef.current = false;
 
       if (inferenceAnimationRef.current) {
         cancelAnimationFrame(inferenceAnimationRef.current);
@@ -488,7 +492,8 @@ export default function CameraFeed() {
     gestureRecognizerRef,
     updateAiMetrics,
     isPrivacyMode,
-    sendFaceCropForAffectAnalysis,
+    runAffectAnalysis,
+    affectModelStatus,
   ]);
 
   // Canvas Drawing Loop for Face and Gesture Meshes
@@ -1009,11 +1014,10 @@ export default function CameraFeed() {
             </div>
             <h3 className="text-center text-lg font-bold text-white">Request Camera Access</h3>
             <p className="text-center text-xs text-slate-400 mt-2">
-              AegisMind requires camera access to analyze
-              facial gestures and landmarks. Facial data is
-              processed locally on your device. Cropped face
-              frames may be sent to the local affect-analysis
-              service and are not stored.
+                AegisMind requires camera access to analyze facial
+                posture, gestures, and affective state. Camera frames
+                are processed locally in your browser and are not
+                uploaded or stored.
             </p>
             
             {/* Privacy note */}
@@ -1026,10 +1030,10 @@ export default function CameraFeed() {
                   Local-Only AI Processing
                 </p>
                 <p className="text-[10px] text-slate-500 mt-0.5">
-                  MediaPipe runs in the browser. Optional
-                  valence-arousal analysis is performed by a
-                  local service on this device. Privacy Shield
-                  pauses affect-image transmission.
+                    MediaPipe and the affect model run locally in your
+                    browser. Face crops remain in temporary browser memory
+                    and are not transmitted or stored. Privacy Shield pauses
+                    affect inference.
                 </p>
               </div>
             </div>
