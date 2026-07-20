@@ -1,4 +1,5 @@
 import { SESSION_STATUS } from "./sessionConstants.js";
+import { calculateSessionStatistics } from "./sessionStatistics.js";
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 const timestampMs = (value) => {
@@ -49,16 +50,79 @@ export const selectEmotionalTrajectory = (samples = []) => samples
     dataQuality: sample.dataQuality,
   }));
 
-/** Return simple presentation-ready cards for a future Dashboard without React dependencies. @param {Object} session @param {Array<Object>} samples */
-export const selectDashboardMetricCards = (session = {}, samples = []) => {
-  const latest = samples[samples.length - 1] || {};
-  return [
-    { id: "attention", label: "Attention", value: latest.attention ?? null, dataQuality: latest.dataQuality ?? null },
-    { id: "fatigue", label: "Fatigue", value: latest.fatigue ?? null, dataQuality: latest.dataQuality ?? null },
-    { id: "dataCoverage", label: "Data Coverage", value: session.dataCoverage ?? null, dataQuality: latest.dataQuality ?? null },
-    { id: "dominantEmotion", label: "Dominant Emotion", value: session.statistics?.dominantEmotion ?? null, dataQuality: latest.dataQuality ?? null },
-  ];
+const metricDefinitions = Object.freeze([
+  { id: "attention", label: "Attention", rangeLabel: "0-100", valueKind: "percentage" },
+  { id: "fatigue", label: "Fatigue", rangeLabel: "0-100", valueKind: "percentage" },
+  { id: "valence", label: "Valence", rangeLabel: "-1 to 1", valueKind: "affect" },
+  { id: "arousal", label: "Arousal", rangeLabel: "-1 to 1", valueKind: "affect" },
+]);
+
+const getStatistics = (session, samples) => session?.statistics || calculateSessionStatistics(samples, session || {});
+
+/** Select the dashboard source in priority order: active session, latest completed session, empty state. @param {Object} input */
+export const selectDashboardSessionSource = ({ activeSession = null, completedSessions = [] } = {}) => {
+  if (activeSession) {
+    return { kind: "active", label: "Active Session", session: activeSession };
+  }
+
+  const latestCompleted = selectLatestCompletedSession(completedSessions);
+  if (latestCompleted) {
+    return { kind: "completed", label: "Last Completed Session", session: latestCompleted };
+  }
+
+  return { kind: "empty", label: "No Session Data", session: null };
 };
+
+/** Return dashboard metric card models without exposing repository or statistics details to components. @param {Object} input */
+export const selectDashboardMetricCards = ({ session = null, samples = [], currentMetrics = null, isActive = false } = {}) => {
+  if (!session) {
+    return metricDefinitions.map((definition) => ({
+      ...definition,
+      currentValue: null,
+      averageValue: null,
+      trend: "insufficient",
+      status: "No session data",
+      dataQuality: null,
+    }));
+  }
+
+  const latest = samples[samples.length - 1] || {};
+  const statistics = getStatistics(session, samples);
+
+  return metricDefinitions.map((definition) => {
+    const metricStats = statistics?.[definition.id] || {};
+    const currentValue = isActive
+      ? currentMetrics?.[definition.id] ?? latest[definition.id] ?? null
+      : latest[definition.id] ?? metricStats.mean ?? null;
+
+    return {
+      ...definition,
+      currentValue,
+      averageValue: metricStats.mean ?? null,
+      trend: metricStats.trend || "insufficient",
+      status: metricStats.validCount > 0 ? metricStats.trend || "available" : "Unavailable",
+      dataQuality: latest.dataQuality ?? null,
+    };
+  });
+};
+
+/** Return structured summary sections in a stable render order. @param {Object|null} session */
+export const selectSessionSummarySections = (session = null) => {
+  const summary = session?.summary;
+  if (!summary) return [];
+  return [
+    ["behavioralEngagement", "Behavioral Engagement"],
+    ["fatiguePattern", "Fatigue Pattern"],
+    ["emotionalEngagement", "Emotional Engagement"],
+    ["dataReliability", "Data Reliability"],
+    ["overallStatus", "Overall Status"],
+  ]
+    .map(([key, fallbackTitle]) => ({ key, fallbackTitle, section: summary[key] }))
+    .filter((item) => item.section);
+};
+
+/** Build newest-first rows for the future Session History table. @param {Array<Object>} sessions */
+export const selectSessionHistoryRows = (sessions = []) => sortSessionsByNewest(sessions).map(selectSessionListRow);
 
 /** @param {Array<Object>} sessions @param {{start?:string|Date,end?:string|Date}} range */
 export const selectSessionsWithinRange = (sessions = [], range = {}) => {
