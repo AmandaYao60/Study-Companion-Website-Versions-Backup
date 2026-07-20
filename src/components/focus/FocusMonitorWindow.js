@@ -23,7 +23,7 @@ const getStudyStatusText = (focus, fatigue) => {
 };
 
 export default function FocusMonitorWindow({ stageRef, onHide }) {
-  const { focus, fatigue, toggleMonitoring } = useAppState();
+  const { focus, fatigue, activeSession, toggleMonitoring } = useAppState();
   const { formatted, minuteProgress } = useSmoothSessionTimer(200);
   const {
     panelRef,
@@ -84,7 +84,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-slate-500">Current Task</p>
-          <p className="mt-1 text-xs text-slate-300">Task setup will be added in a later UI phase.</p>
+          <p className="mt-1 text-xs text-slate-300">{activeSession?.taskDescription || "Task setup will be added in a later UI phase."}</p>
         </div>
 
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.06] p-3">

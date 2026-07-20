@@ -9,7 +9,7 @@ export default function FocusSessionControls({
   isFullscreenSupported,
   onToggleFullscreen,
 }) {
-  const { isMonitoring, isCameraAllowed, setShowCameraDialog, toggleMonitoring } = useAppState();
+  const { isMonitoring, isCameraAllowed, activeSession, setShowCameraDialog, toggleMonitoring } = useAppState();
   const { formatted, minuteProgress } = useSmoothSessionTimer(250);
 
   const handleSessionClick = () => {
@@ -46,7 +46,7 @@ export default function FocusSessionControls({
               : "bg-cyan-500 text-slate-950 hover:bg-cyan-300"
           }`}
         >
-          {isMonitoring ? "Pause" : isCameraAllowed ? "Start" : "Enable Camera"}
+          {isMonitoring ? "Pause" : activeSession ? "Resume" : isCameraAllowed ? "Start" : "Enable Camera"}
         </button>
 
         {isFullscreenSupported && (

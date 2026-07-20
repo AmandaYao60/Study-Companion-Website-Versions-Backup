@@ -25,7 +25,11 @@ const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(v
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
 const result = (errors = [], warnings = []) => ({ valid: errors.length === 0, errors, warnings });
 const nowIso = () => new Date().toISOString();
-const defaultIdFactory = (prefix = "session") => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+let generatedSessionIdCounter = 0;
+const defaultIdFactory = (prefix = "session") => {
+  generatedSessionIdCounter += 1;
+  return `${prefix}-${Date.now()}-${generatedSessionIdCounter}`;
+};
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const text = (value, fallback = "") => (value === null || value === undefined ? fallback : String(value));
 const nullableText = (value) => (value === null || value === undefined || value === "" ? null : String(value));

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import { createSessionRuntime, SESSION_STATUS } from "../services/session/index.js";
 
 const AppContext = createContext();
 const EYE_LANDMARKS = {
@@ -20,6 +21,7 @@ const LONG_CLOSURE_MS = 1200;
 const BLINK_MIN_MS = 80;
 const BLINK_MAX_MS = 450;
 const BLINK_BASELINE_MIN_MS = 30000;
+const SESSION_START_BASELINE = { attention: 80, fatigue: 10 };
 
 const clamp = (value, min, max) => {
   if (!Number.isFinite(value)) return min;
@@ -181,15 +183,47 @@ export const AppProvider = ({ children }) => {
     { id: 2, time: "10:40:16", message: "Calibration complete. Baseline established.", type: "info" }
   ]);
 
-  // Historical data for charts (stores last 20 data points, taken every 3 seconds)
+  // Historical data for charts (stores live points only; no random seed data)
   const [metricsHistory, setMetricsHistory] = useState([]);
+
+  const [sessionRuntime] = useState(() => createSessionRuntime());
+  const sessionRuntimeRef = useRef(sessionRuntime);
+
+  const [activeSession, setActiveSession] = useState(null);
+  const [completedSessions, setCompletedSessions] = useState([]);
+  const [activeSessionSamples, setActiveSessionSamples] = useState([]);
 
   const streamRef = useRef(null);
   const sessionClockRef = useRef(sessionClock);
+  const activeSessionRef = useRef(activeSession);
+  const affectStateRef = useRef(affectState);
+  const monitoringRef = useRef(isMonitoring);
+  const cameraAllowedRef = useRef(isCameraAllowed);
+  const aiLoadedRef = useRef(isAiLoaded);
 
   useEffect(() => {
     sessionClockRef.current = sessionClock;
   }, [sessionClock]);
+
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
+
+  useEffect(() => {
+    affectStateRef.current = affectState;
+  }, [affectState]);
+
+  useEffect(() => {
+    monitoringRef.current = isMonitoring;
+  }, [isMonitoring]);
+
+  useEffect(() => {
+    cameraAllowedRef.current = isCameraAllowed;
+  }, [isCameraAllowed]);
+
+  useEffect(() => {
+    aiLoadedRef.current = isAiLoaded;
+  }, [isAiLoaded]);
 
   const getSessionElapsedMs = useCallback(() => {
     const clock = sessionClockRef.current;
@@ -211,16 +245,23 @@ export const AppProvider = ({ children }) => {
     });
   }, []);
 
-  const pauseSessionClock = useCallback(() => {
-    setSessionClock((previous) => {
-      if (!previous.isRunning || !previous.runningSince) return previous;
-      return {
-        accumulatedMs: previous.accumulatedMs + Date.now() - previous.runningSince,
-        runningSince: null,
-        isRunning: false,
-      };
+  const startSessionClockFromZero = useCallback(() => {
+    setSessionClock({
+      accumulatedMs: 0,
+      runningSince: Date.now(),
+      isRunning: true,
     });
   }, []);
+
+  const freezeSessionClock = useCallback(() => {
+    const elapsedMs = getSessionElapsedMs();
+    setSessionClock({
+      accumulatedMs: elapsedMs,
+      runningSince: null,
+      isRunning: false,
+    });
+    return elapsedMs;
+  }, [getSessionElapsedMs]);
 
   const resetSessionClock = useCallback(() => {
     setSessionClock({
@@ -255,6 +296,13 @@ export const AppProvider = ({ children }) => {
       { id: Date.now(), time, message, type },
       ...prev.slice(0, 49) // Keep last 50 logs
     ]);
+  }, []);
+
+  const syncSessionState = useCallback(() => {
+    const snapshot = sessionRuntimeRef.current.getSnapshot();
+    setActiveSession(snapshot.activeSession);
+    setActiveSessionSamples(snapshot.activeSessionSamples);
+    setCompletedSessions(snapshot.completedSessions);
   }, []);
 
   useEffect(() => {
@@ -410,6 +458,51 @@ export const AppProvider = ({ children }) => {
       latencyMs: null,
     });
   }, []);
+
+  const recordSessionObservation = useCallback((timestamp, faceDetected) => {
+    const active = activeSessionRef.current;
+    const clock = sessionClockRef.current;
+
+    if (
+      !active ||
+      active.status !== SESSION_STATUS.ACTIVE ||
+      !monitoringRef.current ||
+      !clock.isRunning
+    ) {
+      return;
+    }
+
+    const currentAffect = affectStateRef.current;
+    const dataValid = Boolean(
+      monitoringRef.current &&
+      cameraAllowedRef.current &&
+      aiLoadedRef.current &&
+      faceDetected
+    );
+
+    const observation = {
+      recordedAt: new Date(timestamp).toISOString(),
+      elapsedMs: getSessionElapsedMs(),
+      attention: latestFocusRef.current,
+      fatigue: latestFatigueRef.current,
+      valence: currentAffect.valid ? currentAffect.valence : null,
+      arousal: currentAffect.valid ? currentAffect.arousal : null,
+      emotion: currentAffect.valid ? currentAffect.emotion : null,
+      emotionConfidence: currentAffect.valid ? currentAffect.confidence : null,
+      faceDetected,
+      affectValid: Boolean(currentAffect.valid),
+      dataValid,
+    };
+
+    void sessionRuntimeRef.current.appendObservation(observation)
+      .then((samples) => {
+        if (samples.length > 0) syncSessionState();
+      })
+      .catch((error) => {
+        console.error("Failed to append session observation:", error);
+        addLog("Failed to aggregate session metrics.", "error");
+      });
+  }, [addLog, getSessionElapsedMs, syncSessionState]);
 
   const updateAiMetrics = useCallback((faceResults, gestureResults, latencyTime, videoDimensions = {}) => {
     setLatency(latencyTime);
@@ -794,11 +887,13 @@ export const AppProvider = ({ children }) => {
       gesture: activeG,
       hands: handsCount
     };
+    recordSessionObservation(timestamp, faceDetected);
+
     if (isMonitoring) {
       setTelemetryTable((prev) => [tableRow, ...prev.slice(0, 49)]);
       setRawLandmarksHistory((prev) => [frameLandmarks, ...prev.slice(0, 49)]);
     }
-  }, [isMonitoring, addLog]);
+  }, [isMonitoring, addLog, recordSessionObservation]);
 
   const exportTelemetryCSV = () => {
     if (rawLandmarksHistory.length === 0) {
@@ -828,6 +923,111 @@ export const AppProvider = ({ children }) => {
     document.body.removeChild(link);
     addLog("Exported raw landmark table to CSV.", "success");
   };
+
+  const startSession = useCallback(async ({ taskDescription = "", targetDurationMs = null } = {}) => {
+    if (!cameraAllowedRef.current) {
+      setShowCameraDialog(true);
+      return null;
+    }
+
+    const existing = activeSessionRef.current;
+    if (existing) {
+      return existing;
+    }
+
+    const session = await sessionRuntimeRef.current.startSession({
+      taskDescription,
+      targetDurationMs,
+    });
+
+    resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
+    startSessionClockFromZero();
+    setIsMonitoring(true);
+    syncSessionState();
+    addLog("Study session started.", "success");
+    return session;
+  }, [addLog, resetEstimatorSession, startSessionClockFromZero, syncSessionState]);
+
+  const pauseSession = useCallback(async ({ silent = false } = {}) => {
+    const elapsedMs = freezeSessionClock();
+    setIsMonitoring(false);
+
+    if (activeSessionRef.current) {
+      await sessionRuntimeRef.current.pauseSession(elapsedMs);
+      syncSessionState();
+    }
+
+    if (!silent) {
+      addLog("Study session paused.", "warning");
+    }
+
+    return activeSessionRef.current;
+  }, [addLog, freezeSessionClock, syncSessionState]);
+
+  const resumeSession = useCallback(async () => {
+    if (!cameraAllowedRef.current) {
+      setShowCameraDialog(true);
+      return null;
+    }
+
+    if (!activeSessionRef.current) {
+      return null;
+    }
+
+    const session = await sessionRuntimeRef.current.resumeSession();
+    startSessionClock();
+    setIsMonitoring(true);
+    syncSessionState();
+    addLog("Study session resumed.", "success");
+    return session;
+  }, [addLog, startSessionClock, syncSessionState]);
+
+  const finishSession = useCallback(async () => {
+    if (!activeSessionRef.current) return null;
+
+    const elapsedMs = freezeSessionClock();
+    setIsMonitoring(false);
+
+    const completed = await sessionRuntimeRef.current.finishSession(elapsedMs);
+    resetSessionClock();
+    setMetricsHistory([]);
+    syncSessionState();
+    addLog("Study session finished and summarized.", "success");
+    return completed;
+  }, [addLog, freezeSessionClock, resetSessionClock, syncSessionState]);
+
+  const discardSession = useCallback(async () => {
+    if (!activeSessionRef.current) return false;
+
+    freezeSessionClock();
+    setIsMonitoring(false);
+    const discarded = await sessionRuntimeRef.current.discardSession();
+    resetSessionClock();
+    setMetricsHistory([]);
+    syncSessionState();
+    addLog("Study session discarded.", "warning");
+    return discarded;
+  }, [addLog, freezeSessionClock, resetSessionClock, syncSessionState]);
+
+  const updateSessionTask = useCallback(async (taskDescription) => {
+    const session = await sessionRuntimeRef.current.updateSessionTask(taskDescription);
+    syncSessionState();
+    return session;
+  }, [syncSessionState]);
+
+  const updateTargetDuration = useCallback(async (targetDurationMs) => {
+    const session = await sessionRuntimeRef.current.updateTargetDuration(targetDurationMs);
+    syncSessionState();
+    return session;
+  }, [syncSessionState]);
+
+  const getSessionById = useCallback((sessionId) => (
+    sessionRuntimeRef.current.getSessionById(sessionId)
+  ), []);
+
+  const getMetricSamples = useCallback((sessionId) => (
+    sessionRuntimeRef.current.getMetricSamples(sessionId)
+  ), []);
 
   // Camera WebRTC Handlers
   const startCamera = async () => {
@@ -859,34 +1059,29 @@ export const AppProvider = ({ children }) => {
     }
     setCameraStream(null);
     setIsCameraAllowed(false);
-    setIsMonitoring(false);
-    resetSessionClock();
+    void pauseSession({ silent: true });
     resetAffectState();
     setAffectModelStatus("idle");
-    addLog("Camera stream stopped.", "info");
+    addLog("Camera stream stopped. Active session paused if one was running.", "info");
   };
 
   // Toggle Monitoring
   const toggleMonitoring = async () => {
-    if (!isMonitoring) {
-      // Starting
-      if (!isCameraAllowed) {
-        setShowCameraDialog(true);
-      } else {
-        setIsMonitoring(true);
-        startSessionClock();
-        addLog("Mental state monitoring started.", "success");
-      }
-    } else {
-      // Pausing
-      setIsMonitoring(false);
-      pauseSessionClock();
-      addLog("Mental state monitoring paused.", "warning");
+    if (monitoringRef.current) {
+      return pauseSession();
     }
+
+    const active = activeSessionRef.current;
+    if (active?.status === SESSION_STATUS.PAUSED) {
+      return resumeSession();
+    }
+
+    return startSession();
   };
 
-  // Reset metrics
-  const resetMetrics = () => {
+  // Reset metrics and clear in-memory session data
+  const resetMetrics = async () => {
+    setIsMonitoring(false);
     setFocus(80);
     setStress(25);
     setFatigue(10);
@@ -902,103 +1097,10 @@ export const AppProvider = ({ children }) => {
     resetEstimatorSession(80, 10);
     resetAffectState();
     resetSessionClock();
-    addLog("Metrics reset to baseline.", "info");
+    await sessionRuntimeRef.current.clear();
+    syncSessionState();
+    addLog("Metrics and session data reset to baseline.", "info");
   };
-
-  // Initialize metrics history with some starting points
-  useEffect(() => {
-    const initialHistory = [];
-    const now = Date.now();
-    for (let i = 19; i >= 0; i--) {
-      initialHistory.push({
-        timestamp: new Date(now - i * 3000).toLocaleTimeString().split(" ")[0],
-        focus: Math.max(60, Math.min(95, 80 + Math.sin(i * 0.5) * 10 + (Math.random() - 0.5) * 5)),
-        stress: Math.max(15, Math.min(60, 30 + Math.cos(i * 0.5) * 8 + (Math.random() - 0.5) * 4)),
-        fatigue: Math.max(5, Math.min(30, 15 - i * 0.5 + (Math.random() - 0.5) * 3)),
-        arousal: Math.max(30, Math.min(70, 45 + Math.sin(i * 0.3) * 5 + (Math.random() - 0.5) * 3))
-      });
-    }
-    const timer = setTimeout(() => {
-      setMetricsHistory(initialHistory);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Background Simulation Loop (only when monitoring is active)
-  useEffect(() => {
-    if (!isMonitoring) return;
-
-    // Fall back to simulation only if camera tracking is offline or models not loaded
-    if (isCameraAllowed && isAiLoaded) return;
-
-    const interval = setInterval(() => {
-      // 1. Update general mental states with small random walk
-      setFocus((prev) => {
-        const delta = (Math.random() - 0.5) * 4;
-        return Math.max(10, Math.min(100, Math.round(prev + delta)));
-      });
-      setStress((prev) => {
-        const delta = (Math.random() - 0.48) * 4; // slight upward drift if working
-        return Math.max(5, Math.min(100, Math.round(prev + delta)));
-      });
-      setFatigue((prev) => {
-        const delta = (Math.random() - 0.45) * 2; // slow accumulation
-        return Math.max(0, Math.min(100, Math.round(prev + delta)));
-      });
-      setArousal((prev) => {
-        const delta = (Math.random() - 0.5) * 3;
-        return Math.max(10, Math.min(100, Math.round(prev + delta)));
-      });
-
-      // Update FPS and latency slightly for realism
-      setFps(() => Math.round(29 + Math.random() * 2));
-      setLatency(() => Math.round(15 + Math.random() * 6));
-
-      // 2. Roll for random CV events
-      const roll = Math.random();
-
-      if (roll < 0.12) {
-        // Blink Event
-        setBlinkRate((prev) => Math.max(8, Math.min(24, prev + (Math.random() > 0.5 ? 1 : -1))));
-        addLog("Blink detected.", "debug");
-      } else if (roll < 0.15) {
-        // Head Pose Adjustment
-        const newYaw = parseFloat(((Math.random() - 0.5) * 15).toFixed(1));
-        const newPitch = parseFloat(((Math.random() - 0.5) * 10).toFixed(1));
-        const newRoll = parseFloat(((Math.random() - 0.5) * 5).toFixed(1));
-        setHeadPose({ yaw: newYaw, pitch: newPitch, roll: newRoll });
-        addLog(`Head pose updated (Yaw: ${newYaw}°, Pitch: ${newPitch}°)`, "debug");
-      } else if (roll < 0.17) {
-        // Gesture Event
-        const gestures = ["Hand on Chin", "Leaning Forward", "Resting Head", "Rubbing Eyes", "None"];
-        const newGesture = gestures[Math.floor(Math.random() * gestures.length)];
-        setCurrentGesture(newGesture);
-        
-        if (newGesture !== "None") {
-          addLog(`Gesture detected: ${newGesture}`, "info");
-          if (newGesture === "Resting Head") {
-            setFatigue((prev) => Math.min(100, prev + 5));
-            setFocus((prev) => Math.max(0, prev - 10));
-          } else if (newGesture === "Leaning Forward") {
-            setFocus((prev) => Math.min(100, prev + 8));
-          } else if (newGesture === "Rubbing Eyes") {
-            setFatigue((prev) => Math.min(100, prev + 8));
-            setStress((prev) => Math.min(100, prev + 4));
-          }
-        }
-      } else if (roll < 0.185) {
-        // Yawn Event
-        setYawnCount((prev) => prev + 1);
-        setFatigue((prev) => Math.min(100, prev + 12));
-        setFocus((prev) => Math.max(0, prev - 15));
-        addLog("Yawn detected. Fatigue level spiked.", "warning");
-      }
-
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isMonitoring, isCameraAllowed, isAiLoaded, addLog]);
-
   // Log history points every 5 seconds when monitoring is active
   useEffect(() => {
     if (!isMonitoring) return;
@@ -1041,6 +1143,18 @@ export const AppProvider = ({ children }) => {
         resetMetrics,
         sessionClock,
         getSessionElapsedMs,
+        activeSession,
+        completedSessions,
+        activeSessionSamples,
+        startSession,
+        pauseSession,
+        resumeSession,
+        finishSession,
+        discardSession,
+        updateSessionTask,
+        updateTargetDuration,
+        getSessionById,
+        getMetricSamples,
         focus,
         setFocus,
         stress,

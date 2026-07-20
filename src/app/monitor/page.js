@@ -4,6 +4,7 @@ import React from "react";
 import { useAppState } from "../../context/AppContext";
 import CameraFeed from "../../components/CameraFeed";
 import DebugPanel from "../../components/DebugPanel";
+import SessionControls from "../../components/SessionControls";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 
 export default function MonitorPage() {
@@ -193,8 +194,9 @@ export default function MonitorPage() {
           </div>
         </div>
 
-        {/* Column 3: Debug Panel or Production Sidebar */}
-        <div>
+        {/* Column 3: Session Controls plus Debug Panel or Production Sidebar */}
+        <div className="space-y-6">
+          <SessionControls />
           {isDebugMode ? (
             <DebugPanel />
           ) : (
