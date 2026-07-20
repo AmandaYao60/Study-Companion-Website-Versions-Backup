@@ -1,7 +1,9 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useRef } from "react";
 import { selectSessionSummarySections } from "../../services/session/index.js";
+import BehavioralEngagementChart from "./BehavioralEngagementChart";
+import EmotionalEngagementChart from "./EmotionalEngagementChart";
 import { formatCoverage, formatDateTime, formatDuration, formatMetricValue, formatTargetDuration, formatTask } from "./dashboardFormatters";
 
 const averageFromStats = (session, key) => session?.statistics?.[key]?.mean ?? null;
@@ -11,10 +13,12 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
   const summarySections = selectSessionSummarySections(session);
 
   useEffect(() => {
-    if (!session) return undefined;
+    if (!session && !isLoading) return undefined;
 
     const previousActiveElement = document.activeElement;
     closeButtonRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") onClose();
@@ -23,9 +27,10 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
       previousActiveElement?.focus?.();
     };
-  }, [session, onClose]);
+  }, [session, isLoading, onClose]);
 
   if (!session && !isLoading) return null;
 
@@ -87,12 +92,8 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-dashed border-cyan-400/20 bg-cyan-400/[0.03] p-5 text-sm text-slate-400">
-                Historical behavioral chart placeholder for Phase 4.
-              </div>
-              <div className="rounded-xl border border-dashed border-emerald-400/20 bg-emerald-400/[0.03] p-5 text-sm text-slate-400">
-                Historical valence-arousal chart placeholder for Phase 4.
-              </div>
+              <BehavioralEngagementChart samples={samples} mode="historical" />
+              <EmotionalEngagementChart samples={samples} mode="historical" />
             </div>
 
             <div className="rounded-xl border border-white/10 bg-slate-900/35 p-4">

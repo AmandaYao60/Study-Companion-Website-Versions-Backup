@@ -3,15 +3,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../context/AppContext";
 import {
-  selectBehavioralTimeline,
   selectDashboardMetricCards,
   selectDashboardSessionSource,
-  selectEmotionalTrajectory,
   selectSessionHistoryRows,
 } from "../services/session/index.js";
-import BehavioralEngagementPlaceholder from "./dashboard/BehavioralEngagementPlaceholder";
+import BehavioralEngagementChart from "./dashboard/BehavioralEngagementChart";
 import DashboardMetricCards from "./dashboard/DashboardMetricCards";
-import EmotionalEngagementPlaceholder from "./dashboard/EmotionalEngagementPlaceholder";
+import EmotionalEngagementChart from "./dashboard/EmotionalEngagementChart";
 import LongTermTrendsPlaceholder from "./dashboard/LongTermTrendsPlaceholder";
 import SessionHistoryList from "./dashboard/SessionHistoryList";
 import SessionHistoryModal from "./dashboard/SessionHistoryModal";
@@ -62,9 +60,6 @@ export default function DashboardCharts() {
     isActive: source.kind === "active",
   });
 
-  const behavioralTimeline = selectBehavioralTimeline(sourceSamples);
-  const emotionalTrajectory = selectEmotionalTrajectory(sourceSamples);
-
   useEffect(() => {
     if (source.kind !== "completed" || !source.session?.id) {
       return undefined;
@@ -114,8 +109,8 @@ export default function DashboardCharts() {
       <DashboardMetricCards cards={metricCards} sourceLabel={source.label} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <BehavioralEngagementPlaceholder timeline={behavioralTimeline} sourceLabel={source.label} />
-        <EmotionalEngagementPlaceholder trajectory={emotionalTrajectory} sourceLabel={source.label} />
+        <BehavioralEngagementChart samples={sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
+        <EmotionalEngagementChart samples={sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
       </div>
 
       <SessionSummaryPanel session={sessionForPanels} sourceLabel={source.label} />

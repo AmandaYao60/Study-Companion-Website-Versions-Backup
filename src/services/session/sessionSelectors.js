@@ -7,6 +7,17 @@ const timestampMs = (value) => {
   return Number.isFinite(time) ? time : 0;
 };
 const newestTime = (session) => Math.max(timestampMs(session.endedAt), timestampMs(session.updatedAt), timestampMs(session.startedAt));
+const sampleTime = (sample) => timestampMs(sample.intervalStartedAt || sample.recordedAt);
+const sortSamplesChronologically = (samples = []) => [...samples].sort((a, b) => {
+  const timeDiff = sampleTime(a) - sampleTime(b);
+  if (timeDiff !== 0) return timeDiff;
+  return String(a.id || "").localeCompare(String(b.id || ""));
+});
+const meanFinite = (values = []) => {
+  const numbers = values.filter(isFiniteNumber);
+  if (numbers.length === 0) return null;
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+};
 
 /** Sort sessions newest first without mutating the input. @param {Array<Object>} sessions */
 export const sortSessionsByNewest = (sessions = []) => [...sessions].sort((a, b) => {
@@ -31,24 +42,43 @@ export const selectSessionListRow = (session = {}) => ({
 });
 
 /** @param {Array<Object>} samples */
-export const selectBehavioralTimeline = (samples = []) => samples.map((sample) => ({
+export const selectBehavioralTimeline = (samples = []) => sortSamplesChronologically(samples).map((sample) => ({
+  id: sample.id,
   elapsedMs: sample.elapsedMs,
-  attention: sample.attention ?? null,
-  fatigue: sample.fatigue ?? null,
+  attention: isFiniteNumber(sample.attention) ? sample.attention : null,
+  fatigue: isFiniteNumber(sample.fatigue) ? sample.fatigue : null,
   dataQuality: sample.dataQuality,
 }));
 
 /** @param {Array<Object>} samples */
-export const selectEmotionalTrajectory = (samples = []) => samples
+export const selectEmotionalTrajectory = (samples = []) => sortSamplesChronologically(samples)
   .filter((sample) => isFiniteNumber(sample.valence) && isFiniteNumber(sample.arousal))
   .map((sample) => ({
+    id: sample.id,
     elapsedMs: sample.elapsedMs,
     valence: sample.valence,
     arousal: sample.arousal,
     emotion: sample.emotion ?? null,
-    emotionConfidence: sample.emotionConfidence ?? null,
+    emotionConfidence: isFiniteNumber(sample.emotionConfidence) ? sample.emotionConfidence : null,
     dataQuality: sample.dataQuality,
   }));
+
+/** @param {Array<Object>} samples */
+export const selectMetricAverages = (samples = []) => ({
+  attention: meanFinite(samples.map((sample) => sample.attention)),
+  fatigue: meanFinite(samples.map((sample) => sample.fatigue)),
+  valence: meanFinite(samples.map((sample) => sample.valence)),
+  arousal: meanFinite(samples.map((sample) => sample.arousal)),
+});
+
+/** @param {Array<Object>} samples */
+export const selectEmotionalMeanPoint = (samples = []) => {
+  const trajectory = selectEmotionalTrajectory(samples);
+  const valence = meanFinite(trajectory.map((point) => point.valence));
+  const arousal = meanFinite(trajectory.map((point) => point.arousal));
+  if (!isFiniteNumber(valence) || !isFiniteNumber(arousal)) return null;
+  return { valence, arousal };
+};
 
 const metricDefinitions = Object.freeze([
   { id: "attention", label: "Attention", rangeLabel: "0-100", valueKind: "percentage" },
