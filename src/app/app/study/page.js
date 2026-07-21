@@ -1,5 +1,5 @@
-import StudySpace from "../../../components/product/StudySpace";
+import { redirect } from "next/navigation";
 
 export default function StudyPage() {
-  return <StudySpace />;
+  redirect("/app");
 }

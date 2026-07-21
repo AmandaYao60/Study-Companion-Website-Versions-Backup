@@ -41,7 +41,7 @@ export default function SessionSetupForm() {
     setIsStarting(true);
     try {
       if (activeSession) {
-        router.push("/app/study");
+        router.push("/app");
         return;
       }
 
@@ -52,7 +52,7 @@ export default function SessionSetupForm() {
       });
 
       if (session) {
-        router.push("/app/study");
+        router.push("/app");
         window.setTimeout(() => setShowCameraDialog(true), 0);
       }
     } catch (startError) {
@@ -66,7 +66,7 @@ export default function SessionSetupForm() {
   return (
     <section className="rounded-3xl border border-white/10 bg-slate-950/50 p-6 shadow-2xl backdrop-blur-xl">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-300">Session setup</p>
+        <p className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-300">Study Workspace</p>
         <h1 className="mt-3 text-3xl font-black text-white sm:text-4xl">Good afternoon.</h1>
         <p className="mt-2 text-lg text-slate-300">What would you like to work on today?</p>
       </div>

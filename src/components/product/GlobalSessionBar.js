@@ -29,7 +29,7 @@ export default function GlobalSessionBar() {
   const isFocusRoute = pathname.startsWith("/app/focus");
   const isPrepared = activeSession.status === "prepared";
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";
-  const contextualHref = isFocusRoute ? "/app/study" : "/app/focus";
+  const contextualHref = isFocusRoute ? "/app" : "/app/focus";
   const contextualLabel = isFocusRoute ? "Return to Study Space" : "Enter Focus Space";
 
   const handlePauseResume = async () => {
