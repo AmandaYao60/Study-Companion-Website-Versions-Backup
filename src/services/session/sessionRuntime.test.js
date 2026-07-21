@@ -1,4 +1,4 @@
-﻿import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
@@ -27,21 +27,28 @@ const createObservation = (elapsedMs, overrides = {}) => ({
   ...overrides,
 });
 
-test("session runtime starts, pauses, resumes, samples, and finishes one session", async () => {
+test("session runtime prepares, activates, pauses, resumes, samples, and finishes one session", async () => {
   const runtime = createSessionRuntime({
     now,
     idFactory: () => "runtime-session-1",
     sampleIntervalMs: 1000,
   });
 
-  const started = await runtime.startSession({
+  const prepared = await runtime.prepareSession({
     taskDescription: "Read chapter 4",
     targetDurationMs: 25 * 60000,
   });
 
-  assert.equal(started.id, "runtime-session-1");
+  assert.equal(prepared.id, "runtime-session-1");
+  assert.equal(prepared.status, SESSION_STATUS.PREPARED);
+  assert.equal(prepared.taskDescription, "Read chapter 4");
+
+  const ignoredWhilePrepared = await runtime.appendObservation(createObservation(0));
+  assert.deepEqual(ignoredWhilePrepared, []);
+
+  const started = await runtime.activatePreparedSession();
+  assert.equal(started.id, prepared.id);
   assert.equal(started.status, SESSION_STATUS.ACTIVE);
-  assert.equal(started.taskDescription, "Read chapter 4");
 
   await runtime.appendObservation(createObservation(0));
   await runtime.appendObservation(createObservation(500));
@@ -94,7 +101,8 @@ test("discard removes the active session without creating completed history", as
     sampleIntervalMs: 1000,
   });
 
-  await runtime.startSession({ taskDescription: "Temporary task" });
+  await runtime.prepareSession({ taskDescription: "Temporary task" });
+  await runtime.activatePreparedSession();
   await runtime.appendObservation(createObservation(0));
   await runtime.pauseSession(200);
 

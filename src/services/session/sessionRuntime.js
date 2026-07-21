@@ -109,7 +109,7 @@ export const createSessionRuntime = (options = {}) => {
   return {
     getSnapshot,
 
-    async startSession(input = {}) {
+    async prepareSession(input = {}) {
       if (activeSession) return clone(activeSession);
 
       const startedAt = input.startedAt || now();
@@ -120,7 +120,7 @@ export const createSessionRuntime = (options = {}) => {
         startedAt,
         createdAt: startedAt,
         updatedAt: startedAt,
-        status: SESSION_STATUS.ACTIVE,
+        status: SESSION_STATUS.PREPARED,
         accumulatedStudyMs: 0,
       }, {
         idFactory: options.idFactory,
@@ -134,8 +134,23 @@ export const createSessionRuntime = (options = {}) => {
       return clone(activeSession);
     },
 
+    async startSession(input = {}) {
+      return this.prepareSession(input);
+    },
+
+    async activatePreparedSession() {
+      if (!activeSession) return null;
+      if (activeSession.status === SESSION_STATUS.ACTIVE) return clone(activeSession);
+      activeSession = await repository.updateSession(activeSession.id, {
+        status: SESSION_STATUS.ACTIVE,
+        updatedAt: now(),
+      });
+      return clone(activeSession);
+    },
+
     async pauseSession(accumulatedStudyMs = 0) {
       if (!activeSession) return null;
+      if (activeSession.status === SESSION_STATUS.PREPARED) return clone(activeSession);
       activeSession = await repository.updateSession(activeSession.id, {
         status: SESSION_STATUS.PAUSED,
         accumulatedStudyMs,

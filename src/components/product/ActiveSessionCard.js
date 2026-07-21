@@ -10,19 +10,26 @@ import EndSessionDialog from "./EndSessionDialog";
 
 export default function ActiveSessionCard() {
   const router = useRouter();
-  const { activeSession, isMonitoring, resumeSession, finishSession } = useAppState();
+  const { activeSession, isMonitoring, resumeSession, finishSession, setShowCameraDialog } = useAppState();
   const { formatted } = useSmoothSessionTimer(250);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
 
   if (!activeSession) return null;
 
+  const isPrepared = activeSession.status === "prepared";
+
   const handleResume = async () => {
-    if (!isMonitoring) {
-      const session = await resumeSession();
-      if (!session) return;
-    }
     router.push("/app/study");
+
+    if (isPrepared) {
+      window.setTimeout(() => setShowCameraDialog(true), 0);
+      return;
+    }
+
+    if (!isMonitoring) {
+      await resumeSession();
+    }
   };
 
   const handleEnd = async () => {
@@ -52,14 +59,14 @@ export default function ActiveSessionCard() {
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-900/45 p-4">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Status</p>
-            <p className="mt-2 text-sm font-bold text-white">{isMonitoring ? "Active" : "Paused"}</p>
+            <p className="mt-2 text-sm font-bold text-white">{isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused"}</p>
           </div>
         </div>
         <p className="mt-3 text-sm text-slate-400">Target: {formatTargetDuration(activeSession.targetDurationMs)}</p>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <button type="button" onClick={() => void handleResume()} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-bold text-slate-950 transition-all hover:bg-cyan-300">
-            Resume Study
+            {isPrepared ? "Begin Study" : "Resume Study"}
           </button>
           <Link href="/app/dashboard" className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800">
             View Dashboard

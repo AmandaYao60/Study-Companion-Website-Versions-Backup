@@ -19,7 +19,7 @@ const minutesToMs = (minutes) => {
 
 export default function SessionSetupForm() {
   const router = useRouter();
-  const { startCamera, startSession, isCameraAllowed, isAiLoaded } = useAppState();
+  const { prepareSession, activeSession, setShowCameraDialog } = useAppState();
   const [taskDescription, setTaskDescription] = useState("");
   const [targetChoice, setTargetChoice] = useState(25);
   const [customMinutes, setCustomMinutes] = useState("");
@@ -40,20 +40,24 @@ export default function SessionSetupForm() {
     setError("");
     setIsStarting(true);
     try {
-      if (!isCameraAllowed) {
-        await startCamera();
+      if (activeSession) {
+        router.push("/app/study");
+        return;
       }
 
-      const session = await startSession({
+      const session = await prepareSession({
         taskDescription: trimmedTask,
         targetDurationMs: selectedTargetMs,
         preSessionCheckIn: { energy, mood },
       });
 
-      if (session) router.push("/app/study");
+      if (session) {
+        router.push("/app/study");
+        window.setTimeout(() => setShowCameraDialog(true), 0);
+      }
     } catch (startError) {
-      console.error("Failed to start study session:", startError);
-      setError("Camera permission is required to start a monitored study session.");
+      console.error("Failed to prepare study session:", startError);
+      setError("Could not prepare the study session. Please try again.");
     } finally {
       setIsStarting(false);
     }
@@ -145,7 +149,7 @@ export default function SessionSetupForm() {
         {error && <p className="text-sm font-semibold text-red-300">{error}</p>}
 
         <button type="button" onClick={() => void handleStart()} disabled={isStarting} className="w-full rounded-2xl bg-cyan-400 px-5 py-4 text-sm font-black text-slate-950 transition-all hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-70">
-          {isStarting ? (isAiLoaded ? "Starting session..." : "Preparing camera and local AI...") : "Start Study Session"}
+          {isStarting ? "Preparing session..." : "Start Study Session"}
         </button>
       </div>
     </section>

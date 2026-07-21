@@ -8,7 +8,8 @@ import DebugPanel from "../DebugPanel";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTargetDuration, formatTask } from "../dashboard/dashboardFormatters";
 
-const getFriendlyStatus = ({ isMonitoring, focus, fatigue }) => {
+const getFriendlyStatus = ({ sessionStatus, isMonitoring, focus, fatigue }) => {
+  if (sessionStatus === "prepared") return "Camera access is required to begin monitoring.";
   if (!isMonitoring) return "Monitoring is paused. Resume when you are ready to continue.";
   if (fatigue >= 70) return "You seem a little tired. It is okay to slow down.";
   if (focus >= 75 && fatigue < 55) return "Deeply focused. Keep this steady rhythm.";
@@ -48,7 +49,8 @@ export default function StudySpace() {
     );
   }
 
-  const status = getFriendlyStatus({ isMonitoring, focus, fatigue });
+  const sessionStatus = activeSession.status;
+  const status = getFriendlyStatus({ sessionStatus, isMonitoring, focus, fatigue });
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -69,7 +71,7 @@ export default function StudySpace() {
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3">
             <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Monitoring</p>
-            <p className={`mt-1 text-sm font-bold ${isMonitoring ? "text-emerald-300" : "text-amber-300"}`}>{isMonitoring ? "Active" : "Paused"}</p>
+            <p className={`mt-1 text-sm font-bold ${isMonitoring ? "text-emerald-300" : "text-amber-300"}`}>{sessionStatus === "prepared" ? "Ready to begin" : isMonitoring ? "Active" : "Paused"}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3">
             <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Posture</p>
@@ -89,7 +91,7 @@ export default function StudySpace() {
                 Enter Focus Space
               </Link>
             ) : (
-              <p className="mt-4 text-xs text-slate-500">Resume monitoring from the global session bar to enter Focus Space.</p>
+              <p className="mt-4 text-xs text-slate-500">{sessionStatus === "prepared" ? "Enable camera access to begin monitoring before entering Focus Space." : "Resume monitoring from the global session bar to enter Focus Space."}</p>
             )}
           </section>
         </div>

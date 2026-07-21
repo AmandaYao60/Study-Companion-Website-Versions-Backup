@@ -4,7 +4,15 @@ import React, { useState } from "react";
 import { useAppState } from "../context/AppContext";
 
 export default function CameraPermissionDialog() {
-  const { showCameraDialog, setShowCameraDialog, startCamera } = useAppState();
+  const {
+    showCameraDialog,
+    setShowCameraDialog,
+    startCamera,
+    activatePreparedSession,
+    stopCamera,
+    activeSession,
+    isMonitoring,
+  } = useAppState();
   const [isInitializing, setIsInitializing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -15,11 +23,19 @@ export default function CameraPermissionDialog() {
     setErrorMsg("");
     try {
       await startCamera();
+      await activatePreparedSession();
       setShowCameraDialog(false);
     } catch {
       setErrorMsg("Could not access camera. Please ensure permissions are granted and no other app is using it.");
     } finally {
       setIsInitializing(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setShowCameraDialog(false);
+    if (!isMonitoring && activeSession?.status === "prepared") {
+      void stopCamera({ pauseActiveSession: false });
     }
   };
 
@@ -51,7 +67,7 @@ export default function CameraPermissionDialog() {
 
         <div className="mt-6 flex gap-3">
           <button
-            onClick={() => setShowCameraDialog(false)}
+            onClick={handleCancel}
             className="flex-1 rounded-xl border border-white/10 bg-slate-900 py-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-800"
           >
             Cancel

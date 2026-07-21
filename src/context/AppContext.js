@@ -924,54 +924,109 @@ export const AppProvider = ({ children }) => {
     addLog("Exported raw landmark table to CSV.", "success");
   };
 
-  const startSession = useCallback(async ({ taskDescription = "", targetDurationMs = null, preSessionCheckIn = null } = {}) => {
-    if (!cameraAllowedRef.current) {
-      setShowCameraDialog(true);
-      return null;
+  const clearCameraStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
 
+    setCameraStream(null);
+    setIsCameraAllowed(false);
+    cameraAllowedRef.current = false;
+  }, []);
+
+  const resetTransientInferenceState = useCallback(() => {
+    resetAffectState();
+    setAffectModelStatus("idle");
+    setCurrentGesture("None");
+  }, [resetAffectState]);
+
+  const prepareSession = useCallback(async ({ taskDescription = "", targetDurationMs = null, preSessionCheckIn = null } = {}) => {
     const existing = activeSessionRef.current;
     if (existing) {
       return existing;
     }
 
-    const session = await sessionRuntimeRef.current.startSession({
+    setIsMonitoring(false);
+    resetSessionClock();
+    resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
+
+    const session = await sessionRuntimeRef.current.prepareSession({
       taskDescription,
       targetDurationMs,
       preSessionCheckIn,
     });
 
-    resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
-    startSessionClockFromZero();
+    syncSessionState();
+    addLog("Study session prepared. Camera permission is required to begin monitoring.", "info");
+    return session;
+  }, [addLog, resetEstimatorSession, resetSessionClock, syncSessionState]);
+
+  const activatePreparedSession = useCallback(async () => {
+    const active = activeSessionRef.current;
+    if (!active) return null;
+
+    if (!cameraAllowedRef.current || !streamRef.current) {
+      setShowCameraDialog(true);
+      return null;
+    }
+
+    if (active.status === SESSION_STATUS.ACTIVE) {
+      return active;
+    }
+
+    const session = active.status === SESSION_STATUS.PREPARED
+      ? await sessionRuntimeRef.current.activatePreparedSession()
+      : await sessionRuntimeRef.current.resumeSession();
+
+    if (active.status === SESSION_STATUS.PREPARED) {
+      resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
+      startSessionClockFromZero();
+    } else {
+      startSessionClock();
+    }
+
     setIsMonitoring(true);
     syncSessionState();
-    addLog("Study session started.", "success");
+    addLog(active.status === SESSION_STATUS.PREPARED ? "Study session started." : "Study session resumed.", "success");
     return session;
-  }, [addLog, resetEstimatorSession, startSessionClockFromZero, syncSessionState]);
+  }, [addLog, resetEstimatorSession, startSessionClock, startSessionClockFromZero, syncSessionState]);
+
+  const startSession = prepareSession;
 
   const pauseSession = useCallback(async ({ silent = false } = {}) => {
+    const active = activeSessionRef.current;
+    if (!active) return null;
+
+    if (active.status === SESSION_STATUS.PREPARED) {
+      setIsMonitoring(false);
+      resetSessionClock();
+      return active;
+    }
+
     const elapsedMs = freezeSessionClock();
     setIsMonitoring(false);
 
-    if (activeSessionRef.current) {
-      await sessionRuntimeRef.current.pauseSession(elapsedMs);
-      syncSessionState();
-    }
+    await sessionRuntimeRef.current.pauseSession(elapsedMs);
+    syncSessionState();
 
     if (!silent) {
       addLog("Study session paused.", "warning");
     }
 
-    return activeSessionRef.current;
-  }, [addLog, freezeSessionClock, syncSessionState]);
+    return sessionRuntimeRef.current.getSnapshot().activeSession;
+  }, [addLog, freezeSessionClock, resetSessionClock, syncSessionState]);
 
   const resumeSession = useCallback(async () => {
-    if (!cameraAllowedRef.current) {
-      setShowCameraDialog(true);
-      return null;
+    const active = activeSessionRef.current;
+    if (!active) return null;
+
+    if (active.status === SESSION_STATUS.PREPARED) {
+      return activatePreparedSession();
     }
 
-    if (!activeSessionRef.current) {
+    if (!cameraAllowedRef.current || !streamRef.current) {
+      setShowCameraDialog(true);
       return null;
     }
 
@@ -981,34 +1036,55 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session resumed.", "success");
     return session;
-  }, [addLog, startSessionClock, syncSessionState]);
+  }, [activatePreparedSession, addLog, startSessionClock, syncSessionState]);
+
+  const stopCamera = useCallback(async ({ pauseActiveSession = true } = {}) => {
+    const active = activeSessionRef.current;
+    const shouldPause = pauseActiveSession && active?.status === SESSION_STATUS.ACTIVE;
+    const elapsedMs = shouldPause ? freezeSessionClock() : getSessionElapsedMs();
+
+    setIsMonitoring(false);
+    clearCameraStream();
+    resetTransientInferenceState();
+
+    if (shouldPause) {
+      await sessionRuntimeRef.current.pauseSession(elapsedMs);
+      syncSessionState();
+    }
+
+    addLog("Camera stream stopped. Study session data was preserved.", "info");
+    return true;
+  }, [addLog, clearCameraStream, freezeSessionClock, getSessionElapsedMs, resetTransientInferenceState, syncSessionState]);
 
   const finishSession = useCallback(async () => {
     if (!activeSessionRef.current) return null;
 
-    const elapsedMs = freezeSessionClock();
+    const elapsedMs = getSessionElapsedMs();
     setIsMonitoring(false);
 
     const completed = await sessionRuntimeRef.current.finishSession(elapsedMs);
+    clearCameraStream();
+    resetTransientInferenceState();
     resetSessionClock();
     setMetricsHistory([]);
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
     return completed;
-  }, [addLog, freezeSessionClock, resetSessionClock, syncSessionState]);
+  }, [addLog, clearCameraStream, getSessionElapsedMs, resetSessionClock, resetTransientInferenceState, syncSessionState]);
 
   const discardSession = useCallback(async () => {
     if (!activeSessionRef.current) return false;
 
-    freezeSessionClock();
     setIsMonitoring(false);
+    clearCameraStream();
+    resetTransientInferenceState();
     const discarded = await sessionRuntimeRef.current.discardSession();
     resetSessionClock();
     setMetricsHistory([]);
     syncSessionState();
     addLog("Study session discarded.", "warning");
     return discarded;
-  }, [addLog, freezeSessionClock, resetSessionClock, syncSessionState]);
+  }, [addLog, clearCameraStream, resetSessionClock, resetTransientInferenceState, syncSessionState]);
 
   const updateSessionTask = useCallback(async (taskDescription) => {
     const session = await sessionRuntimeRef.current.updateSessionTask(taskDescription);
@@ -1030,59 +1106,54 @@ export const AppProvider = ({ children }) => {
     sessionRuntimeRef.current.getMetricSamples(sessionId)
   ), []);
 
-  // Camera WebRTC Handlers
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
-      if (cameraStream) return true;
-      
+      if (streamRef.current) {
+        setIsCameraAllowed(true);
+        cameraAllowedRef.current = true;
+        return streamRef.current;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
         audio: false
       });
-      
+
       setCameraStream(stream);
       streamRef.current = stream;
       setIsCameraAllowed(true);
+      cameraAllowedRef.current = true;
       addLog("Camera access granted. Live stream connected.", "success");
-      return true;
+      return stream;
     } catch (err) {
       console.error("Error accessing webcam:", err);
       setIsCameraAllowed(false);
+      cameraAllowedRef.current = false;
       addLog("Camera access denied or unavailable.", "error");
       throw err;
     }
-  };
+  }, [addLog]);
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setCameraStream(null);
-    setIsCameraAllowed(false);
-    void pauseSession({ silent: true });
-    resetAffectState();
-    setAffectModelStatus("idle");
-    addLog("Camera stream stopped. Active session paused if one was running.", "info");
-  };
-
-  // Toggle Monitoring
   const toggleMonitoring = async () => {
     if (monitoringRef.current) {
       return pauseSession();
     }
 
     const active = activeSessionRef.current;
+    if (active?.status === SESSION_STATUS.PREPARED) {
+      return activatePreparedSession();
+    }
     if (active?.status === SESSION_STATUS.PAUSED) {
       return resumeSession();
     }
 
-    return startSession();
+    return null;
   };
-
   // Reset metrics and clear in-memory session data
   const resetMetrics = async () => {
     setIsMonitoring(false);
+    clearCameraStream();
+    resetTransientInferenceState();
     setFocus(80);
     setStress(25);
     setFatigue(10);
@@ -1147,6 +1218,8 @@ export const AppProvider = ({ children }) => {
         activeSession,
         completedSessions,
         activeSessionSamples,
+        prepareSession,
+        activatePreparedSession,
         startSession,
         pauseSession,
         resumeSession,

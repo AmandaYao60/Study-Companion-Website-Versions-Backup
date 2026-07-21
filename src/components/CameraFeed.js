@@ -120,9 +120,11 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     updateAffectMetrics,
     affectModelStatus,
     setAffectModelStatus,
+    activeSession,
   } = useAppState();
 
   const isFocusPanel = presentation === "focus-panel";
+  const isPreparedSession = activeSession?.status === "prepared";
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -729,9 +731,9 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </div>
-                <h3 className="text-sm font-semibold text-slate-300">Camera Stream Offline</h3>
+                <h3 className="text-sm font-semibold text-slate-300">{isPreparedSession ? "Waiting for camera permission" : "Camera Stream Offline"}</h3>
                 <p className="mt-1 max-w-xs text-xs text-slate-500">
-                  AegisMind requires camera access to analyze facial postures and gestures.
+                  {isPreparedSession ? "Camera access is required to begin monitoring." : "AegisMind requires camera access to analyze facial postures and gestures."}
                 </p>
                 <button
                   onClick={() => setShowCameraDialog(true)}
@@ -777,7 +779,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                   : "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400"
             }`}
           >
-            {isMonitoring ? "Pause Session" : "Start Session"}
+            {isMonitoring ? "Pause Session" : isPreparedSession ? "Enable Camera" : "Resume Session"}
           </button>
 
           <button

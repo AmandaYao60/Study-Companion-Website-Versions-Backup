@@ -7,6 +7,7 @@ export const DEFAULT_MINIMUM_DATA_COVERAGE = 0.6;
 
 export const SESSION_STATUS = Object.freeze({
   IDLE: "idle",
+  PREPARED: "prepared",
   ACTIVE: "active",
   PAUSED: "paused",
   COMPLETED: "completed",
