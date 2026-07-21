@@ -50,9 +50,9 @@ function ModelStatusPanel({ isCameraAllowed, isAiLoaded, affectModelStatus, onDi
   );
 }
 
-function StudyStatusPanel({ activeSession, isMonitoring, focus, fatigue }) {
+function StudyStatusPanel({ activeSession, isMonitoring, isCameraAllowed, focus, fatigue }) {
   const message = getFriendlyStatus({ activeSession, isMonitoring, focus, fatigue });
-  const canEnterFocus = activeSession && isMonitoring;
+  const canEnterFocus = activeSession?.status === "active" && isMonitoring && isCameraAllowed;
 
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 shadow-2xl backdrop-blur-xl">
@@ -97,7 +97,7 @@ export default function StudySpace() {
             affectModelStatus={affectModelStatus}
             onDisableWebcam={stopCamera}
           />
-          <StudyStatusPanel activeSession={activeSession} isMonitoring={isMonitoring} focus={focus} fatigue={fatigue} />
+          <StudyStatusPanel activeSession={activeSession} isMonitoring={isMonitoring} isCameraAllowed={isCameraAllowed} focus={focus} fatigue={fatigue} />
           {isDebugMode && <DebugPanel />}
         </aside>
 

@@ -17,7 +17,7 @@ const formatCheckIn = (checkIn) => {
 
 export default function ActiveSessionCard() {
   const router = useRouter();
-  const { activeSession, isMonitoring, resumeSession, setShowCameraDialog } = useAppState();
+  const { activeSession, isMonitoring, isCameraAllowed, resumeSession, setShowCameraDialog } = useAppState();
   const { formatted } = useSmoothSessionTimer(250);
   const [isResuming, setIsResuming] = useState(false);
 
@@ -26,6 +26,7 @@ export default function ActiveSessionCard() {
   const isPrepared = activeSession.status === "prepared";
   const isPaused = activeSession.status === "paused" || !isMonitoring;
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";
+  const canEnterFocus = activeSession.status === "active" && isMonitoring && isCameraAllowed;
   const checkInSummary = formatCheckIn(activeSession.preSessionCheckIn);
 
   const handlePrimaryAction = async () => {
@@ -83,11 +84,11 @@ export default function ActiveSessionCard() {
           <button type="button" onClick={() => void handlePrimaryAction()} disabled={isResuming} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-bold text-slate-950 transition-all hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-70">
             {isPrepared ? "Enable Camera" : isResuming ? "Resuming..." : "Resume Study"}
           </button>
-        ) : (
+        ) : canEnterFocus ? (
           <Link href="/app/focus" className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center text-sm font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20">
             Enter Focus Space
           </Link>
-        )}
+        ) : null}
         <button type="button" onClick={() => router.push("/app/dashboard")} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800">
           View Dashboard
         </button>

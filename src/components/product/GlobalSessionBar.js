@@ -1,15 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAppState } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTargetDuration, formatTask } from "../dashboard/dashboardFormatters";
 import EndSessionDialog from "./EndSessionDialog";
 
 export default function GlobalSessionBar() {
-  const pathname = usePathname();
   const router = useRouter();
   const {
     activeSession,
@@ -18,7 +16,6 @@ export default function GlobalSessionBar() {
     resumeSession,
     finishSession,
     discardSession,
-    setShowCameraDialog,
   } = useAppState();
   const { formatted } = useSmoothSessionTimer(250);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -26,17 +23,11 @@ export default function GlobalSessionBar() {
 
   if (!activeSession) return null;
 
-  const isFocusRoute = pathname.startsWith("/app/focus");
   const isPrepared = activeSession.status === "prepared";
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";
-  const contextualHref = isFocusRoute ? "/app" : "/app/focus";
-  const contextualLabel = isFocusRoute ? "Return to Study Space" : "Enter Focus Space";
 
   const handlePauseResume = async () => {
-    if (isPrepared) {
-      setShowCameraDialog(true);
-      return;
-    }
+    if (isPrepared) return;
 
     if (isMonitoring) {
       await pauseSession();
@@ -83,12 +74,11 @@ export default function GlobalSessionBar() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void handlePauseResume()} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 transition-all hover:bg-slate-800">
-              {isPrepared ? "Enable Camera" : isMonitoring ? "Pause" : "Resume"}
-            </button>
-            <Link href={contextualHref} aria-disabled={!isMonitoring && !isFocusRoute} className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${!isMonitoring && !isFocusRoute ? "pointer-events-none border border-white/10 bg-slate-900 text-slate-600" : "border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20"}`}>
-              {contextualLabel}
-            </Link>
+            {!isPrepared && (
+              <button type="button" onClick={() => void handlePauseResume()} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 transition-all hover:bg-slate-800">
+                {isMonitoring ? "Pause" : "Resume"}
+              </button>
+            )}
             <button type="button" onClick={() => setIsDialogOpen(true)} className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 transition-all hover:bg-emerald-400/20">
               End Session
             </button>
