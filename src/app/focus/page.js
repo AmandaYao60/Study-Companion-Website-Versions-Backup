@@ -1,5 +1,5 @@
-import FocusSpace from "../../components/focus/FocusSpace";
+import { redirect } from "next/navigation";
 
-export default function FocusPage() {
-  return <FocusSpace />;
+export default function FocusRedirectPage() {
+  redirect("/app/focus");
 }

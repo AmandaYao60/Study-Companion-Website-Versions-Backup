@@ -1,4 +1,4 @@
-﻿import {
+import {
   DEFAULT_SAMPLE_INTERVAL_MS,
   SESSION_STATUS,
 } from "./sessionConstants.js";
@@ -116,6 +116,7 @@ export const createSessionRuntime = (options = {}) => {
       const session = createStudySession({
         taskDescription: input.taskDescription || "",
         targetDurationMs: input.targetDurationMs ?? null,
+        preSessionCheckIn: input.preSessionCheckIn ?? null,
         startedAt,
         createdAt: startedAt,
         updatedAt: startedAt,

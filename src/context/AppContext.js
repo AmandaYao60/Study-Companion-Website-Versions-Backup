@@ -924,7 +924,7 @@ export const AppProvider = ({ children }) => {
     addLog("Exported raw landmark table to CSV.", "success");
   };
 
-  const startSession = useCallback(async ({ taskDescription = "", targetDurationMs = null } = {}) => {
+  const startSession = useCallback(async ({ taskDescription = "", targetDurationMs = null, preSessionCheckIn = null } = {}) => {
     if (!cameraAllowedRef.current) {
       setShowCameraDialog(true);
       return null;
@@ -938,6 +938,7 @@ export const AppProvider = ({ children }) => {
     const session = await sessionRuntimeRef.current.startSession({
       taskDescription,
       targetDurationMs,
+      preSessionCheckIn,
     });
 
     resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);

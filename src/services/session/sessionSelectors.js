@@ -92,12 +92,12 @@ const getStatistics = (session, samples) => session?.statistics || calculateSess
 /** Select the dashboard source in priority order: active session, latest completed session, empty state. @param {Object} input */
 export const selectDashboardSessionSource = ({ activeSession = null, completedSessions = [] } = {}) => {
   if (activeSession) {
-    return { kind: "active", label: "Active Session", session: activeSession };
+    return { kind: "active", label: "Live Session", session: activeSession };
   }
 
   const latestCompleted = selectLatestCompletedSession(completedSessions);
   if (latestCompleted) {
-    return { kind: "completed", label: "Last Completed Session", session: latestCompleted };
+    return { kind: "completed", label: "Session Complete", session: latestCompleted };
   }
 
   return { kind: "empty", label: "No Session Data", session: null };
