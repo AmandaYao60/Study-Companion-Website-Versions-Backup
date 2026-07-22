@@ -154,7 +154,7 @@ This separation is intentional: no-face state is a React UI message, not simulat
 The domain separates four levels of data:
 
 - `MetricObservation`: short-lived inference observations that can be aggregated later. These are not intended for durable storage.
-- `MetricSample`: future interval records, approximately 10 seconds each, containing means for attention, fatigue, valence, and arousal plus data coverage and data-quality metadata.
+- `MetricSample`: future interval records, approximately 5 seconds each, containing means for attention, fatigue, valence, and arousal plus data coverage and data-quality metadata.
 - `SessionStatistics`: descriptive statistics computed across a completed session's interval samples.
 - `SessionSummary`: structured, replaceable rule-based summary sections generated from session-level statistics.
 

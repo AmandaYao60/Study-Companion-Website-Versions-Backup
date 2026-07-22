@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useAppState } from "../../context/AppContext";
-import CameraFeed from "../CameraFeed";
 import CameraPermissionDialog from "../CameraPermissionDialog";
 import FocusMonitorWindow from "./FocusMonitorWindow";
 import FocusSessionBar from "./FocusSessionBar";
@@ -71,11 +70,6 @@ export default function FocusSpace() {
         </div>
       )}
 
-      {canShowMonitor && isMonitorHidden && !isFullscreen && (
-        <div className="pointer-events-none absolute bottom-0 right-0 h-px w-px overflow-hidden opacity-0" aria-hidden="true">
-          <CameraFeed presentation="focus-panel" showControls={false} />
-        </div>
-      )}
 
       <CameraPermissionDialog />
     </FocusStagePlaceholder>

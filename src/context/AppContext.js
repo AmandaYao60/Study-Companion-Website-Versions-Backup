@@ -122,6 +122,10 @@ export const AppProvider = ({ children }) => {
   const gestureRecognizerRef = useRef(null);
   const previousGestureRef = useRef("None");
   const isAiInitializingRef = useRef(false);
+  const monitoringDetectionsRef = useRef({ face: null, gesture: null });
+  const runtimeFaceCropCanvasRef = useRef(null);
+  const [hasDetectedFace, setHasDetectedFace] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState("idle");
 
   // Keep track of blink detection state
   const eyesClosedStartRef = useRef(null);
@@ -145,6 +149,8 @@ export const AppProvider = ({ children }) => {
   const latestFocusRef = useRef(85);
   const latestFatigueRef = useRef(15);
   const debugModeRef = useRef(false);
+  const lastLiveMetricAtRef = useRef(0);
+  const liveMetricSequenceRef = useRef(0);
 
   // Affect smoothing state
   const smoothedValenceRef = useRef(null);
@@ -185,6 +191,7 @@ export const AppProvider = ({ children }) => {
 
   // Historical data for charts (stores live points only; no random seed data)
   const [metricsHistory, setMetricsHistory] = useState([]);
+  const [activeSessionLiveMetrics, setActiveSessionLiveMetrics] = useState([]);
 
   const [sessionRuntime] = useState(() => createSessionRuntime());
   const sessionRuntimeRef = useRef(sessionRuntime);
@@ -480,8 +487,9 @@ export const AppProvider = ({ children }) => {
       faceDetected
     );
 
+    const recordedAt = new Date(timestamp).toISOString();
     const observation = {
-      recordedAt: new Date(timestamp).toISOString(),
+      recordedAt,
       elapsedMs: getSessionElapsedMs(),
       attention: latestFocusRef.current,
       fatigue: latestFatigueRef.current,
@@ -493,6 +501,26 @@ export const AppProvider = ({ children }) => {
       affectValid: Boolean(currentAffect.valid),
       dataValid,
     };
+
+    if (timestamp - lastLiveMetricAtRef.current >= ESTIMATOR_INTERVAL_MS) {
+      lastLiveMetricAtRef.current = timestamp;
+      liveMetricSequenceRef.current += 1;
+      setActiveSessionLiveMetrics((previous) => [
+        ...previous,
+        {
+          id: `${active.id}-live-${liveMetricSequenceRef.current}`,
+          recordedAt,
+          elapsedMs: observation.elapsedMs,
+          attention: observation.attention,
+          fatigue: observation.fatigue,
+          valence: observation.valence,
+          arousal: observation.arousal,
+          emotion: observation.emotion,
+          emotionConfidence: observation.emotionConfidence,
+          dataQuality: dataValid ? "good" : faceDetected ? "partial" : "insufficient",
+        },
+      ]);
+    }
 
     void sessionRuntimeRef.current.appendObservation(observation)
       .then((samples) => {
@@ -939,6 +967,9 @@ export const AppProvider = ({ children }) => {
     resetAffectState();
     setAffectModelStatus("idle");
     setCurrentGesture("None");
+    monitoringDetectionsRef.current = { face: null, gesture: null };
+    setHasDetectedFace(false);
+    setRuntimeStatus("idle");
   }, [resetAffectState]);
 
   const prepareSession = useCallback(async ({ taskDescription = "", targetDurationMs = null, preSessionCheckIn = null } = {}) => {
@@ -950,6 +981,12 @@ export const AppProvider = ({ children }) => {
     setIsMonitoring(false);
     resetSessionClock();
     resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
+
+    setActiveSessionLiveMetrics([]);
+    lastLiveMetricAtRef.current = 0;
+    liveMetricSequenceRef.current = 0;
+    monitoringDetectionsRef.current = { face: null, gesture: null };
+    setHasDetectedFace(false);
 
     const session = await sessionRuntimeRef.current.prepareSession({
       taskDescription,
@@ -1067,6 +1104,9 @@ export const AppProvider = ({ children }) => {
     resetTransientInferenceState();
     resetSessionClock();
     setMetricsHistory([]);
+    setActiveSessionLiveMetrics([]);
+    monitoringDetectionsRef.current = { face: null, gesture: null };
+    setHasDetectedFace(false);
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
     return completed;
@@ -1081,6 +1121,11 @@ export const AppProvider = ({ children }) => {
     const discarded = await sessionRuntimeRef.current.discardSession();
     resetSessionClock();
     setMetricsHistory([]);
+    setActiveSessionLiveMetrics([]);
+    lastLiveMetricAtRef.current = 0;
+    liveMetricSequenceRef.current = 0;
+    monitoringDetectionsRef.current = { face: null, gesture: null };
+    setHasDetectedFace(false);
     syncSessionState();
     addLog("Study session discarded.", "warning");
     return discarded;
@@ -1164,6 +1209,11 @@ export const AppProvider = ({ children }) => {
     setHeadPose({ yaw: 0, pitch: 0, roll: 0 });
     setCurrentGesture("None");
     setMetricsHistory([]);
+    setActiveSessionLiveMetrics([]);
+    lastLiveMetricAtRef.current = 0;
+    liveMetricSequenceRef.current = 0;
+    monitoringDetectionsRef.current = { face: null, gesture: null };
+    setHasDetectedFace(false);
     setTelemetryTable([]);
     setRawLandmarksHistory([]);
     resetEstimatorSession(80, 10);
@@ -1173,30 +1223,6 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Metrics and session data reset to baseline.", "info");
   };
-  // Log history points every 5 seconds when monitoring is active
-  useEffect(() => {
-    if (!isMonitoring) return;
-
-    const historyInterval = setInterval(() => {
-      const timeStr = new Date().toLocaleTimeString().split(" ")[0];
-      setMetricsHistory((prev) => {
-        const next = [
-          ...prev,
-          {
-            timestamp: timeStr,
-            focus,
-            stress,
-            fatigue,
-            arousal
-          }
-        ];
-        return next.slice(-20); // Keep last 20 points
-      });
-    }, 4000);
-
-    return () => clearInterval(historyInterval);
-  }, [isMonitoring, focus, stress, fatigue, arousal]);
-
   return (
     <AppContext.Provider
       value={{
@@ -1255,6 +1281,7 @@ export const AppProvider = ({ children }) => {
         eventLog,
         addLog,
         metricsHistory,
+        activeSessionLiveMetrics,
         
         // AI Web-SDK additions
         isAiLoaded,
@@ -1268,6 +1295,12 @@ export const AppProvider = ({ children }) => {
         setRawLandmarksHistory,
         eyeOpenness,
         setEyeOpenness,
+        hasDetectedFace,
+        setHasDetectedFace,
+        runtimeStatus,
+        setRuntimeStatus,
+        monitoringDetectionsRef,
+        runtimeFaceCropCanvasRef,
         faceLandmarkerRef,
         gestureRecognizerRef,
         updateAiMetrics,

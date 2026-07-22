@@ -1,6 +1,6 @@
 # AI Pipeline
 
-This document describes the current AI and telemetry pipeline as implemented in `src/context/AppContext.js` and `src/components/CameraFeed.js`.
+This document describes the current AI and telemetry pipeline as implemented in `src/context/AppContext.js`, `src/components/monitoring/MonitoringRuntimeHost.js`, and `src/components/CameraFeed.js`.
 
 ## Model Loading
 
@@ -40,7 +40,7 @@ The app can preserve and render landmarks from two detected hands. It also store
 
 ## Video Readiness Checks
 
-`CameraFeed.js` runs the same MediaPipe and ONNX inference effects in both the normal Monitor presentation and the Focus Space floating panel. It runs inference only when:
+`MonitoringRuntimeHost.js` mounts once under the `/app` product layout and runs the shared MediaPipe and ONNX inference pipeline for Study Space, Focus Space, Dashboard, Settings, and Account routes. It runs inference only when:
 
 - Monitoring is active.
 - Camera is enabled.
@@ -65,7 +65,7 @@ targetInterval = 1000 / Math.max(inferenceFps || 5, 1)
 
 ## Face Detection State
 
-After `detectForVideo()`, `CameraFeed.js` updates:
+After `detectForVideo()`, `MonitoringRuntimeHost.js` updates shared runtime state:
 
 ```text
 hasDetectedFace = faceResults?.faceLandmarks?.length > 0
@@ -75,7 +75,7 @@ When monitoring is active, camera is enabled, AI is loaded, and `hasDetectedFace
 
 ## Face Landmark Rendering
 
-When face landmarks exist, `CameraFeed.js` renders a landmark canvas. The Monitor presentation also shows real camera pixels; the Focus panel presentation keeps the video element mounted and playing but visually hides the pixels while preserving inference.
+When face landmarks exist, `CameraFeed.js` reads the latest shared runtime detections and renders a landmark canvas. The Monitor presentation also shows real camera pixels; the Focus panel presentation visually hides the preview pixels while rendering landmarks. Inference is preserved by the persistent runtime host rather than by route-specific hidden CameraFeed instances.
 
 - Face oval contour.
 - Left and right eye contours.
@@ -88,7 +88,7 @@ Landmarks are projected from normalized MediaPipe coordinates into the 640 by 48
 
 ## Two-Hand Landmark Handling
 
-`CameraFeed.js` iterates through every hand landmark set returned by MediaPipe and draws each hand skeleton with shared `handConnections`.
+`MonitoringRuntimeHost.js` stores every hand landmark set returned by MediaPipe in shared runtime detections. `CameraFeed.js` reads those detections and draws each hand skeleton with shared `handConnections`.
 
 `AppContext.js` stores every hand point as:
 
@@ -219,7 +219,7 @@ Unsupported conclusions:
 
 ## Focus Space Shell
 
-The `/focus` route is a Phase 2 shell. It contains a lightweight visual-stage placeholder and a draggable floating monitor panel. The final adaptive particle environment and task system are not implemented yet. The panel reuses `CameraFeed` with `presentation="focus-panel"`; it does not create a second inference pipeline.
+The `/focus` route is a Phase 2 shell. It contains a lightweight visual-stage placeholder and a draggable floating monitor panel. The final adaptive particle environment and task system are not implemented yet. The panel reuses `CameraFeed` with `presentation="focus-panel"` for presentation only; it does not create a second inference pipeline.
 
 ## Scientific and Product Limitations
 

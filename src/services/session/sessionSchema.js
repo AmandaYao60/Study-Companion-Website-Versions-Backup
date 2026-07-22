@@ -164,7 +164,7 @@ export const normalizeMetricObservation = (input = {}) => ({
   dataValid: bool(input.dataValid),
 });
 
-/** Normalize a future 10-second metric sample. Metric values are interval means, not instantaneous readings. @param {Partial<MetricSample>} input @returns {MetricSample} */
+/** Normalize a future 5-second metric sample. Metric values are interval means, not instantaneous readings. @param {Partial<MetricSample>} input @returns {MetricSample} */
 export const normalizeMetricSample = (input = {}) => ({
   id: text(input.id, ""),
   sessionId: text(input.sessionId, ""),

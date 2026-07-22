@@ -2,7 +2,7 @@ export const SESSION_SCHEMA_VERSION = "session-schema-v1";
 export const SESSION_SUMMARY_ALGORITHM_VERSION = "session-summary-v1";
 export const METRIC_AGGREGATION_VERSION = "metric-aggregation-v1";
 export const DEFAULT_PIPELINE_VERSION = "browser-ai-pipeline-v1";
-export const DEFAULT_SAMPLE_INTERVAL_MS = 10000;
+export const DEFAULT_SAMPLE_INTERVAL_MS = 5000;
 export const DEFAULT_MINIMUM_DATA_COVERAGE = 0.6;
 
 export const SESSION_STATUS = Object.freeze({

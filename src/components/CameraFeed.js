@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { useAppState } from "../context/AppContext";
 import CameraPermissionDialog from "./CameraPermissionDialog";
-import { getAffectSession, predictAffectFromCanvas } from "../services/affect/browserAffectModel";
 
 const FACE_CONTOUR = {
   leftEye: [33, 160, 158, 133, 153, 144, 33],
@@ -38,70 +37,6 @@ const HAND_CONNECTIONS = [
 ];
 
 const AFFECT_INPUT_SIZE = 224;
-const AFFECT_INFERENCE_INTERVAL_MS = 1000;
-const FACE_CROP_PADDING_RATIO = 0.15;
-
-const getFaceBoundingBox = (landmarks, videoWidth, videoHeight) => {
-  if (
-    !Array.isArray(landmarks) ||
-    landmarks.length === 0 ||
-    videoWidth <= 0 ||
-    videoHeight <= 0
-  ) {
-    return null;
-  }
-
-  let minX = 1;
-  let minY = 1;
-  let maxX = 0;
-  let maxY = 0;
-
-  for (const landmark of landmarks) {
-    minX = Math.min(minX, landmark.x);
-    minY = Math.min(minY, landmark.y);
-    maxX = Math.max(maxX, landmark.x);
-    maxY = Math.max(maxY, landmark.y);
-  }
-
-  let x = minX * videoWidth;
-  let y = minY * videoHeight;
-  let width = (maxX - minX) * videoWidth;
-  let height = (maxY - minY) * videoHeight;
-
-  const paddingX = width * FACE_CROP_PADDING_RATIO;
-  const paddingY = height * FACE_CROP_PADDING_RATIO;
-
-  x -= paddingX;
-  y -= paddingY;
-  width += paddingX * 2;
-  height += paddingY * 2;
-
-  const sideLength = Math.max(width, height);
-  const centerX = x + width / 2;
-  const centerY = y + height / 2;
-
-  let squareX = centerX - sideLength / 2;
-  let squareY = centerY - sideLength / 2;
-
-  squareX = Math.max(0, squareX);
-  squareY = Math.max(0, squareY);
-
-  const boundedSideLength = Math.min(
-    sideLength,
-    videoWidth - squareX,
-    videoHeight - squareY
-  );
-
-  if (boundedSideLength < 40) {
-    return null;
-  }
-
-  return {
-    x: squareX,
-    y: squareY,
-    size: boundedSideLength,
-  };
-};
 
 export default function CameraFeed({ presentation = "monitor", showControls = true } = {}) {
   const {
@@ -113,13 +48,9 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     isDebugMode,
     cameraStream,
     isAiLoaded,
-    inferenceFps,
-    faceLandmarkerRef,
-    gestureRecognizerRef,
-    updateAiMetrics,
-    updateAffectMetrics,
-    affectModelStatus,
-    setAffectModelStatus,
+    hasDetectedFace,
+    monitoringDetectionsRef,
+    runtimeFaceCropCanvasRef,
     activeSession,
   } = useAppState();
 
@@ -131,72 +62,19 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const debugCropCanvasRef = useRef(null);
   const animationRef = useRef(null);
-  const [hasDetectedFace, setHasDetectedFace] = useState(false);
-  const detectionsRef = useRef({ face: null, gesture: null });
+  const cropAnimationRef = useRef(null);
   const aiLoadingStartRef = useRef(null);
-  const inferenceAnimationRef = useRef(null);
-  const faceCropCanvasRef = useRef(null);
-  const lastAffectInferenceRef = useRef(0);
-  const isAffectInferenceRunningRef = useRef(false);
-  const affectRunTokenRef = useRef(0);
-  const pipelineStateRef = useRef({
-    isMonitoring: false,
-    isCameraAllowed: false,
-    isAiLoaded: false,
-    isDebugMode: false,
-    affectModelStatus: "idle",
-  });
-
-  useEffect(() => {
-    pipelineStateRef.current = {
-      isMonitoring,
-      isCameraAllowed,
-      isAiLoaded,
-      isDebugMode,
-      affectModelStatus,
-    };
-  }, [
-    isMonitoring,
-    isCameraAllowed,
-    isAiLoaded,
-    isDebugMode,
-    affectModelStatus,
-  ]);
-
-  useEffect(() => {
-    if (!isCameraAllowed) {
-      setAffectModelStatus("idle");
-      return;
-    }
-
-    let active = true;
-    const loadAffectModel = async () => {
-      setAffectModelStatus("loading");
-      try {
-        await getAffectSession();
-        if (active) setAffectModelStatus("ready");
-      } catch (error) {
-        console.error("Failed to load affect model:", error);
-        if (active) setAffectModelStatus("error");
-      }
-    };
-
-    void loadAffectModel();
-
-    return () => {
-      active = false;
-    };
-  }, [isCameraAllowed, setAffectModelStatus]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !cameraStream) return;
+    if (!video || !cameraStream) return undefined;
 
     video.srcObject = cameraStream;
     video.play().catch((error) => {
       if (error.name !== "AbortError") {
-        console.error("Error playing video:", error);
+        console.error("Error playing visible video:", error);
       }
     });
 
@@ -205,15 +83,6 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
       video.srcObject = null;
     };
   }, [cameraStream]);
-
-  const handleDisableWebcam = () => {
-    detectionsRef.current = { face: null, gesture: null };
-    lastAffectInferenceRef.current = 0;
-    affectRunTokenRef.current += 1;
-    isAffectInferenceRunningRef.current = false;
-    setHasDetectedFace(false);
-    stopCamera();
-  };
 
   useEffect(() => {
     if (isMonitoring && isCameraAllowed && !isAiLoaded) {
@@ -225,230 +94,11 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     }
   }, [isMonitoring, isCameraAllowed, isAiLoaded]);
 
-  const runAffectAnalysis = useCallback(
-    async (faceLandmarks) => {
-      const video = videoRef.current;
-      const cropCanvas = faceCropCanvasRef.current;
-      const state = pipelineStateRef.current;
-
-      if (!video || !cropCanvas) return;
-      if (
-        !state.isMonitoring ||
-        !state.isCameraAllowed ||
-        !state.isAiLoaded ||
-        state.affectModelStatus !== "ready"
-      ) {
-        return;
-      }
-      if (
-        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-        video.videoWidth === 0 ||
-        video.videoHeight === 0
-      ) {
-        return;
-      }
-      if (isAffectInferenceRunningRef.current) return;
-
-      const boundingBox = getFaceBoundingBox(faceLandmarks, video.videoWidth, video.videoHeight);
-      if (!boundingBox) return;
-      const cropContext = cropCanvas.getContext("2d");
-      if (!cropContext) return;
-
-      cropCanvas.width = AFFECT_INPUT_SIZE;
-      cropCanvas.height = AFFECT_INPUT_SIZE;
-
-      cropContext.clearRect(0, 0, AFFECT_INPUT_SIZE, AFFECT_INPUT_SIZE);
-      cropContext.drawImage(
-        video,
-        boundingBox.x,
-        boundingBox.y,
-        boundingBox.size,
-        boundingBox.size,
-        0,
-        0,
-        AFFECT_INPUT_SIZE,
-        AFFECT_INPUT_SIZE
-      );
-
-      const requestToken = affectRunTokenRef.current + 1;
-      affectRunTokenRef.current = requestToken;
-      isAffectInferenceRunningRef.current = true;
-
-      try {
-        const inferenceStartedAt = performance.now();
-        const result = await predictAffectFromCanvas(cropCanvas);
-        const latencyMs = Math.round(performance.now() - inferenceStartedAt);
-        const latestState = pipelineStateRef.current;
-
-        if (
-          requestToken !== affectRunTokenRef.current ||
-          !latestState.isMonitoring ||
-          !latestState.isCameraAllowed ||
-          latestState.affectModelStatus !== "ready"
-        ) {
-          return;
-        }
-
-        updateAffectMetrics({ ...result, latencyMs });
-
-        if (latestState.isDebugMode) {
-          console.log("Affect inference result:", {
-            mode: "browser",
-            latencyMs,
-            result,
-          });
-        }
-      } catch (error) {
-        const latestState = pipelineStateRef.current;
-        if (
-          requestToken === affectRunTokenRef.current &&
-          latestState.isMonitoring &&
-          latestState.isCameraAllowed
-        ) {
-          setAffectModelStatus("error");
-          console.error("Failed to run affect analysis:", error);
-        }
-      } finally {
-        if (requestToken === affectRunTokenRef.current) {
-          isAffectInferenceRunningRef.current = false;
-        }
-      }
-    },
-    [updateAffectMetrics, setAffectModelStatus]
-  );
-
-  useEffect(() => {
-    if (isMonitoring && isCameraAllowed) return;
-
-    affectRunTokenRef.current += 1;
-    isAffectInferenceRunningRef.current = false;
-    const cropCanvas = faceCropCanvasRef.current;
-    if (!cropCanvas) return;
-    const cropContext = cropCanvas.getContext("2d");
-    if (!cropContext) return;
-    cropContext.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-  }, [isMonitoring, isCameraAllowed]);
-
-  useEffect(() => {
-    if (!isMonitoring || !isCameraAllowed || !isAiLoaded || !videoRef.current) {
-      detectionsRef.current = { face: null, gesture: null };
-      setHasDetectedFace(false);
-      return;
-    }
-
-    let active = true;
-    let lastInferenceTime = 0;
-    let inferenceRunning = false;
-
-    const sampleAndRunInference = () => {
-      if (!active) return;
-
-      const video = videoRef.current;
-
-      const videoReady =
-        video &&
-        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        video.videoWidth > 0 &&
-        video.videoHeight > 0;
-
-      const modelsReady =
-        Boolean(faceLandmarkerRef.current) && Boolean(gestureRecognizerRef.current);
-
-      if (!videoReady || !modelsReady || inferenceRunning) {
-        inferenceAnimationRef.current = requestAnimationFrame(sampleAndRunInference);
-        return;
-      }
-
-      const now = performance.now();
-      const targetInterval = 1000 / Math.max(inferenceFps || 5, 1);
-
-      if (now - lastInferenceTime >= targetInterval) {
-        lastInferenceTime = now;
-        inferenceRunning = true;
-
-        try {
-          const startTime = performance.now();
-
-          const faceResults = faceLandmarkerRef.current
-            ? faceLandmarkerRef.current.detectForVideo(video, now)
-            : null;
-
-          setHasDetectedFace(faceResults?.faceLandmarks?.length > 0);
-
-          const gestureResults = gestureRecognizerRef.current
-            ? gestureRecognizerRef.current.recognizeForVideo(video, now)
-            : null;
-
-          const latencyTime = Math.round(performance.now() - startTime);
-
-          detectionsRef.current = {
-            face: faceResults,
-            gesture: gestureResults,
-          };
-
-          updateAiMetrics(
-            faceResults,
-            gestureResults,
-            latencyTime,
-            {
-              videoWidth: video.videoWidth,
-              videoHeight: video.videoHeight,
-            }
-          );
-
-          const exactlyOneFace = faceResults?.faceLandmarks?.length === 1;
-          const affectIntervalReached = now - lastAffectInferenceRef.current >= AFFECT_INFERENCE_INTERVAL_MS;
-          const shouldRunAffectAnalysis =
-            exactlyOneFace &&
-            affectModelStatus === "ready" &&
-            affectIntervalReached;
-
-          if (shouldRunAffectAnalysis) {
-            lastAffectInferenceRef.current = now;
-            void runAffectAnalysis(faceResults.faceLandmarks[0]);
-          }
-        } catch (err) {
-          console.error("Inference execution error:", err);
-        } finally {
-          inferenceRunning = false;
-        }
-      }
-
-      inferenceAnimationRef.current = requestAnimationFrame(sampleAndRunInference);
-    };
-
-    inferenceAnimationRef.current = requestAnimationFrame(sampleAndRunInference);
-
-    return () => {
-      active = false;
-      detectionsRef.current = { face: null, gesture: null };
-      setHasDetectedFace(false);
-      lastAffectInferenceRef.current = 0;
-      affectRunTokenRef.current += 1;
-      isAffectInferenceRunningRef.current = false;
-
-      if (inferenceAnimationRef.current) {
-        cancelAnimationFrame(inferenceAnimationRef.current);
-        inferenceAnimationRef.current = null;
-      }
-    };
-  }, [
-    isMonitoring,
-    isCameraAllowed,
-    isAiLoaded,
-    inferenceFps,
-    faceLandmarkerRef,
-    gestureRecognizerRef,
-    updateAiMetrics,
-    runAffectAnalysis,
-    affectModelStatus,
-  ]);
-
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return undefined;
     const width = canvas.width = 640;
     const height = canvas.height = 480;
 
@@ -503,12 +153,10 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
       ctx.quadraticCurveTo(320, 325, 350, 315);
       ctx.stroke();
 
-      const points = [
+      [
         [320, 105], [220, 245], [420, 245], [320, 385],
         [285, 220], [355, 220], [320, 275], [320, 320],
-      ];
-
-      points.forEach(([x, y]) => {
+      ].forEach(([x, y]) => {
         ctx.beginPath();
         ctx.arc(x, y, 2, 0, Math.PI * 2);
         ctx.fill();
@@ -522,10 +170,11 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
 
       if (!isCameraAllowed || !isMonitoring) {
         ctx.shadowBlur = 0;
+        animationRef.current = requestAnimationFrame(drawMesh);
         return;
       }
 
-      const detections = detectionsRef.current;
+      const detections = monitoringDetectionsRef.current;
       const faceIsDetected = detections?.face?.faceLandmarks?.length > 0;
 
       if (faceIsDetected) {
@@ -558,7 +207,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
           const start = project(landmarks[validIndices[0]]);
           ctx.moveTo(start.x, start.y);
 
-          for (let i = 1; i < validIndices.length; i++) {
+          for (let i = 1; i < validIndices.length; i += 1) {
             const pt = project(landmarks[validIndices[i]]);
             ctx.lineTo(pt.x, pt.y);
           }
@@ -595,7 +244,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
               ctx.beginPath();
               const start = project(handLandmarks[conn[0]]);
               ctx.moveTo(start.x, start.y);
-              for (let i = 1; i < conn.length; i++) {
+              for (let i = 1; i < conn.length; i += 1) {
                 const pt = project(handLandmarks[conn[i]]);
                 ctx.lineTo(pt.x, pt.y);
               }
@@ -651,7 +300,38 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
         animationRef.current = null;
       }
     };
-  }, [isMonitoring, isCameraAllowed, isAiLoaded]);
+  }, [isMonitoring, isCameraAllowed, isAiLoaded, monitoringDetectionsRef]);
+
+  useEffect(() => {
+    const shouldCopyCrop = isDebugMode && !isFocusPanel;
+    const targetCanvas = debugCropCanvasRef.current;
+    if (!shouldCopyCrop || !targetCanvas) return undefined;
+
+    const targetContext = targetCanvas.getContext("2d");
+    if (!targetContext) return undefined;
+
+    const copyCrop = () => {
+      const sourceCanvas = runtimeFaceCropCanvasRef.current;
+      if (sourceCanvas && sourceCanvas.width > 0 && sourceCanvas.height > 0) {
+        targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        targetContext.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+      }
+      cropAnimationRef.current = requestAnimationFrame(copyCrop);
+    };
+
+    copyCrop();
+
+    return () => {
+      if (cropAnimationRef.current) {
+        cancelAnimationFrame(cropAnimationRef.current);
+        cropAnimationRef.current = null;
+      }
+    };
+  }, [isDebugMode, isFocusPanel, runtimeFaceCropCanvasRef]);
+
+  const handleDisableWebcam = () => {
+    stopCamera();
+  };
 
   const containerClass = isFocusPanel
     ? "relative flex h-full flex-col overflow-hidden rounded-xl border border-cyan-400/20 bg-slate-950 shadow-2xl"
@@ -695,11 +375,11 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
 
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 z-10 h-full w-full object-cover pointer-events-none"
+          className="pointer-events-none absolute inset-0 z-10 h-full w-full object-cover"
         />
 
         <canvas
-          ref={faceCropCanvasRef}
+          ref={debugCropCanvasRef}
           width={AFFECT_INPUT_SIZE}
           height={AFFECT_INPUT_SIZE}
           className={
@@ -712,13 +392,13 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
         />
 
         {isDebugMode && !isFocusPanel && (
-          <span className="absolute bottom-[7.5rem] right-2 z-30 rounded bg-red-950/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-300 pointer-events-none">
+          <span className="pointer-events-none absolute bottom-[7.5rem] right-2 z-30 rounded bg-red-950/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-300">
             Affect Crop Debug
           </span>
         )}
 
         {isMonitoring && isCameraAllowed && isAiLoaded && !hasDetectedFace && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
             <p className="text-sm font-semibold tracking-wide text-slate-200">
               No Face Detected
             </p>
@@ -781,11 +461,11 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
           <button
             onClick={toggleMonitoring}
             disabled={!isCameraAllowed}
-            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all duration-300 ${
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all duration-300 ${
               !isCameraAllowed
-                ? "bg-slate-900 border border-white/5 text-slate-600 cursor-not-allowed"
+                ? "cursor-not-allowed border border-white/5 bg-slate-900 text-slate-600"
                 : isMonitoring
-                  ? "bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20"
+                  ? "border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20"
                   : "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400"
             }`}
           >
@@ -795,10 +475,10 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
           <button
             onClick={handleDisableWebcam}
             disabled={!isCameraAllowed}
-            className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold border transition-all duration-300 ${
+            className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-all duration-300 ${
               !isCameraAllowed
-                ? "border-white/5 text-slate-600 cursor-not-allowed bg-slate-900/40"
-                : "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20"
+                ? "cursor-not-allowed border-white/5 bg-slate-900/40 text-slate-600"
+                : "border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20"
             }`}
             title="Disable Webcam"
           >

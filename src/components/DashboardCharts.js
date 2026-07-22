@@ -20,6 +20,7 @@ export default function DashboardCharts() {
     activeSession,
     completedSessions,
     activeSessionSamples,
+    activeSessionLiveMetrics,
     focus,
     fatigue,
     affectState,
@@ -44,12 +45,13 @@ export default function DashboardCharts() {
   const sourceSession = source.session;
   const sessionForPanels = sourceSession || null;
 
+  const latestLiveMetric = activeSessionLiveMetrics[activeSessionLiveMetrics.length - 1] || null;
   const currentMetrics = source.kind === "active"
     ? {
-        attention: focus,
-        fatigue,
-        valence: affectState.valid ? affectState.valence : null,
-        arousal: affectState.valid ? affectState.arousal : null,
+        attention: latestLiveMetric?.attention ?? focus,
+        fatigue: latestLiveMetric?.fatigue ?? fatigue,
+        valence: latestLiveMetric ? latestLiveMetric.valence : affectState.valid ? affectState.valence : null,
+        arousal: latestLiveMetric ? latestLiveMetric.arousal : affectState.valid ? affectState.arousal : null,
       }
     : null;
 
