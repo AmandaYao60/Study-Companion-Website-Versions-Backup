@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import { selectSessionSummarySections } from "../../services/session/index.js";
 import BehavioralEngagementChart from "./BehavioralEngagementChart";
 import EmotionalEngagementChart from "./EmotionalEngagementChart";
+import MetricStreamTable from "./MetricStreamTable";
 import { formatCoverage, formatDateTime, formatDuration, formatMetricValue, formatTargetDuration, formatTask } from "./dashboardFormatters";
 
 const averageFromStats = (session, key) => session?.statistics?.[key]?.mean ?? null;
@@ -95,6 +96,15 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
               <BehavioralEngagementChart samples={samples} mode="historical" />
               <EmotionalEngagementChart samples={samples} mode="historical" />
             </div>
+
+            <MetricStreamTable
+              rows={samples}
+              mode="historical"
+              title="Session Metric Samples"
+              subtitle="Five-second aggregated samples recorded during this study session."
+              expandable
+              showStatusBadge={false}
+            />
 
             <div className="rounded-xl border border-white/10 bg-slate-900/35 p-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-white">Structured Session Summary</h3>
