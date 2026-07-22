@@ -31,7 +31,7 @@ export default function EmotionalEngagementChart({ samples = [], mode = "live" }
   const startPoint = trajectory[0] || null;
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-2xl backdrop-blur-xl">
+    <section className="flex h-full flex-col rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-2xl backdrop-blur-xl">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-white">Emotional Engagement</h2>
@@ -42,13 +42,13 @@ export default function EmotionalEngagementChart({ samples = [], mode = "live" }
         </span>
       </div>
 
-      <div className="relative mt-5 overflow-hidden rounded-xl border border-white/10 bg-slate-950/60">
+      <div className="relative mt-5 flex min-h-[360px] flex-1 overflow-hidden rounded-xl border border-white/10 bg-slate-950/60">
         {!hasTrajectory ? (
-          <div className="flex min-h-80 items-center justify-center p-6 text-center text-sm text-slate-400">
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-400">
             No valid valence-arousal samples are available yet. Missing affect values are not plotted as zero.
           </div>
         ) : (
-          <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Valence arousal trajectory chart">
+          <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="Valence arousal trajectory chart">
             <defs>
               <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
                 <feGaussianBlur stdDeviation="3" result="blur" />

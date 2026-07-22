@@ -11,6 +11,7 @@ import BehavioralEngagementChart from "./dashboard/BehavioralEngagementChart";
 import DashboardMetricCards from "./dashboard/DashboardMetricCards";
 import EmotionalEngagementChart from "./dashboard/EmotionalEngagementChart";
 import LongTermTrendsPlaceholder from "./dashboard/LongTermTrendsPlaceholder";
+import MetricStreamTable from "./dashboard/MetricStreamTable";
 import SessionHistoryList from "./dashboard/SessionHistoryList";
 import SessionHistoryModal from "./dashboard/SessionHistoryModal";
 import SessionSummaryPanel from "./dashboard/SessionSummaryPanel";
@@ -21,9 +22,6 @@ export default function DashboardCharts() {
     completedSessions,
     activeSessionSamples,
     activeSessionLiveMetrics,
-    focus,
-    fatigue,
-    affectState,
     getSessionById,
     getMetricSamples,
   } = useAppState();
@@ -44,14 +42,13 @@ export default function DashboardCharts() {
   const sourceSamples = source.kind === "active" ? activeSessionSamples : completedSourceSamples;
   const sourceSession = source.session;
   const sessionForPanels = sourceSession || null;
-
   const latestLiveMetric = activeSessionLiveMetrics[activeSessionLiveMetrics.length - 1] || null;
   const currentMetrics = source.kind === "active"
     ? {
-        attention: latestLiveMetric?.attention ?? focus,
-        fatigue: latestLiveMetric?.fatigue ?? fatigue,
-        valence: latestLiveMetric ? latestLiveMetric.valence : affectState.valid ? affectState.valence : null,
-        arousal: latestLiveMetric ? latestLiveMetric.arousal : affectState.valid ? affectState.arousal : null,
+        attention: latestLiveMetric?.attention ?? null,
+        fatigue: latestLiveMetric?.fatigue ?? null,
+        valence: latestLiveMetric?.valence ?? null,
+        arousal: latestLiveMetric?.arousal ?? null,
       }
     : null;
 
@@ -59,6 +56,7 @@ export default function DashboardCharts() {
     session: sessionForPanels,
     samples: sourceSamples,
     currentMetrics,
+    liveMetrics: source.kind === "active" ? activeSessionLiveMetrics : [],
     isActive: source.kind === "active",
   });
 
@@ -76,6 +74,7 @@ export default function DashboardCharts() {
       cancelled = true;
     };
   }, [source.kind, source.session?.id, getMetricSamples]);
+
   useEffect(() => {
     if (!selectedSessionId) {
       return undefined;
@@ -108,12 +107,14 @@ export default function DashboardCharts() {
         </div>
       )}
 
-      <DashboardMetricCards cards={metricCards} sourceLabel={source.label} />
+      <DashboardMetricCards cards={metricCards} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
         <BehavioralEngagementChart samples={sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
         <EmotionalEngagementChart samples={sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
       </div>
+
+      <MetricStreamTable rows={source.kind === "active" ? activeSessionLiveMetrics : sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
 
       <SessionSummaryPanel session={sessionForPanels} sourceLabel={source.label} />
 

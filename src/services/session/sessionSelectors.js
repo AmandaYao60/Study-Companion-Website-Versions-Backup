@@ -1,5 +1,5 @@
 import { SESSION_STATUS } from "./sessionConstants.js";
-import { calculateSessionStatistics } from "./sessionStatistics.js";
+import { calculateMetricStatistics, calculateSessionStatistics } from "./sessionStatistics.js";
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 const timestampMs = (value) => {
@@ -104,7 +104,7 @@ export const selectDashboardSessionSource = ({ activeSession = null, completedSe
 };
 
 /** Return dashboard metric card models without exposing repository or statistics details to components. @param {Object} input */
-export const selectDashboardMetricCards = ({ session = null, samples = [], currentMetrics = null, isActive = false } = {}) => {
+export const selectDashboardMetricCards = ({ session = null, samples = [], currentMetrics = null, liveMetrics = [], isActive = false } = {}) => {
   if (!session) {
     return metricDefinitions.map((definition) => ({
       ...definition,
@@ -117,12 +117,15 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
   }
 
   const latest = samples[samples.length - 1] || {};
+  const latestLive = liveMetrics[liveMetrics.length - 1] || null;
   const statistics = getStatistics(session, samples);
 
   return metricDefinitions.map((definition) => {
-    const metricStats = statistics?.[definition.id] || {};
+    const metricStats = isActive
+      ? calculateMetricStatistics(liveMetrics.map((row) => row[definition.id]))
+      : statistics?.[definition.id] || {};
     const currentValue = isActive
-      ? currentMetrics?.[definition.id] ?? latest[definition.id] ?? null
+      ? currentMetrics?.[definition.id] ?? latestLive?.[definition.id] ?? null
       : latest[definition.id] ?? metricStats.mean ?? null;
 
     return {
@@ -131,7 +134,7 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
       averageValue: metricStats.mean ?? null,
       trend: metricStats.trend || "insufficient",
       status: metricStats.validCount > 0 ? metricStats.trend || "available" : "Unavailable",
-      dataQuality: latest.dataQuality ?? null,
+      dataQuality: isActive ? latestLive?.dataQuality ?? null : latest.dataQuality ?? null,
     };
   });
 };

@@ -54,30 +54,28 @@ export default function BehavioralEngagementChart({ samples = [], mode = "live" 
   const yTicks = [0, 25, 50, 75, 100];
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-2xl backdrop-blur-xl">
+    <section className="flex h-full flex-col rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-2xl backdrop-blur-xl">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-white">Behavioral Engagement</h2>
           <p className="mt-1 text-xs text-slate-500">Attention and fatigue across the study session</p>
         </div>
-        <div className="flex flex-wrap gap-3 text-[10px] font-semibold text-slate-400">
-          <span className="flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-cyan-400" /> Attention</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-rose-400" /> Fatigue</span>
-          <span className="rounded-full border border-white/10 bg-slate-900 px-2 py-1">{mode === "live" ? "Live" : "Historical"}</span>
-        </div>
+        <span className="w-fit rounded-full border border-white/10 bg-slate-900 px-2 py-1 text-[10px] font-semibold text-slate-400">
+          {mode === "live" ? "Live" : "Historical"}
+        </span>
       </div>
 
-      <div className="relative mt-5 overflow-hidden rounded-xl border border-white/10 bg-slate-950/60">
+      <div className="relative mt-5 flex min-h-[360px] flex-1 overflow-hidden rounded-xl border border-white/10 bg-slate-950/60">
         {!hasAnyValue ? (
-          <div className="flex min-h-72 items-center justify-center p-6 text-center text-sm text-slate-400">
-            No behavioral samples are available yet. Start monitoring to collect attention and fatigue intervals.
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-400">
+            Waiting for enough data to draw the session line.
           </div>
         ) : !hasEnoughData ? (
-          <div className="flex min-h-72 items-center justify-center p-6 text-center text-sm text-slate-400">
-            Waiting for another sample to draw the session line. Missing values are not filled with zero.
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-400">
+            Waiting for enough data to draw the session line. Missing values are not filled with zero.
           </div>
         ) : (
-          <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Attention and fatigue line chart">
+          <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="Attention and fatigue line chart">
             <rect x="0" y="0" width={width} height={height} fill="transparent" />
             {yTicks.map((tick) => {
               const y = yScale(tick);
@@ -138,7 +136,7 @@ export default function BehavioralEngagementChart({ samples = [], mode = "live" 
         )}
 
         {hoveredPoint && (
-          <ChartTooltip x={(hoveredPoint.x / width) * 100 + "%"} y={(hoveredPoint.y / height) * 100 + "%"}>
+          <ChartTooltip x={`${(hoveredPoint.x / width) * 100}%`} y={`${(hoveredPoint.y / height) * 100}%`}>
             <div className="space-y-1">
               <p className="font-bold text-white">{formatDuration(hoveredPoint.elapsedMs)}</p>
               <p>Attention: {formatMetricValue(hoveredPoint.attention)}{isFiniteNumber(hoveredPoint.attention) ? "%" : ""}</p>
@@ -147,6 +145,11 @@ export default function BehavioralEngagementChart({ samples = [], mode = "live" 
             </div>
           </ChartTooltip>
         )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-4 text-[10px] font-semibold text-slate-500">
+        <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cyan-400" />Attention</span>
+        <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />Fatigue</span>
       </div>
     </section>
   );
