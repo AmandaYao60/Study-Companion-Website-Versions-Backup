@@ -124,7 +124,10 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   } = useAppState();
 
   const isFocusPanel = presentation === "focus-panel";
-  const isPreparedSession = activeSession?.status === "prepared";
+  const hasSession = Boolean(activeSession);
+  const sessionStatus = activeSession?.status;
+  const isPreparedSession = sessionStatus === "prepared";
+  const isPausedSession = sessionStatus === "paused" || (hasSession && !isMonitoring);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -722,9 +725,21 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
           </div>
         )}
 
-        {!isFocusPanel && (!isCameraAllowed || !isMonitoring) && (
+        {(!isCameraAllowed || !isMonitoring) && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 p-6 text-center">
-            {!isCameraAllowed ? (
+            {!hasSession ? (
+              <>
+                <div className="mb-3 rounded-full border border-white/5 bg-slate-900 p-4">
+                  <svg className="h-8 w-8 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-slate-300">Monitoring Not Started</h3>
+                <p className="mt-1 max-w-xs text-xs text-slate-500">
+                  Start a study session to enable monitoring.
+                </p>
+              </>
+            ) : !isCameraAllowed ? (
               <>
                 <div className="mb-3 rounded-full border border-white/5 bg-slate-900 p-4">
                   <svg className="h-8 w-8 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -733,16 +748,17 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 </div>
                 <h3 className="text-sm font-semibold text-slate-300">{isPreparedSession ? "Waiting for camera permission" : "Camera Stream Offline"}</h3>
                 <p className="mt-1 max-w-xs text-xs text-slate-500">
-                  {isPreparedSession ? "Camera access is required to begin monitoring." : "AegisMind requires camera access to analyze facial postures and gestures."}
+                  {isPreparedSession ? "Camera access is required to begin monitoring." : "Enable the camera to continue this study session."}
                 </p>
                 <button
+                  type="button"
                   onClick={() => setShowCameraDialog(true)}
                   className="mt-4 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400"
                 >
                   Enable Camera
                 </button>
               </>
-            ) : (
+            ) : isPausedSession ? (
               <>
                 <div className="mb-3 rounded-full border border-cyan-500/10 bg-cyan-950/40 p-4">
                   <svg className="h-8 w-8 text-cyan-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -754,14 +770,8 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 <p className="mt-1 max-w-xs text-xs text-slate-500">
                   The camera feed is active, but mental state analysis is currently paused.
                 </p>
-                <button
-                  onClick={toggleMonitoring}
-                  className="mt-4 rounded-lg border border-white/10 bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition-all hover:bg-slate-800"
-                >
-                  Resume Study Session
-                </button>
               </>
-            )}
+            ) : null}
           </div>
         )}
       </div>

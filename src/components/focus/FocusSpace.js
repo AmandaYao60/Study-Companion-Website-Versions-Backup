@@ -9,21 +9,22 @@ import FocusSessionControls from "./FocusSessionControls";
 import FocusStagePlaceholder from "./FocusStagePlaceholder";
 
 export default function FocusSpace() {
-  const { isMonitoring } = useAppState();
+  const { activeSession, isCameraAllowed } = useAppState();
   const stageRef = useRef(null);
   const [isMonitorHidden, setIsMonitorHidden] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFullscreenSupported, setIsFullscreenSupported] = useState(false);
+  const canShowMonitor = (activeSession?.status === "active" || activeSession?.status === "paused") && isCameraAllowed;
 
   useEffect(() => {
-    if (isMonitoring) return undefined;
+    if (canShowMonitor) return undefined;
 
     const timeout = window.setTimeout(() => {
       setIsMonitorHidden(false);
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [isMonitoring]);
+  }, [canShowMonitor]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -56,20 +57,20 @@ export default function FocusSpace() {
         onToggleFullscreen={toggleFullscreen}
       />
 
-      {isMonitoring && !isMonitorHidden && (
+      {canShowMonitor && !isMonitorHidden && (
         <FocusMonitorWindow
           stageRef={stageRef}
           onHide={() => setIsMonitorHidden(true)}
         />
       )}
 
-      {isMonitoring && isMonitorHidden && (
+      {canShowMonitor && isMonitorHidden && (
         <div className="pointer-events-none absolute bottom-0 right-0 h-px w-px overflow-hidden opacity-0" aria-hidden="true">
           <CameraFeed presentation="focus-panel" showControls={false} />
         </div>
       )}
 
-      {isMonitoring && isMonitorHidden && (
+      {canShowMonitor && isMonitorHidden && (
         <button
           type="button"
           onClick={() => setIsMonitorHidden(false)}

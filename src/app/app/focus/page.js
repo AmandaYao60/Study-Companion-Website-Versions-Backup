@@ -7,8 +7,8 @@ import FocusSpace from "../../../components/focus/FocusSpace";
 
 export default function ProductFocusPage() {
   const router = useRouter();
-  const { activeSession, isMonitoring, isCameraAllowed } = useAppState();
-  const canUseFocus = activeSession?.status === "active" && isMonitoring && isCameraAllowed;
+  const { activeSession, isCameraAllowed } = useAppState();
+  const canUseFocus = (activeSession?.status === "active" || activeSession?.status === "paused") && isCameraAllowed;
 
   useEffect(() => {
     if (!canUseFocus) {

@@ -23,7 +23,7 @@ const getStudyStatusText = (focus, fatigue) => {
 };
 
 export default function FocusMonitorWindow({ stageRef, onHide }) {
-  const { focus, fatigue, activeSession, toggleMonitoring } = useAppState();
+  const { focus, fatigue, activeSession, isMonitoring } = useAppState();
   const { formatted, minuteProgress } = useSmoothSessionTimer(200);
   const {
     panelRef,
@@ -33,7 +33,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
     isDragging,
   } = useDraggablePanel(stageRef);
 
-  const statusText = getStudyStatusText(focus, fatigue);
+  const statusText = isMonitoring ? getStudyStatusText(focus, fatigue) : "Monitoring is paused. Resume when you are ready to continue.";
 
   return (
     <div
@@ -61,14 +61,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
           >
             Hide
           </button>
-          <button
-            type="button"
-            data-no-drag="true"
-            onClick={() => void toggleMonitoring()}
-            className="rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-red-300 transition-all hover:bg-red-500/20"
-          >
-            Pause
-          </button>
+
         </div>
       </div>
 

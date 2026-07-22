@@ -1,26 +1,17 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAppState } from "../../context/AppContext";
 import CameraFeed from "../CameraFeed";
 import DebugPanel from "../DebugPanel";
 import SessionSetupForm from "./SessionSetupForm";
 import ActiveSessionCard from "./ActiveSessionCard";
+import EndSessionDialog from "./EndSessionDialog";
 
 const formatStatusValue = (value) => {
   if (!value) return "Idle";
   return value.charAt(0).toUpperCase() + value.slice(1);
-};
-
-const getFriendlyStatus = ({ activeSession, isMonitoring, focus, fatigue }) => {
-  if (!activeSession) return "Set up a study task when you are ready.";
-  if (activeSession.status === "prepared") return "Your task is ready. Enable the camera to begin monitoring.";
-  if (activeSession.status === "paused" || !isMonitoring) return "Your session is paused. Resume when you are ready to continue.";
-  if (fatigue >= 70) return "You seem a little tired. It is okay to slow down.";
-  if (focus >= 75 && fatigue < 55) return "Deeply focused. Keep this steady rhythm.";
-  if (focus < 45) return "Your attention may be drifting. Gently bring it back.";
-  return "Your study rhythm is steady. Continue at your own pace.";
 };
 
 function ModelStatusPanel({ isCameraAllowed, isAiLoaded, affectModelStatus, onDisableWebcam }) {
@@ -50,30 +41,8 @@ function ModelStatusPanel({ isCameraAllowed, isAiLoaded, affectModelStatus, onDi
   );
 }
 
-function StudyStatusPanel({ activeSession, isMonitoring, isCameraAllowed, focus, fatigue }) {
-  const message = getFriendlyStatus({ activeSession, isMonitoring, focus, fatigue });
-  const canEnterFocus = activeSession?.status === "active" && isMonitoring && isCameraAllowed;
-
-  return (
-    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 shadow-2xl backdrop-blur-xl">
-      <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Study Status</p>
-      <p className="mt-2 text-sm leading-relaxed text-slate-300">{message}</p>
-      {canEnterFocus ? (
-        <Link href="/app/focus" className="mt-4 inline-flex rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-xs font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20">
-          Enter Focus Space
-        </Link>
-      ) : activeSession?.status === "prepared" ? (
-        <p className="mt-4 text-xs text-slate-500">Enable camera access before entering Focus Space.</p>
-      ) : activeSession ? (
-        <p className="mt-4 text-xs text-slate-500">Resume monitoring from the global session bar to enter Focus Space.</p>
-      ) : (
-        <p className="mt-4 text-xs text-slate-500">Set up a study task and enable the camera when you are ready to begin.</p>
-      )}
-    </section>
-  );
-}
-
 export default function StudySpace() {
+  const router = useRouter();
   const {
     activeSession,
     isMonitoring,
@@ -81,10 +50,41 @@ export default function StudySpace() {
     isAiLoaded,
     affectModelStatus,
     isDebugMode,
-    focus,
-    fatigue,
+    pauseSession,
+    resumeSession,
+    finishSession,
     stopCamera,
   } = useAppState();
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+  const [isToggling, setIsToggling] = useState(false);
+
+  const hasActivatedSession = activeSession && activeSession.status !== "prepared";
+
+  const handlePauseResume = async () => {
+    if (!hasActivatedSession) return;
+    setIsToggling(true);
+    try {
+      if (isMonitoring) {
+        await pauseSession();
+      } else {
+        await resumeSession();
+      }
+    } finally {
+      setIsToggling(false);
+    }
+  };
+
+  const handleEnd = async () => {
+    setIsEnding(true);
+    try {
+      const completed = await finishSession();
+      setIsDialogOpen(false);
+      router.push(completed ? "/app/dashboard" : "/app");
+    } finally {
+      setIsEnding(false);
+    }
+  };
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -97,7 +97,6 @@ export default function StudySpace() {
             affectModelStatus={affectModelStatus}
             onDisableWebcam={stopCamera}
           />
-          <StudyStatusPanel activeSession={activeSession} isMonitoring={isMonitoring} isCameraAllowed={isCameraAllowed} focus={focus} fatigue={fatigue} />
           {isDebugMode && <DebugPanel />}
         </aside>
 
@@ -110,8 +109,32 @@ export default function StudySpace() {
             </p>
           </div>
           <CameraFeed presentation="monitor" showControls={false} />
+          {hasActivatedSession && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void handlePauseResume()}
+                disabled={isToggling}
+                className={`rounded-xl px-4 py-3 text-sm font-bold transition-all disabled:cursor-wait disabled:opacity-70 ${
+                  isMonitoring
+                    ? "border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                    : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
+                }`}
+              >
+                {isMonitoring ? "Pause Session" : isToggling ? "Resuming..." : "Resume Session"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDialogOpen(true)}
+                className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm font-bold text-emerald-200 transition-all hover:bg-emerald-400/20"
+              >
+                End Session
+              </button>
+            </div>
+          )}
         </main>
       </div>
+      <EndSessionDialog open={isDialogOpen} isEnding={isEnding} onClose={() => setIsDialogOpen(false)} onConfirm={() => void handleEnd()} />
     </div>
   );
 }

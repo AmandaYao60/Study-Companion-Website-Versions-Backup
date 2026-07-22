@@ -19,7 +19,7 @@ const minutesToMs = (minutes) => {
 
 export default function SessionSetupForm() {
   const router = useRouter();
-  const { prepareSession, activeSession, setShowCameraDialog } = useAppState();
+  const { prepareSession, activeSession } = useAppState();
   const [taskDescription, setTaskDescription] = useState("");
   const [targetChoice, setTargetChoice] = useState(25);
   const [customMinutes, setCustomMinutes] = useState("");
@@ -53,7 +53,6 @@ export default function SessionSetupForm() {
 
       if (session) {
         router.push("/app");
-        window.setTimeout(() => setShowCameraDialog(true), 0);
       }
     } catch (startError) {
       console.error("Failed to prepare study session:", startError);

@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAppState } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTargetDuration, formatTask } from "../dashboard/dashboardFormatters";
 import EndSessionDialog from "./EndSessionDialog";
 
 export default function GlobalSessionBar() {
+  const pathname = usePathname();
   const router = useRouter();
   const {
     activeSession,
@@ -20,8 +21,9 @@ export default function GlobalSessionBar() {
   const { formatted } = useSmoothSessionTimer(250);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const shouldShow = Boolean(activeSession) && (pathname.startsWith("/app/focus") || pathname.startsWith("/app/dashboard"));
 
-  if (!activeSession) return null;
+  if (!shouldShow) return null;
 
   const isPrepared = activeSession.status === "prepared";
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";

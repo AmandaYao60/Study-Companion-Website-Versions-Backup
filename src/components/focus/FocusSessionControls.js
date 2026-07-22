@@ -2,7 +2,6 @@
 
 import React from "react";
 import Link from "next/link";
-import { useAppState } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 
 export default function FocusSessionControls({
@@ -10,17 +9,7 @@ export default function FocusSessionControls({
   isFullscreenSupported,
   onToggleFullscreen,
 }) {
-  const { isMonitoring, isCameraAllowed, activeSession, setShowCameraDialog, toggleMonitoring } = useAppState();
   const { formatted, minuteProgress } = useSmoothSessionTimer(250);
-
-  const handleSessionClick = () => {
-    if (!isCameraAllowed) {
-      setShowCameraDialog(true);
-      return;
-    }
-
-    void toggleMonitoring();
-  };
 
   return (
     <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-xl sm:left-6 sm:right-6">
@@ -44,17 +33,6 @@ export default function FocusSessionControls({
         >
           Return to Study Space
         </Link>
-        <button
-          type="button"
-          onClick={handleSessionClick}
-          className={`rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
-            isMonitoring
-              ? "border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20"
-              : "bg-cyan-500 text-slate-950 hover:bg-cyan-300"
-          }`}
-        >
-          {isMonitoring ? "Pause" : activeSession ? "Resume" : isCameraAllowed ? "Start" : "Enable Camera"}
-        </button>
 
         {isFullscreenSupported && (
           <button
