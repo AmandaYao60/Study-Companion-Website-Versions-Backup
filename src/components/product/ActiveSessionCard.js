@@ -3,8 +3,9 @@
 import React from "react";
 import Link from "next/link";
 import { useAppState } from "../../context/AppContext";
-import useSmoothSessionTimer, { formatElapsedTime } from "../../hooks/useSmoothSessionTimer";
+import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTask } from "../dashboard/dashboardFormatters";
+import SessionProgress from "../session/SessionProgress";
 
 const formatCheckIn = (checkIn) => {
   if (!checkIn) return null;
@@ -26,20 +27,15 @@ const getFriendlyStudyStatus = ({ activeSession, isMonitoring, focus, fatigue })
 
 export default function ActiveSessionCard() {
   const { activeSession, isMonitoring, isCameraAllowed, focus, fatigue } = useAppState();
-  const { elapsedMs, formatted } = useSmoothSessionTimer(250);
+  const { elapsedMs } = useSmoothSessionTimer(250);
 
   if (!activeSession) return null;
 
   const isPrepared = activeSession.status === "prepared";
-  const isPaused = activeSession.status === "paused" || !isMonitoring;
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";
   const canEnterFocus = (activeSession.status === "active" || activeSession.status === "paused") && isCameraAllowed;
   const canViewAnalytics = !isPrepared;
   const checkInSummary = formatCheckIn(activeSession.preSessionCheckIn);
-  const targetDurationMs = Number.isFinite(activeSession.targetDurationMs) && activeSession.targetDurationMs > 0
-    ? activeSession.targetDurationMs
-    : null;
-  const progressPercent = targetDurationMs ? Math.min((elapsedMs / targetDurationMs) * 100, 100) : null;
   const statusMessage = getFriendlyStudyStatus({ activeSession, isMonitoring, focus, fatigue });
 
   return (
@@ -64,16 +60,7 @@ export default function ActiveSessionCard() {
 
         <div className="rounded-2xl border border-white/10 bg-slate-900/45 p-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Progress</p>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
-            <div
-              className="h-full rounded-full bg-cyan-400 transition-[width] duration-200 ease-linear"
-              style={{ width: `${progressPercent ?? 0}%` }}
-            />
-          </div>
-          <div className="mt-3 flex flex-col gap-2 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-            <span>Elapsed <span className="font-mono font-bold text-cyan-200">{formatted}</span></span>
-            <span>Target <span className="font-mono font-bold text-white">{targetDurationMs ? formatElapsedTime(targetDurationMs) : "No target"}</span></span>
-          </div>
+          <SessionProgress elapsedMs={elapsedMs} targetDurationMs={activeSession.targetDurationMs} className="mt-3" />
         </div>
       </div>
 

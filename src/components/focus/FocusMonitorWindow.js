@@ -1,10 +1,14 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import CameraFeed from "../CameraFeed";
 import { useAppState } from "../../context/AppContext";
 import useDraggablePanel from "../../hooks/useDraggablePanel";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
+import SessionProgress from "../session/SessionProgress";
+
+const FOCUS_MONITOR_TOP_CLEARANCE = 124;
 
 const getStudyStatusText = (focus, fatigue) => {
   if (fatigue >= 70) {
@@ -24,14 +28,14 @@ const getStudyStatusText = (focus, fatigue) => {
 
 export default function FocusMonitorWindow({ stageRef, onHide }) {
   const { focus, fatigue, activeSession, isMonitoring } = useAppState();
-  const { formatted, minuteProgress } = useSmoothSessionTimer(200);
+  const { elapsedMs, formatted } = useSmoothSessionTimer(200);
   const {
     panelRef,
     panelStyle,
     dragHandleProps,
     isCompact,
     isDragging,
-  } = useDraggablePanel(stageRef);
+  } = useDraggablePanel(stageRef, { topClearance: FOCUS_MONITOR_TOP_CLEARANCE });
 
   const statusText = isMonitoring ? getStudyStatusText(focus, fatigue) : "Monitoring is paused. Resume when you are ready to continue.";
 
@@ -61,15 +65,11 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
           >
             Hide
           </button>
-
         </div>
       </div>
 
-      <div className="h-1 bg-white/5">
-        <div
-          className="h-full bg-cyan-400 transition-[width] duration-200 ease-linear"
-          style={{ width: `${minuteProgress}%` }}
-        />
+      <div className="border-b border-white/10 px-3 py-3">
+        <SessionProgress elapsedMs={elapsedMs} targetDurationMs={activeSession?.targetDurationMs} />
       </div>
 
       <div className="space-y-3 p-3">
@@ -84,6 +84,14 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
           <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-cyan-300">Study Status</p>
           <p className="mt-1 text-sm leading-relaxed text-slate-100">{statusText}</p>
         </div>
+
+        <Link
+          href="/app"
+          data-no-drag="true"
+          className="flex w-full items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20"
+        >
+          Return to Study Space
+        </Link>
       </div>
     </div>
   );

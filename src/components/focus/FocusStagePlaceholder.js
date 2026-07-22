@@ -6,7 +6,7 @@ export default function FocusStagePlaceholder({ stageRef, children }) {
   return (
     <section
       ref={stageRef}
-      className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-slate-950 text-white"
+      className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-slate-950 text-white [&:fullscreen]:h-screen [&:fullscreen]:min-h-screen [&:fullscreen]:w-screen"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_78%_24%,rgba(59,130,246,0.16),transparent_30%),linear-gradient(135deg,#020617_0%,#08111f_42%,#020617_100%)]" />
       <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(rgba(148,163,184,0.32)_1px,transparent_1px)] [background-size:34px_34px]" />

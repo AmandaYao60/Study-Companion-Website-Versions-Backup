@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useRef, useState } from "react";
 import { useAppState } from "../../context/AppContext";
 import CameraFeed from "../CameraFeed";
 import CameraPermissionDialog from "../CameraPermissionDialog";
 import FocusMonitorWindow from "./FocusMonitorWindow";
-import FocusSessionControls from "./FocusSessionControls";
+import FocusSessionBar from "./FocusSessionBar";
 import FocusStagePlaceholder from "./FocusStagePlaceholder";
 
 export default function FocusSpace() {
@@ -51,30 +51,35 @@ export default function FocusSpace() {
 
   return (
     <FocusStagePlaceholder stageRef={stageRef}>
-      <FocusSessionControls
+      <FocusSessionBar
         isFullscreen={isFullscreen}
         isFullscreenSupported={isFullscreenSupported}
         onToggleFullscreen={toggleFullscreen}
       />
 
-      {canShowMonitor && !isMonitorHidden && (
-        <FocusMonitorWindow
-          stageRef={stageRef}
-          onHide={() => setIsMonitorHidden(true)}
-        />
+      {canShowMonitor && (!isMonitorHidden || isFullscreen) && (
+        <div
+          className={isFullscreen ? "pointer-events-none opacity-0" : undefined}
+          aria-hidden={isFullscreen || undefined}
+        >
+          <FocusMonitorWindow
+            stageRef={stageRef}
+            onHide={() => setIsMonitorHidden(true)}
+          />
+        </div>
       )}
 
-      {canShowMonitor && isMonitorHidden && (
+      {canShowMonitor && isMonitorHidden && !isFullscreen && (
         <div className="pointer-events-none absolute bottom-0 right-0 h-px w-px overflow-hidden opacity-0" aria-hidden="true">
           <CameraFeed presentation="focus-panel" showControls={false} />
         </div>
       )}
 
-      {canShowMonitor && isMonitorHidden && (
+      {canShowMonitor && isMonitorHidden && !isFullscreen && (
         <button
           type="button"
           onClick={() => setIsMonitorHidden(false)}
-          className="absolute right-4 top-24 z-30 rounded-xl border border-cyan-400/20 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-cyan-200 shadow-xl backdrop-blur-xl transition-all hover:bg-slate-900 sm:right-6"
+          className="absolute right-4 top-28 z-30 rounded-xl border border-cyan-400/20 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-cyan-200 shadow-xl backdrop-blur-xl transition-all hover:bg-slate-900 sm:right-6"
         >
           Show Monitor
         </button>

@@ -6,7 +6,7 @@ const INTERACTIVE_SELECTOR = "button,a,input,textarea,select,[role='button'],[da
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-export default function useDraggablePanel(stageRef, { disabled = false, margin = 16 } = {}) {
+export default function useDraggablePanel(stageRef, { disabled = false, margin = 16, topClearance = margin } = {}) {
   const panelRef = useRef(null);
   const dragRef = useRef(null);
   const [position, setPosition] = useState(null);
@@ -25,9 +25,9 @@ export default function useDraggablePanel(stageRef, { disabled = false, margin =
 
     return {
       x: clamp(nextPosition.x, margin, maxX),
-      y: clamp(nextPosition.y, margin, maxY),
+      y: clamp(nextPosition.y, topClearance, maxY),
     };
-  }, [margin, stageRef]);
+  }, [margin, stageRef, topClearance]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -48,7 +48,7 @@ export default function useDraggablePanel(stageRef, { disabled = false, margin =
       const panelRect = panel.getBoundingClientRect();
       const fallbackPosition = {
         x: Math.max(margin, stageRect.width - panelRect.width - 28),
-        y: 24,
+        y: topClearance,
       };
       setPosition((current) => constrainPosition(current ?? fallbackPosition));
     };
@@ -56,7 +56,7 @@ export default function useDraggablePanel(stageRef, { disabled = false, margin =
     placePanel();
     window.addEventListener("resize", placePanel);
     return () => window.removeEventListener("resize", placePanel);
-  }, [constrainPosition, disabled, isCompact, margin, stageRef]);
+  }, [constrainPosition, disabled, isCompact, margin, stageRef, topClearance]);
 
   const handlePointerDown = useCallback((event) => {
     if (disabled || isCompact || event.button !== 0) return;
@@ -122,3 +122,4 @@ export default function useDraggablePanel(stageRef, { disabled = false, margin =
     },
   };
 }
+

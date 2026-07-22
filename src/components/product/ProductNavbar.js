@@ -14,7 +14,6 @@ const iconButtonClass = (isActive) => `inline-flex h-10 w-10 items-center justif
 export default function ProductNavbar() {
   const pathname = usePathname();
   const { isDebugMode, setIsDebugMode } = useAppState();
-  const isDashboard = pathname.startsWith("/app/dashboard");
   const isSettings = pathname.startsWith("/app/settings");
   const isAccount = pathname.startsWith("/app/account");
 
@@ -26,18 +25,6 @@ export default function ProductNavbar() {
         </Link>
 
         <div className="flex min-w-0 items-center justify-end gap-2">
-          <Link
-            href="/app/dashboard"
-            className={`rounded-full border px-3 py-2 text-xs font-semibold transition-all sm:px-4 ${
-              isDashboard
-                ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-200"
-                : "border-white/10 bg-slate-900 text-slate-300 hover:border-cyan-400/30 hover:text-cyan-100"
-            }`}
-          >
-            <span className="hidden sm:inline">View Live Analytics</span>
-            <span className="sm:hidden">Analytics</span>
-          </Link>
-
           <button
             type="button"
             onClick={() => setIsDebugMode(!isDebugMode)}
@@ -47,8 +34,7 @@ export default function ProductNavbar() {
                 : "border-white/10 bg-slate-900 text-slate-400 hover:text-white"
             }`}
           >
-            <span className="hidden sm:inline">{isDebugMode ? "Debug On" : "Debug Off"}</span>
-            <span className="sm:hidden">{isDebugMode ? "Debug On" : "Debug Off"}</span>
+            <span>{isDebugMode ? "Debug On" : "Debug Off"}</span>
           </button>
 
           <Link href="/app/settings" aria-label="Open settings" title="Settings" className={iconButtonClass(isSettings)}>
