@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 export default function AccountPage() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
@@ -9,9 +7,6 @@ export default function AccountPage() {
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-400">
           Profile and authentication settings will become available after Supabase Auth is connected.
         </p>
-        <Link href="/app" className="mt-6 inline-flex rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-3 text-sm font-bold text-cyan-200 transition-all hover:bg-cyan-400/20">
-          Return to Study Workspace
-        </Link>
       </section>
     </div>
   );

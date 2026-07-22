@@ -53,6 +53,7 @@ export default function StudySpace() {
     pauseSession,
     resumeSession,
     finishSession,
+    discardSession,
     stopCamera,
   } = useAppState();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -81,6 +82,18 @@ export default function StudySpace() {
       const completed = await finishSession();
       setIsDialogOpen(false);
       router.push(completed ? "/app/dashboard" : "/app");
+    } finally {
+      setIsEnding(false);
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!window.confirm("Discard this active session? Collected samples for it will be deleted.")) return;
+    setIsEnding(true);
+    try {
+      await discardSession();
+      setIsDialogOpen(false);
+      router.push("/app");
     } finally {
       setIsEnding(false);
     }
@@ -134,7 +147,7 @@ export default function StudySpace() {
           )}
         </main>
       </div>
-      <EndSessionDialog open={isDialogOpen} isEnding={isEnding} onClose={() => setIsDialogOpen(false)} onConfirm={() => void handleEnd()} />
+      <EndSessionDialog open={isDialogOpen} isEnding={isEnding} onClose={() => setIsDialogOpen(false)} onConfirm={() => void handleEnd()} onDiscard={() => void handleDiscard()} />
     </div>
   );
 }
