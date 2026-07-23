@@ -9,7 +9,7 @@ import {
 } from "./sessionConstants.js";
 
 /** @typedef {{energy:string|null,mood:string|null}} PreSessionCheckIn */
-/** @typedef {{id:string,userId:string|null,taskDescription:string,targetDurationMs:number|null,preSessionCheckIn:PreSessionCheckIn,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
+/** @typedef {{id:string,userId:string|null,taskDescription:string,targetDurationMs:number|null,preSessionCheckIn:PreSessionCheckIn,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
 /** @typedef {{recordedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,faceDetected:boolean,affectValid:boolean,dataValid:boolean}} MetricObservation */
 /** @typedef {{id:string,sessionId:string,recordedAt:string,intervalStartedAt:string,intervalEndedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,validObservationCount:number,expectedObservationCount:number,affectObservationCount:number,dataCoverage:number,dataQuality:string,aggregationVersion:string}} MetricSample */
 /** @typedef {{mean:number|null,min:number|null,max:number|null,standardDeviation:number|null,startMean:number|null,endMean:number|null,change:number|null,trend:string,validCount:number}} MetricStatistics */
@@ -72,6 +72,8 @@ export const createStudySession = (input = {}, options = {}) => {
     updatedAt: iso(input.updatedAt, currentTime),
     status: input.status || SESSION_STATUS.ACTIVE,
     accumulatedStudyMs: ms(input.accumulatedStudyMs, 0),
+    recoveryPending: bool(input.recoveryPending),
+    lastCheckpointAt: iso(input.lastCheckpointAt, null),
     schemaVersion: input.schemaVersion || SESSION_SCHEMA_VERSION,
     pipelineVersion: input.pipelineVersion || DEFAULT_PIPELINE_VERSION,
     aggregationVersion: input.aggregationVersion || METRIC_AGGREGATION_VERSION,
@@ -96,6 +98,8 @@ export const normalizeStudySession = (input = {}) => {
     updatedAt: iso(input.updatedAt, null),
     status: input.status || SESSION_STATUS.IDLE,
     accumulatedStudyMs: ms(input.accumulatedStudyMs, 0),
+    recoveryPending: bool(input.recoveryPending),
+    lastCheckpointAt: iso(input.lastCheckpointAt, null),
     schemaVersion: input.schemaVersion || SESSION_SCHEMA_VERSION,
     pipelineVersion: input.pipelineVersion || DEFAULT_PIPELINE_VERSION,
     aggregationVersion: input.aggregationVersion || METRIC_AGGREGATION_VERSION,
@@ -134,6 +138,8 @@ export const validateStudySession = (session) => {
   if (!validIso(session.updatedAt)) errors.push("updatedAt must be an ISO 8601 timestamp.");
   if (!VALID_STATUSES.has(session.status)) errors.push(`status must be one of: ${Array.from(VALID_STATUSES).join(", ")}.`);
   if (!isFiniteNumber(session.accumulatedStudyMs) || session.accumulatedStudyMs < 0) errors.push("accumulatedStudyMs must be non-negative.");
+  if (typeof session.recoveryPending !== "boolean") errors.push("recoveryPending must be a boolean.");
+  if (session.lastCheckpointAt !== null && !validIso(session.lastCheckpointAt)) errors.push("lastCheckpointAt must be an ISO 8601 timestamp or null.");
   validateVersion("schemaVersion", session.schemaVersion, errors);
   validateVersion("pipelineVersion", session.pipelineVersion, errors);
   validateVersion("aggregationVersion", session.aggregationVersion, errors);
@@ -224,6 +230,8 @@ export const createCompletedStudySession = (session, completion = {}) => {
     summary: completion.summary || null,
     sampleCount: completion.sampleCount,
     dataCoverage: completion.dataCoverage,
+    recoveryPending: false,
+    lastCheckpointAt: iso(completion.lastCheckpointAt, normalized.lastCheckpointAt),
     updatedAt: endedAt,
   });
   const validation = validateStudySession(completed);

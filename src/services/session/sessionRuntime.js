@@ -7,6 +7,8 @@ import {
   createCompletedStudySession,
   createStudySession,
   normalizeMetricObservation,
+  normalizeStudySession,
+  validateStudySession,
 } from "./sessionSchema.js";
 import { calculateSessionStatistics } from "./sessionStatistics.js";
 import { generateSessionSummary } from "./sessionSummary.js";
@@ -24,6 +26,30 @@ const isUsefulObservation = (observation) => (
   Number.isFinite(observation.attention) ||
   Number.isFinite(observation.fatigue)
 );
+
+const isRecoverableSession = (session) => (
+  session.status === SESSION_STATUS.ACTIVE ||
+  (session.status === SESSION_STATUS.PAUSED && session.recoveryPending === true)
+);
+
+const checkpointTime = (session) => {
+  const values = [session.lastCheckpointAt, session.updatedAt, session.startedAt]
+    .map((value) => Date.parse(value || ""))
+    .filter(Number.isFinite);
+  return values.length > 0 ? Math.max(...values) : 0;
+};
+
+const sortRecoverableSessions = (sessions = []) => [...sessions].sort((a, b) => {
+  const timeDiff = checkpointTime(b) - checkpointTime(a);
+  if (timeDiff !== 0) return timeDiff;
+  return String(a.id || "").localeCompare(String(b.id || ""));
+});
+
+const getSampleSequence = (samples = []) => samples.reduce((highest, sample) => {
+  const match = String(sample.id || "").match(/-sample-(\d+)$/);
+  if (!match) return highest;
+  return Math.max(highest, Number(match[1]) || 0);
+}, 0);
 
 /**
  * Create a framework-independent runtime that connects session lifecycle, interval sampling, summaries, and repository storage.
@@ -43,6 +69,7 @@ export const createSessionRuntime = (options = {}) => {
   let intervalStartedElapsedMs = null;
   let sampleSequence = 0;
   let flushPromise = Promise.resolve([]);
+  let timingWritePromise = Promise.resolve(null);
 
   const getSnapshot = () => ({
     activeSession: clone(activeSession),
@@ -62,6 +89,7 @@ export const createSessionRuntime = (options = {}) => {
       return [];
     }
     activeSessionSamples = await repository.getMetricSamples(activeSession.id);
+    sampleSequence = getSampleSequence(activeSessionSamples);
     return clone(activeSessionSamples);
   };
 
@@ -106,6 +134,61 @@ export const createSessionRuntime = (options = {}) => {
     return flushPromise;
   };
 
+  const queueTimingWrite = (operation) => {
+    const run = timingWritePromise.catch(() => null).then(operation);
+    timingWritePromise = run;
+    return run;
+  };
+
+  const checkpointActiveSession = (accumulatedStudyMs = 0, input = {}) => queueTimingWrite(async () => {
+    if (!activeSession || activeSession.status !== SESSION_STATUS.ACTIVE) return clone(activeSession);
+    const checkpointedAt = input.checkpointedAt || now();
+    activeSession = await repository.updateSession(activeSession.id, {
+      accumulatedStudyMs,
+      lastCheckpointAt: checkpointedAt,
+      recoveryPending: false,
+      updatedAt: checkpointedAt,
+    });
+    return clone(activeSession);
+  });
+
+  const loadRecoverableSession = async (session) => {
+    const checkpointedAt = session.lastCheckpointAt || session.updatedAt || now();
+    const recovered = await repository.updateSession(session.id, {
+      status: SESSION_STATUS.PAUSED,
+      accumulatedStudyMs: session.accumulatedStudyMs || 0,
+      recoveryPending: true,
+      lastCheckpointAt: checkpointedAt,
+      updatedAt: now(),
+    });
+    activeSession = recovered;
+    activeSessionSamples = await repository.getMetricSamples(recovered.id);
+    sampleSequence = getSampleSequence(activeSessionSamples);
+    resetPendingInterval();
+    return clone(activeSession);
+  };
+
+  const findRecoverableSessions = async () => {
+    const sessions = await repository.listSessionSummaries();
+    const invalid = [];
+    const recoverable = [];
+
+    sessions.forEach((session) => {
+      const normalized = normalizeStudySession(session);
+      const validation = validateStudySession(normalized);
+      if (!validation.valid) {
+        invalid.push({ id: session?.id || null, errors: validation.errors });
+        return;
+      }
+      if (isRecoverableSession(normalized)) recoverable.push(normalized);
+    });
+
+    return {
+      recoverable: sortRecoverableSessions(recoverable),
+      invalid,
+    };
+  };
+
   return {
     getSnapshot,
 
@@ -122,6 +205,8 @@ export const createSessionRuntime = (options = {}) => {
         updatedAt: startedAt,
         status: SESSION_STATUS.PREPARED,
         accumulatedStudyMs: 0,
+        recoveryPending: false,
+        lastCheckpointAt: null,
       }, {
         idFactory: options.idFactory,
         now: () => startedAt,
@@ -141,30 +226,81 @@ export const createSessionRuntime = (options = {}) => {
     async activatePreparedSession() {
       if (!activeSession) return null;
       if (activeSession.status === SESSION_STATUS.ACTIVE) return clone(activeSession);
-      activeSession = await repository.updateSession(activeSession.id, {
+      activeSession = await queueTimingWrite(async () => repository.updateSession(activeSession.id, {
         status: SESSION_STATUS.ACTIVE,
+        recoveryPending: false,
+        lastCheckpointAt: now(),
         updatedAt: now(),
-      });
+      }));
       return clone(activeSession);
+    },
+
+    async checkpointActiveSession(accumulatedStudyMs = 0, input = {}) {
+      return checkpointActiveSession(accumulatedStudyMs, input);
+    },
+
+    async initializeSessionState({ recoverInterrupted = true } = {}) {
+      await refreshCompletedSessions();
+      activeSession = null;
+      activeSessionSamples = [];
+      sampleSequence = 0;
+      resetPendingInterval();
+
+      if (!recoverInterrupted) {
+        return {
+          completedSessions: clone(completedSessions),
+          recoveredSession: null,
+          recoverableSessionCount: 0,
+          invalidRecoverableSessions: [],
+        };
+      }
+
+      const { recoverable, invalid } = await findRecoverableSessions();
+      if (recoverable.length === 0) {
+        return {
+          completedSessions: clone(completedSessions),
+          recoveredSession: null,
+          recoverableSessionCount: 0,
+          invalidRecoverableSessions: invalid,
+        };
+      }
+
+      if (recoverable.length > 1 && typeof console !== "undefined") {
+        console.warn(`Multiple recoverable study sessions found. Recovering newest session ${recoverable[0].id} and leaving ${recoverable.length - 1} untouched.`);
+      }
+
+      const recoveredSession = await loadRecoverableSession(recoverable[0]);
+      return {
+        completedSessions: clone(completedSessions),
+        recoveredSession,
+        recoverableSessionCount: recoverable.length,
+        invalidRecoverableSessions: invalid,
+      };
     },
 
     async pauseSession(accumulatedStudyMs = 0) {
       if (!activeSession) return null;
       if (activeSession.status === SESSION_STATUS.PREPARED) return clone(activeSession);
-      activeSession = await repository.updateSession(activeSession.id, {
+      const checkpointedAt = now();
+      activeSession = await queueTimingWrite(async () => repository.updateSession(activeSession.id, {
         status: SESSION_STATUS.PAUSED,
         accumulatedStudyMs,
-        updatedAt: now(),
-      });
+        recoveryPending: false,
+        lastCheckpointAt: checkpointedAt,
+        updatedAt: checkpointedAt,
+      }));
       return clone(activeSession);
     },
 
     async resumeSession() {
       if (!activeSession) return null;
-      activeSession = await repository.updateSession(activeSession.id, {
+      const checkpointedAt = now();
+      activeSession = await queueTimingWrite(async () => repository.updateSession(activeSession.id, {
         status: SESSION_STATUS.ACTIVE,
-        updatedAt: now(),
-      });
+        recoveryPending: false,
+        lastCheckpointAt: checkpointedAt,
+        updatedAt: checkpointedAt,
+      }));
       return clone(activeSession);
     },
 
@@ -208,6 +344,7 @@ export const createSessionRuntime = (options = {}) => {
 
     async finishSession(actualDurationMs = 0) {
       if (!activeSession) return null;
+      await timingWritePromise.catch(() => null);
       await flushPendingObservations({ force: true });
       const endedAt = now();
       const sessionForStats = {
@@ -215,11 +352,13 @@ export const createSessionRuntime = (options = {}) => {
         status: SESSION_STATUS.COMPLETED,
         endedAt,
         actualDurationMs,
+        accumulatedStudyMs: actualDurationMs,
+        recoveryPending: false,
       };
       const samples = await repository.getMetricSamples(activeSession.id);
       const statistics = calculateSessionStatistics(samples, sessionForStats);
       const summary = generateSessionSummary({ statistics, session: sessionForStats, now });
-      const completed = createCompletedStudySession(activeSession, {
+      const completed = createCompletedStudySession(sessionForStats, {
         endedAt,
         actualDurationMs,
         monitoredDurationMs: statistics.monitoredDurationMs,

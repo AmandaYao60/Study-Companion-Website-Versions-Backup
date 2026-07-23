@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   SESSION_STATUS,
+  createMemorySessionRepository,
   createSessionRuntime,
 } from "./index.js";
 
@@ -115,4 +116,121 @@ test("discard removes the active session without creating completed history", as
   assert.equal(runtime.getSnapshot().activeSession, null);
   assert.deepEqual(await runtime.listCompletedSessions(), []);
   assert.deepEqual(await runtime.getMetricSamples("runtime-session-discard"), []);
+});
+
+test("runtime recovers interrupted active sessions as paused without adding refresh time", async () => {
+  const repository = createMemorySessionRepository();
+  setNow("2026-01-03T00:00:00.000Z");
+  const firstRuntime = createSessionRuntime({
+    repository,
+    now,
+    idFactory: () => "runtime-session-recover",
+    sampleIntervalMs: 1000,
+  });
+
+  const prepared = await firstRuntime.prepareSession({ taskDescription: "Recoverable task" });
+  await firstRuntime.activatePreparedSession();
+  await firstRuntime.checkpointActiveSession(15000, {
+    checkpointedAt: "2026-01-03T00:00:15.000Z",
+  });
+
+  setNow("2026-01-03T01:00:00.000Z");
+  const recoveredRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
+  const initialization = await recoveredRuntime.initializeSessionState();
+  const recovered = initialization.recoveredSession;
+
+  assert.equal(recovered.id, prepared.id);
+  assert.equal(recovered.status, SESSION_STATUS.PAUSED);
+  assert.equal(recovered.recoveryPending, true);
+  assert.equal(recovered.accumulatedStudyMs, 15000);
+  assert.equal(recovered.lastCheckpointAt, "2026-01-03T00:00:15.000Z");
+
+  setNow("2026-01-03T02:00:00.000Z");
+  const repeatedRefreshRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
+  const repeatedInitialization = await repeatedRefreshRuntime.initializeSessionState();
+
+  assert.equal(repeatedInitialization.recoveredSession.id, prepared.id);
+  assert.equal(repeatedInitialization.recoveredSession.status, SESSION_STATUS.PAUSED);
+  assert.equal(repeatedInitialization.recoveredSession.recoveryPending, true);
+  assert.equal(repeatedInitialization.recoveredSession.accumulatedStudyMs, 15000);
+
+  const resumed = await repeatedRefreshRuntime.resumeSession();
+  assert.equal(resumed.id, prepared.id);
+  assert.equal(resumed.status, SESSION_STATUS.ACTIVE);
+  assert.equal(resumed.recoveryPending, false);
+  assert.equal(resumed.accumulatedStudyMs, 15000);
+});
+
+test("finish from recovered session preserves samples and excludes time away", async () => {
+  const repository = createMemorySessionRepository();
+  setNow("2026-01-04T00:00:00.000Z");
+  const firstRuntime = createSessionRuntime({
+    repository,
+    now,
+    idFactory: () => "runtime-session-recovered-finish",
+    sampleIntervalMs: 1000,
+  });
+
+  const prepared = await firstRuntime.prepareSession({ taskDescription: "Finish recovered" });
+  await firstRuntime.activatePreparedSession();
+  await firstRuntime.appendObservation(createObservation(0));
+  await firstRuntime.appendObservation(createObservation(1000));
+  await firstRuntime.checkpointActiveSession(2000, {
+    checkpointedAt: "2026-01-04T00:00:02.000Z",
+  });
+
+  setNow("2026-01-04T04:00:00.000Z");
+  const recoveredRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
+  await recoveredRuntime.initializeSessionState();
+
+  const samplesBeforeFinish = await recoveredRuntime.getMetricSamples(prepared.id);
+  assert.equal(samplesBeforeFinish.length, 1);
+
+  const completed = await recoveredRuntime.finishSession(2000);
+  assert.equal(completed.id, prepared.id);
+  assert.equal(completed.status, SESSION_STATUS.COMPLETED);
+  assert.equal(completed.actualDurationMs, 2000);
+  assert.equal(completed.sampleCount, 1);
+
+  const laterRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
+  const laterInitialization = await laterRuntime.initializeSessionState();
+  assert.equal(laterInitialization.recoveredSession, null);
+  assert.equal((await laterRuntime.listCompletedSessions()).length, 1);
+});
+
+test("recovered sessions continue sample numbering and discard cascades samples", async () => {
+  const repository = createMemorySessionRepository();
+  setNow("2026-01-05T00:00:00.000Z");
+  const firstRuntime = createSessionRuntime({
+    repository,
+    now,
+    idFactory: () => "runtime-session-recovered-discard",
+    sampleIntervalMs: 1000,
+  });
+
+  const prepared = await firstRuntime.prepareSession({ taskDescription: "Discard recovered" });
+  await firstRuntime.activatePreparedSession();
+  await firstRuntime.appendObservation(createObservation(0));
+  await firstRuntime.appendObservation(createObservation(1000));
+  await firstRuntime.checkpointActiveSession(1500, {
+    checkpointedAt: "2026-01-05T00:00:01.500Z",
+  });
+
+  const recoveredRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
+  await recoveredRuntime.initializeSessionState();
+  await recoveredRuntime.resumeSession();
+  await recoveredRuntime.appendObservation(createObservation(2000));
+  await recoveredRuntime.appendObservation(createObservation(3000));
+
+  const samples = await recoveredRuntime.getMetricSamples(prepared.id);
+  assert.deepEqual(samples.map((sample) => sample.id), [
+    "runtime-session-recovered-discard-sample-1",
+    "runtime-session-recovered-discard-sample-2",
+  ]);
+
+  await recoveredRuntime.pauseSession(3000);
+  const discarded = await recoveredRuntime.discardSession();
+  assert.equal(discarded, true);
+  assert.equal(await recoveredRuntime.getSessionById(prepared.id), null);
+  assert.deepEqual(await recoveredRuntime.getMetricSamples(prepared.id), []);
 });

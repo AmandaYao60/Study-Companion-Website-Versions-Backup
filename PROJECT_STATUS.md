@@ -18,6 +18,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Rolling telemetry table and CSV export for raw face/hand landmark coordinates.
 - Dashboard SVG gauges, line chart, radar chart, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
+- Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
 
 ## In Progress
 
@@ -31,7 +32,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - QA `/focus` fullscreen behavior and floating monitor dragging across desktop/mobile layouts.
 - Decide whether two visible hands should always reduce focus after sustained detection.
 - Add cooldowns or aggregation to gesture logs and metric effects.
-- Add local persistence if session history should survive refresh.
+- QA interrupted-session recovery with real camera permissions across supported browsers.
 - Replace PDF export placeholder with a real report export path.
 - Fix mojibake UI strings in source files in a separate source-code task.
 - Add tests for metric heuristics and critical UI state transitions.
@@ -44,7 +45,8 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - The fallback simulation in `AppContext.js` can still update metrics when monitoring runs without real tracking.
 - Raw telemetry and landmark history are stored in React state and are lost on page refresh unless exported.
 - Completed session history is local-only IndexedDB data; clearing browser site data, private/incognito browsing, or storage restrictions can remove or prevent durable history.
-- Interrupted active-session recovery is not implemented; prepared, active, or paused records may remain in local storage but are not automatically resumed, completed, discarded, or shown as completed history.
+- Interrupted active sessions can lose up to roughly one checkpoint interval. Recovery is local-only and depends on browser IndexedDB availability.
+- Recovery resumes the study timer only. Webcam and Monitoring stay disabled until manually restarted.
 - CSV exports contain landmark coordinates and should be handled as sensitive data.
 - Some source strings display mojibake characters.
 

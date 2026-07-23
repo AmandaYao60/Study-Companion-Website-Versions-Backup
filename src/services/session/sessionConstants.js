@@ -1,4 +1,4 @@
-export const SESSION_SCHEMA_VERSION = "session-schema-v1";
+export const SESSION_SCHEMA_VERSION = "session-schema-v2";
 export const SESSION_SUMMARY_ALGORITHM_VERSION = "session-summary-v1";
 export const METRIC_AGGREGATION_VERSION = "metric-aggregation-v1";
 export const DEFAULT_PIPELINE_VERSION = "browser-ai-pipeline-v1";

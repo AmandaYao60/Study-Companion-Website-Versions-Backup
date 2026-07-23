@@ -58,6 +58,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   const hasSession = Boolean(activeSession);
   const sessionStatus = activeSession?.status;
   const isPreparedSession = sessionStatus === "prepared";
+  const isActiveWithoutMonitoring = sessionStatus === "active" && !isMonitoring;
   const isPausedSession = sessionStatus === "paused" || (hasSession && !isMonitoring);
 
   const videoRef = useRef(null);
@@ -469,7 +470,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                   : "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400"
             }`}
           >
-            {isMonitoring ? "Pause Session" : isPreparedSession ? "Enable Camera" : "Resume Session"}
+            {isMonitoring ? "Pause Session" : isPreparedSession ? "Enable Camera" : isActiveWithoutMonitoring ? "Enable Monitoring" : "Resume Session"}
           </button>
 
           <button

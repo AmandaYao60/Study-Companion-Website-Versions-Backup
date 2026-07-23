@@ -88,4 +88,12 @@ Decision: The application uses a native IndexedDB implementation of the existing
 
 Rationale: Completed study-session summaries and formal interval metric samples should survive refreshes without introducing cloud synchronization, authentication, or a backend dependency.
 
-Consequences or trade-offs: Persistence is local to the current browser and origin. Clearing site data, private/incognito browsing, or browser storage restrictions can remove or prevent durable history. Raw video, images, face crops, landmarks, telemetry rows, model logits, and full emotion probability arrays remain outside IndexedDB. Interrupted prepared, active, or paused sessions are left untouched for a later recovery-policy task rather than being automatically resumed or converted.
+Consequences or trade-offs: Persistence is local to the current browser and origin. Clearing site data, private/incognito browsing, or browser storage restrictions can remove or prevent durable history. Raw video, images, face crops, landmarks, telemetry rows, model logits, and full emotion probability arrays remain outside IndexedDB.
+
+## Interrupted Active Sessions Recover As Paused
+
+Decision: Active sessions write local timer checkpoints to IndexedDB about every five seconds and are recovered after refresh as paused, recovery-pending sessions.
+
+Rationale: Study time should survive ordinary refreshes without counting time away from the page or requiring camera access during startup.
+
+Consequences or trade-offs: Recovery is local to the same browser and origin, may lose up to roughly one checkpoint interval, and does not restore webcam streams, Monitoring, short-term baselines, pending observations, raw telemetry, landmarks, or model state. Resume preserves the same session ID and starts the study clock from the checkpoint while leaving webcam and Monitoring disabled for manual restart.

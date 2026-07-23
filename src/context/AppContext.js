@@ -22,6 +22,7 @@ const OBSERVATION_WINDOW_MS = 60000;
 const ATTENTION_WINDOW_MS = 10000;
 const FATIGUE_WINDOW_MS = 30000;
 const ESTIMATOR_INTERVAL_MS = 1000;
+const SESSION_CHECKPOINT_INTERVAL_MS = 5000;
 const LONG_CLOSURE_MS = 1200;
 const BLINK_MIN_MS = 80;
 const BLINK_MAX_MS = 450;
@@ -212,6 +213,7 @@ export const AppProvider = ({ children }) => {
   });
   const sessionRuntimeRef = useRef(sessionRuntime);
   const hasHydratedCompletedSessionsRef = useRef(false);
+  const lastCheckpointFailureRef = useRef(null);
 
   const [activeSession, setActiveSession] = useState(null);
   const [completedSessions, setCompletedSessions] = useState([]);
@@ -272,6 +274,14 @@ export const AppProvider = ({ children }) => {
   const startSessionClockFromZero = useCallback(() => {
     setSessionClock({
       accumulatedMs: 0,
+      runningSince: Date.now(),
+      isRunning: true,
+    });
+  }, []);
+
+  const startSessionClockFromElapsed = useCallback((elapsedMs = 0) => {
+    setSessionClock({
+      accumulatedMs: Math.max(0, elapsedMs),
       runningSince: Date.now(),
       isRunning: true,
     });
@@ -356,6 +366,7 @@ export const AppProvider = ({ children }) => {
 
   const syncSessionState = useCallback(() => {
     const snapshot = sessionRuntimeRef.current.getSnapshot();
+    activeSessionRef.current = snapshot.activeSession;
     setActiveSession(snapshot.activeSession);
     setActiveSessionSamples(snapshot.activeSessionSamples);
     setCompletedSessions(snapshot.completedSessions);
@@ -365,18 +376,42 @@ export const AppProvider = ({ children }) => {
     if (hasHydratedCompletedSessionsRef.current) return undefined;
     let isMounted = true;
 
-    sessionRuntimeRef.current.listCompletedSessions()
-      .then(() => {
+    sessionRuntimeRef.current.initializeSessionState({ recoverInterrupted: true })
+      .then((result) => {
         if (!isMounted) return;
         hasHydratedCompletedSessionsRef.current = true;
+        const recovered = result?.recoveredSession;
+        if (recovered) {
+          const recoveredElapsedMs = Number.isFinite(recovered.accumulatedStudyMs)
+            ? Math.max(0, recovered.accumulatedStudyMs)
+            : 0;
+          setSessionClock({
+            accumulatedMs: recoveredElapsedMs,
+            runningSince: null,
+            isRunning: false,
+          });
+          sessionClockRef.current = {
+            accumulatedMs: recoveredElapsedMs,
+            runningSince: null,
+            isRunning: false,
+          };
+          setIsMonitoring(false);
+          monitoringRef.current = false;
+          setIsCameraAllowed(false);
+          cameraAllowedRef.current = false;
+          addLog("Interrupted study session recovered from local checkpoint.", "warning");
+        }
+        if (result?.invalidRecoverableSessions?.length > 0) {
+          addLog("Some unfinished local sessions could not be recovered.", "error");
+        }
         syncSessionState();
       })
       .catch((error) => {
         if (!isMounted) return;
         hasHydratedCompletedSessionsRef.current = true;
         const message = error instanceof Error ? error.message : String(error);
-        console.error("Session history storage initialization failed:", error);
-        addLog(`Local session history could not be loaded: ${message}`, "error");
+        console.error("Session storage initialization failed:", error);
+        addLog(`Local session state could not be loaded: ${message}`, "error");
       });
 
     return () => {
@@ -1118,6 +1153,7 @@ export const AppProvider = ({ children }) => {
     if (active.status === SESSION_STATUS.PREPARED) {
       resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
       startSessionClockFromZero();
+      await sessionRuntimeRef.current.checkpointActiveSession(0, { checkpointedAt: new Date().toISOString(), reason: "start" });
     } else {
       startSessionClock();
     }
@@ -1192,6 +1228,33 @@ export const AppProvider = ({ children }) => {
     return true;
   }, [addLog, clearCameraStream, freezeSessionClock, getSessionElapsedMs, resetTransientInferenceState, syncSessionState]);
 
+  const resumeRecoveredSession = useCallback(async () => {
+    const active = activeSessionRef.current;
+    if (!active || active.recoveryPending !== true) return null;
+
+    const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
+      ? Math.max(0, active.accumulatedStudyMs)
+      : 0;
+
+    setIsMonitoring(false);
+    monitoringRef.current = false;
+    clearCameraStream();
+    resetTransientInferenceState();
+
+    const session = await sessionRuntimeRef.current.resumeSession();
+    startSessionClockFromElapsed(elapsedMs);
+    sessionClockRef.current = {
+      accumulatedMs: elapsedMs,
+      runningSince: Date.now(),
+      isRunning: true,
+    };
+    setIsMonitoring(false);
+    monitoringRef.current = false;
+    syncSessionState();
+    addLog("Recovered study session resumed. Webcam and Monitoring remain disabled.", "success");
+    return session;
+  }, [addLog, clearCameraStream, resetTransientInferenceState, startSessionClockFromElapsed, syncSessionState]);
+
   const finishSession = useCallback(async () => {
     if (!activeSessionRef.current) return null;
 
@@ -1250,6 +1313,65 @@ export const AppProvider = ({ children }) => {
     sessionRuntimeRef.current.getMetricSamples(sessionId)
   ), []);
 
+  const persistActiveSessionCheckpoint = useCallback(async (reason = "interval") => {
+    const active = activeSessionRef.current;
+    const clock = sessionClockRef.current;
+
+    if (!active || active.status !== SESSION_STATUS.ACTIVE || !clock.isRunning) {
+      return null;
+    }
+
+    try {
+      const session = await sessionRuntimeRef.current.checkpointActiveSession(getSessionElapsedMs(), {
+        checkpointedAt: new Date().toISOString(),
+        reason,
+      });
+      lastCheckpointFailureRef.current = null;
+      syncSessionState();
+      return session;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to checkpoint active study session:", error);
+      if (lastCheckpointFailureRef.current !== message) {
+        lastCheckpointFailureRef.current = message;
+        addLog("Could not save the latest study-time checkpoint. Local storage may be unavailable.", "error");
+      }
+      throw error;
+    }
+  }, [addLog, getSessionElapsedMs, syncSessionState]);
+
+  useEffect(() => {
+    if (activeSession?.status !== SESSION_STATUS.ACTIVE || !sessionClock.isRunning) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      void persistActiveSessionCheckpoint("interval").catch(() => {});
+    }, SESSION_CHECKPOINT_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [activeSession?.id, activeSession?.status, persistActiveSessionCheckpoint, sessionClock.isRunning]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void persistActiveSessionCheckpoint("visibility-hidden").catch(() => {});
+      }
+    };
+
+    const handlePageHide = () => {
+      void persistActiveSessionCheckpoint("pagehide").catch(() => {});
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [persistActiveSessionCheckpoint]);
+
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) {
@@ -1289,6 +1411,18 @@ export const AppProvider = ({ children }) => {
     }
     if (active?.status === SESSION_STATUS.PAUSED) {
       return resumeSession();
+    }
+    if (active?.status === SESSION_STATUS.ACTIVE) {
+      if (!cameraAllowedRef.current || !streamRef.current) {
+        setShowCameraDialog(true);
+        return null;
+      }
+      startSessionClock();
+      resetEstimatorSession(latestAttentionRef.current, latestFatigueRef.current);
+      setIsMonitoring(true);
+      monitoringRef.current = true;
+      addLog("Monitoring enabled for the active study session.", "success");
+      return active;
     }
 
     return null;
@@ -1347,6 +1481,7 @@ export const AppProvider = ({ children }) => {
         startSession,
         pauseSession,
         resumeSession,
+        resumeRecoveredSession,
         finishSession,
         discardSession,
         updateSessionTask,
