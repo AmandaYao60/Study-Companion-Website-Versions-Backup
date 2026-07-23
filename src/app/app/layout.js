@@ -1,4 +1,5 @@
 import MonitoringRuntimeHost from "../../components/monitoring/MonitoringRuntimeHost";
+import DebugPanel from "../../components/DebugPanel";
 import ProductNavbar from "../../components/product/ProductNavbar";
 import SessionRecoveryDialog from "../../components/product/SessionRecoveryDialog";
 
@@ -8,6 +9,7 @@ export default function ProductLayout({ children }) {
       <ProductNavbar />
       <MonitoringRuntimeHost />
       <main className="flex-1">{children}</main>
+      <DebugPanel />
       <SessionRecoveryDialog />
     </div>
   );

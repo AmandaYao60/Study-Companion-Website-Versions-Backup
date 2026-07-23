@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppState } from "../../context/AppContext";
 import CameraFeed from "../CameraFeed";
-import DebugPanel from "../DebugPanel";
 import SessionSetupForm from "./SessionSetupForm";
 import ActiveSessionCard from "./ActiveSessionCard";
 import EndSessionDialog from "./EndSessionDialog";
@@ -49,7 +48,6 @@ export default function StudySpace() {
     isCameraAllowed,
     isAiLoaded,
     affectModelStatus,
-    isDebugMode,
     pauseSession,
     resumeSession,
     finishSession,
@@ -132,7 +130,6 @@ export default function StudySpace() {
             affectModelStatus={affectModelStatus}
             onDisableWebcam={() => void handleDisableWebcam()}
           />
-          {isDebugMode && <DebugPanel />}
         </aside>
 
         <main className="min-w-0 space-y-4">

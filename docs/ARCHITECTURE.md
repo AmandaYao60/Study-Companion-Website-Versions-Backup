@@ -35,7 +35,7 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 ## Primary Pages
 
 - `src/app/page.js`: Overview page. Presents the Phase 1 POC, feature cards, privacy approach, and links to Study Space and Analytics.
-- `src/app/monitor/page.js`: Technical camera and calibration workspace. Combines `CameraFeed`, companion advice, shared session timer, and either `DebugPanel` or a production sidebar.
+- `src/app/monitor/page.js`: Redirects to the product Study Space at `/app/study`.
 - `src/app/focus/page.js`: Focus Space shell. Renders a fullscreen-capable visual-stage placeholder and, while monitoring is active, a draggable floating monitor panel that reuses `CameraFeed` in `focus-panel` presentation.
 - `src/app/dashboard/page.js`: Analytics view. Renders `DashboardCharts`, session diagnosis copy, debug sliders when Debug Mode is enabled, and placeholder PDF export.
 
@@ -65,24 +65,25 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 
 ### DebugPanel
 
-`src/components/DebugPanel.js` provides:
+`src/components/DebugPanel.js` is a developer diagnostics overlay rendered from the product layout when Debug Mode is enabled. It is closed by default and opens as a responsive right-side drawer on desktop or bottom sheet on narrow screens, so it does not permanently resize Study Space.
 
-- Inference FPS control.
-- Manual focus, stress, fatigue, and arousal overrides.
-- Event injectors for blink, yawn, and selected gestures.
-- Raw telemetry summaries.
-- Telemetry table view.
-- CSV export through `exportTelemetryCSV()`.
-- Event log console and custom log injection.
+The panel provides:
+
+- Read-only system status for camera, MediaPipe FaceLandmarker, MediaPipe GestureRecognizer, affect model, face detection, Monitoring, active session state, repository type, data quality, and latest formal sample age.
+- Live metric inspection for the authoritative pipeline values: attention, fatigue, valence, affect arousal, detected emotion, top softmax probability stored as `emotionConfidence`, face/hand detection state, latest observation time, and latest formal sample time.
+- A memory-only Debug Simulation mode with normalized display-preview values for attention, fatigue, valence, arousal, emotion, emotion confidence, face state, and data quality. These values are labeled as simulated and are selected through a display boundary rather than being written to authoritative metric state.
+- Session diagnostics for the current session ID, status, elapsed active time, durable accumulated time, recovery-pending state, checkpoint status, sample count, camera/Monitoring state, and in-memory telemetry counts.
+- A bounded, sanitized, memory-only event log with Clear Log and Copy Sanitized Log actions.
+
+Debug Simulation and display overrides are cleared when Debug Mode is turned off and are not persisted across refreshes. They must not enter `MetricObservation`, formal `MetricSample` records, session statistics, completed history, IndexedDB, or model output.
 
 ### DashboardCharts
 
 `src/components/DashboardCharts.js` renders dashboard visuals with inline SVG:
 
-- Circular gauges for focus, stress, fatigue, and arousal.
-- Smoothed session timeline for focus, stress, and fatigue.
-- Radar chart for current cognitive balance.
-- Summary cards for average focus, average stress, and peak fatigue.
+- Metric cards for attention, fatigue, valence, and affect arousal.
+- Behavioral and emotional trend charts based on active live metrics or completed session samples.
+- Session summary, metric stream, and completed-history detail views.
 
 ## AppContext Responsibilities
 
@@ -91,9 +92,10 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 - Global UI mode: Debug Mode.
 - Monitoring, camera, and shared session-clock state.
 - MediaPipe model loading state and model refs.
-- Cognitive metrics: focus, stress, fatigue, arousal.
+- Inferred behavioral metrics: attention and fatigue.
+- Browser affect state: valence, affect arousal, discrete emotion, and top softmax probability stored as `emotionConfidence`.
 - CV telemetry: blink rate, yawn count, head pose, current gesture, FPS, latency.
-- Event log.
+- Developer diagnostics state: read-only live debug metrics, memory-only simulated display metrics, camera/model statuses, checkpoint write status, and a bounded sanitized event log.
 - Metrics history for charts.
 - Telemetry table and raw landmark history.
 - Camera start/stop lifecycle.
@@ -115,7 +117,7 @@ User enables camera
   -> CameraFeed updates detection refs and face-detected UI state
   -> AppContext.updateAiMetrics() updates telemetry and metrics
   -> Monitor page or Focus Space displays advice/current state
-  -> DebugPanel displays telemetry and controls
+  -> DebugPanel can inspect live state or preview memory-only simulated display metrics
   -> DashboardCharts visualizes current and historical metrics
 ```
 
@@ -137,7 +139,7 @@ This separation is intentional: no-face state is a React UI message, not simulat
 
 ## Dashboard and Telemetry Flow
 
-`updateAiMetrics()` creates rows for `telemetryTable` and entries for `rawLandmarksHistory`. `DebugPanel` reads these structures for the telemetry table and CSV export. `metricsHistory` is updated on an interval while monitoring is active, and `DashboardCharts` uses that history for the timeline and summary cards.
+`updateAiMetrics()` creates rows for `telemetryTable` and entries for `rawLandmarksHistory`. `DebugPanel` can show aggregate counts and export the existing raw landmark CSV, but it does not display raw coordinate matrices inline. `activeSessionLiveMetrics` is updated on an interval while Monitoring is active, and `DashboardCharts` uses that state plus formal session samples for live and historical views.
 
 ## Privacy Boundaries
 
@@ -158,7 +160,7 @@ The domain separates four levels of data:
 - `SessionStatistics`: descriptive statistics computed across a completed session's interval samples.
 - `SessionSummary`: structured, replaceable rule-based summary sections generated from session-level statistics.
 
-Stored session records use `attention` as the canonical future Dashboard metric name. The existing live estimator still exposes `focus` in `AppContext`; that mapping is deliberately left for a later integration phase. The new model does not include the current Dashboard's `stress` metric or the old simulated 0-100 arousal value. Its `arousal` field refers to the browser-local EmotiEffLib continuous valence-arousal output and may be `null` when affect data is missing.
+Stored session records use `attention` as the canonical behavioral metric name. The session model does not include legacy `stress` or a legacy 0-100 arousal value. Its `arousal` field refers to the browser-local EmotiEffLib continuous valence-arousal output and may be `null` when affect data is missing.
 
 `repositories/sessionRepository.js` documents an asynchronous repository contract compatible with future `study_sessions` and `metric_samples` tables. `memorySessionRepository.js` implements the same contract for deterministic isolated use while keeping sessions and metric samples separate. `indexedDbSessionRepository.js` implements the same contract with native browser IndexedDB and is injected by `AppContext` as the application repository. A future Supabase repository should be able to replace these implementations without making React components depend on the storage backend.
 
@@ -172,7 +174,21 @@ Completed study-session summaries and formal `MetricSample` records are stored l
 
 Raw video, images, face crops, canvas contents, face landmarks, hand landmarks, raw telemetry rows, raw landmark history, model logits, full emotion probability arrays, debug overrides, MediaPipe model objects, and camera streams are not stored in IndexedDB. Raw telemetry and landmark history remain in React memory unless the user explicitly exports the CSV.
 
-On startup, an unexpectedly interrupted active session is converted to a paused, recovery-pending session and shown over the normal Study Space in a modal. The recovered elapsed time comes only from the latest durable checkpoint; refresh time and time spent viewing the recovery modal are excluded. Resuming preserves the same session ID and restarts the study clock from the checkpoint while keeping the webcam and Monitoring disabled. The user must manually restart camera access and Monitoring through the existing controls.
+On startup, an unexpectedly interrupted active session is converted to a paused, recovery-pending session and shown over the normal Study Space in a modal. The recovered elapsed time comes only from the latest durable checkpoint; refresh time and time spent viewing the recovery modal are excluded. Returning from the recovery modal keeps the session paused. Resuming preserves the same session ID but requires the user to grant camera access successfully before the study clock, Monitoring, and data analysis restart.
 
 Clearing browser site data removes local session history and any recoverable session. Private/incognito browsing modes or browser storage restrictions may prevent durable persistence. Abrupt termination can lose up to roughly one checkpoint interval. Recovery is local-only, preserves already committed `MetricSample` records, and does not restore camera streams, short-term baselines, pending observations, raw telemetry, landmarks, or model state.
+
+## Developer Diagnostics And Simulation
+
+Debug Mode is intended for local developer inspection of the browser camera/model/session pipeline. The diagnostics drawer reads existing AppContext and session-runtime state; opening it does not start the camera, request permissions, load extra models, start Monitoring, start a session, or write session data.
+
+The simulation controls are deliberately separated from authoritative metrics:
+
+```text
+displayMetrics = simulationEnabled ? simulatedMetrics : liveMetrics
+```
+
+`liveMetrics` are derived from current AppContext state and session sample timestamps. `simulatedMetrics` are normalized memory-only values for previewing future UI consumers. The current Dashboard, completed history, session statistics, repository writes, checkpoint timing, emotion model, attention estimator, and fatigue estimator continue to use authoritative live data only.
+
+The diagnostic event log is bounded to approximately 100 entries, coalesces immediate duplicates, sanitizes copied text, and remains in memory. It must not contain camera frames, face crops, landmarks, raw observations, model logits, full probability arrays, tokens, stack traces, or persisted user data.
 

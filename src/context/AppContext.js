@@ -7,6 +7,15 @@ import {
   SESSION_STATUS,
   validateSessionRepositoryContract,
 } from "../services/session/index.js";
+import {
+  applyDebugSimulationPreset,
+  createDefaultDebugSimulationState,
+  selectDebugDisplayMetrics,
+  updateDebugSimulationMetric,
+} from "../services/debug/debugSimulation.js";
+import {
+  appendDebugLogMessage,
+} from "../services/debug/debugEventLog.js";
 
 const AppContext = createContext();
 const EYE_LANDMARKS = {
@@ -112,6 +121,7 @@ export const AppProvider = ({ children }) => {
   const [isCameraAllowed, setIsCameraAllowed] = useState(false);
   const [showCameraDialog, setShowCameraDialog] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
+  const [cameraStatus, setCameraStatus] = useState("off");
   const [sessionClock, setSessionClock] = useState({
     accumulatedMs: 0,
     runningSince: null,
@@ -123,6 +133,8 @@ export const AppProvider = ({ children }) => {
   const [aiLoadingProgress, setAiLoadingProgress] = useState(0);
   const [aiError, setAiError] = useState(null);
   const [inferenceFps, setInferenceFps] = useState(5);
+  const [faceLandmarkerStatus, setFaceLandmarkerStatus] = useState("idle");
+  const [gestureRecognizerStatus, setGestureRecognizerStatus] = useState("idle");
   
   // Real-time table logging data
   const [telemetryTable, setTelemetryTable] = useState([]);
@@ -136,6 +148,7 @@ export const AppProvider = ({ children }) => {
   const monitoringDetectionsRef = useRef({ face: null, gesture: null });
   const runtimeFaceCropCanvasRef = useRef(null);
   const [hasDetectedFace, setHasDetectedFace] = useState(false);
+  const [hasDetectedHand, setHasDetectedHand] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState("idle");
 
   // Keep track of blink detection state
@@ -171,6 +184,7 @@ export const AppProvider = ({ children }) => {
   const [attention, setAttention] = useState(85);
   const [fatigue, setFatigue] = useState(15);
   const [debugMetricOverrides, setDebugMetricOverrides] = useState(createDefaultDebugMetricOverrides);
+  const [debugSimulation, setDebugSimulation] = useState(createDefaultDebugSimulationState);
 
   // Local affect model state
   const [affectState, setAffectState] = useState({
@@ -194,27 +208,36 @@ export const AppProvider = ({ children }) => {
   const [latency, setLatency] = useState(18); // inference latency in ms
 
   // Event Log (for Debug Mode Console)
-  const [eventLog, setEventLog] = useState([
-    { id: 1, time: "10:40:15", message: "AI CV Model loaded successfully.", type: "info" },
-    { id: 2, time: "10:40:16", message: "Calibration complete. Baseline established.", type: "info" }
-  ]);
+  const [eventLog, setEventLog] = useState([]);
 
   // Historical data for charts (stores live points only; no random seed data)
   const [metricsHistory, setMetricsHistory] = useState([]);
   const [activeSessionLiveMetrics, setActiveSessionLiveMetrics] = useState([]);
 
-  const [sessionRuntime] = useState(() => {
+  const [sessionRuntimeBundle] = useState(() => {
     const repository = createIndexedDbSessionRepository();
     const contract = validateSessionRepositoryContract(repository);
     if (!contract.valid) {
       throw new Error(`IndexedDB session repository is missing methods: ${contract.missing.join(", ")}`);
     }
-    return createSessionRuntime({ repository });
+    return {
+      runtime: createSessionRuntime({ repository }),
+      repositoryKind: "IndexedDB",
+    };
   });
+  const sessionRuntime = sessionRuntimeBundle.runtime;
+  const sessionRepositoryKind = sessionRuntimeBundle.repositoryKind;
   const sessionRuntimeRef = useRef(sessionRuntime);
   const hasHydratedCompletedSessionsRef = useRef(false);
   const lastCheckpointFailureRef = useRef(null);
   const resumeTransitionPromiseRef = useRef(null);
+  const [checkpointStatus, setCheckpointStatus] = useState({
+    state: "idle",
+    lastAttemptedAt: null,
+    lastCommittedAt: null,
+    reason: null,
+    error: null,
+  });
 
   const [activeSession, setActiveSession] = useState(null);
   const [completedSessions, setCompletedSessions] = useState([]);
@@ -327,11 +350,11 @@ export const AppProvider = ({ children }) => {
 
   // Helper to add log messages
   const addLog = useCallback((message, type = "info") => {
-    const time = new Date().toTimeString().split(" ")[0];
-    setEventLog((prev) => [
-      { id: Date.now(), time, message, type },
-      ...prev.slice(0, 49) // Keep last 50 logs
-    ]);
+    setEventLog((previous) => appendDebugLogMessage(previous, message, type));
+  }, []);
+
+  const clearEventLog = useCallback(() => {
+    setEventLog([]);
   }, []);
 
   const setDebugMetricOverride = useCallback((metric, value) => {
@@ -355,12 +378,35 @@ export const AppProvider = ({ children }) => {
     setDebugMetricOverrides(createDefaultDebugMetricOverrides());
   }, []);
 
+  const setDebugSimulationEnabled = useCallback((enabled) => {
+    if (!debugModeRef.current && enabled) return;
+    setDebugSimulation((previous) => ({
+      ...previous,
+      enabled: Boolean(enabled),
+    }));
+  }, []);
+
+  const setDebugSimulationMetric = useCallback((metric, value) => {
+    if (!debugModeRef.current) return;
+    setDebugSimulation((previous) => updateDebugSimulationMetric(previous, metric, value));
+  }, []);
+
+  const applyDebugSimulationPresetById = useCallback((presetId) => {
+    if (!debugModeRef.current) return;
+    setDebugSimulation((previous) => applyDebugSimulationPreset(previous, presetId));
+  }, []);
+
+  const resetDebugSimulation = useCallback(() => {
+    setDebugSimulation(createDefaultDebugSimulationState());
+  }, []);
+
   const setIsDebugMode = useCallback((nextValue) => {
     const resolvedValue = Boolean(
       typeof nextValue === "function" ? nextValue(debugModeRef.current) : nextValue
     );
     if (!resolvedValue) {
       setDebugMetricOverrides(createDefaultDebugMetricOverrides());
+      setDebugSimulation(createDefaultDebugSimulationState());
     }
     debugModeRef.current = resolvedValue;
     setIsDebugModeState(resolvedValue);
@@ -488,6 +534,29 @@ export const AppProvider = ({ children }) => {
     };
   }, [attention, debugMetricOverrides, fatigue, isDebugMode]);
 
+  const debugLiveMetrics = useMemo(() => {
+    const latestLiveMetric = activeSessionLiveMetrics[activeSessionLiveMetrics.length - 1] || null;
+    const latestSample = activeSessionSamples[activeSessionSamples.length - 1] || null;
+
+    return {
+      attention,
+      fatigue,
+      valence: affectState.valid ? affectState.valence : null,
+      arousal: affectState.valid ? affectState.arousal : null,
+      emotion: affectState.valid ? affectState.emotion : null,
+      emotionConfidence: affectState.valid ? affectState.confidence : null,
+      faceDetected: hasDetectedFace,
+      handDetected: hasDetectedHand,
+      dataQuality: latestLiveMetric?.dataQuality || "insufficient",
+      latestObservationAt: latestLiveMetric?.recordedAt || null,
+      latestSampleAt: latestSample?.intervalEndedAt || latestSample?.recordedAt || null,
+    };
+  }, [activeSessionLiveMetrics, activeSessionSamples, affectState, attention, fatigue, hasDetectedFace, hasDetectedHand]);
+
+  const debugDisplayMetrics = useMemo(() => (
+    selectDebugDisplayMetrics(debugLiveMetrics, isDebugMode ? debugSimulation : null)
+  ), [debugLiveMetrics, debugSimulation, isDebugMode]);
+
   // AI Web-SDK loaders and updates
   const loadAiModels = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -495,6 +564,8 @@ export const AppProvider = ({ children }) => {
     isAiInitializingRef.current = true;
     setAiError(null);
     setAiLoadingProgress(10);
+    setFaceLandmarkerStatus("loading");
+    setGestureRecognizerStatus("loading");
     addLog("Loading AI Models resolver...", "info");
     
     try {
@@ -507,6 +578,7 @@ export const AppProvider = ({ children }) => {
       
       setAiLoadingProgress(50);
       addLog("Initializing Face Landmarker...", "info");
+      setFaceLandmarkerStatus("loading");
       faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
@@ -516,9 +588,11 @@ export const AppProvider = ({ children }) => {
         outputFacialTransformationMatrixes: true,
         runningMode: "VIDEO"
       });
+      setFaceLandmarkerStatus("ready");
       
       setAiLoadingProgress(80);
       addLog("Initializing Gesture Recognizer...", "info");
+      setGestureRecognizerStatus("loading");
       gestureRecognizerRef.current = await GestureRecognizer.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
@@ -527,6 +601,7 @@ export const AppProvider = ({ children }) => {
         runningMode: "VIDEO",
         numHands: 2
       });
+      setGestureRecognizerStatus("ready");
       
       setAiLoadingProgress(100);
       setIsAiLoaded(true);
@@ -536,6 +611,8 @@ export const AppProvider = ({ children }) => {
     console.error("AI Model Loading Error:", err);
     setAiError(errorMessage);
     setAiLoadingProgress(0);
+    if (!faceLandmarkerRef.current) setFaceLandmarkerStatus("error");
+    if (!gestureRecognizerRef.current) setGestureRecognizerStatus("error");
     addLog(`Failed to load AI models: ${errorMessage}`, "error");
     } finally {
       isAiInitializingRef.current = false;
@@ -671,7 +748,10 @@ export const AppProvider = ({ children }) => {
 
     void sessionRuntimeRef.current.appendObservation(observation)
       .then((samples) => {
-        if (samples.length > 0) syncSessionState();
+        if (samples.length > 0) {
+          syncSessionState();
+          addLog(`Metric sample committed (${samples.length}).`, "debug");
+        }
       })
       .catch((error) => {
         console.error("Failed to append session observation:", error);
@@ -825,6 +905,7 @@ export const AppProvider = ({ children }) => {
       previousGestureRef.current = "None";
  
     }
+    setHasDetectedHand(handsCount > 0);
 
     if (handsCount >= 2) {
       bothHandsFrameCountRef.current += 1;
@@ -1108,6 +1189,7 @@ export const AppProvider = ({ children }) => {
     setCameraStream(null);
     setIsCameraAllowed(false);
     cameraAllowedRef.current = false;
+    setCameraStatus("off");
   }, []);
 
   const resetTransientInferenceState = useCallback(() => {
@@ -1116,6 +1198,7 @@ export const AppProvider = ({ children }) => {
     setCurrentGesture("None");
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setHasDetectedHand(false);
     setRuntimeStatus("idle");
   }, [resetAffectState]);
 
@@ -1134,6 +1217,7 @@ export const AppProvider = ({ children }) => {
     liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setHasDetectedHand(false);
 
     const session = await sessionRuntimeRef.current.prepareSession({
       taskDescription,
@@ -1167,7 +1251,22 @@ export const AppProvider = ({ children }) => {
       if (active.status === SESSION_STATUS.PREPARED) {
         resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
         startSessionClockFromZero();
-        await sessionRuntimeRef.current.checkpointActiveSession(0, { checkpointedAt: new Date().toISOString(), reason: "start" });
+        const checkpointedAt = new Date().toISOString();
+        setCheckpointStatus((previous) => ({
+          ...previous,
+          state: "writing",
+          lastAttemptedAt: checkpointedAt,
+          reason: "start",
+          error: null,
+        }));
+        const checkpointedSession = await sessionRuntimeRef.current.checkpointActiveSession(0, { checkpointedAt, reason: "start" });
+        setCheckpointStatus({
+          state: "saved",
+          lastAttemptedAt: checkpointedAt,
+          lastCommittedAt: checkpointedSession?.lastCheckpointAt || checkpointedAt,
+          reason: "start",
+          error: null,
+        });
       } else if (active.recoveryPending === true) {
         const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
           ? Math.max(0, active.accumulatedStudyMs)
@@ -1295,6 +1394,7 @@ export const AppProvider = ({ children }) => {
     setActiveSessionLiveMetrics([]);
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setHasDetectedHand(false);
     setRecoveryPromptDismissedSessionId(null);
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
@@ -1315,6 +1415,7 @@ export const AppProvider = ({ children }) => {
     liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setHasDetectedHand(false);
     setRecoveryPromptDismissedSessionId(null);
     syncSessionState();
     addLog("Study session discarded.", "warning");
@@ -1349,17 +1450,41 @@ export const AppProvider = ({ children }) => {
       return null;
     }
 
+    const checkpointedAt = new Date().toISOString();
+    setCheckpointStatus((previous) => ({
+      ...previous,
+      state: "writing",
+      lastAttemptedAt: checkpointedAt,
+      reason,
+      error: null,
+    }));
+
     try {
       const session = await sessionRuntimeRef.current.checkpointActiveSession(getSessionElapsedMs(), {
-        checkpointedAt: new Date().toISOString(),
+        checkpointedAt,
         reason,
       });
       lastCheckpointFailureRef.current = null;
+      setCheckpointStatus({
+        state: "saved",
+        lastAttemptedAt: checkpointedAt,
+        lastCommittedAt: session?.lastCheckpointAt || checkpointedAt,
+        reason,
+        error: null,
+      });
+      addLog(`Study-time checkpoint committed (${reason}).`, "debug");
       syncSessionState();
       return session;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("Failed to checkpoint active study session:", error);
+      setCheckpointStatus({
+        state: "error",
+        lastAttemptedAt: checkpointedAt,
+        lastCommittedAt: active.lastCheckpointAt || null,
+        reason,
+        error: "Checkpoint write failed.",
+      });
       if (lastCheckpointFailureRef.current !== message) {
         lastCheckpointFailureRef.current = message;
         addLog("Could not save the latest study-time checkpoint. Local storage may be unavailable.", "error");
@@ -1405,9 +1530,11 @@ export const AppProvider = ({ children }) => {
       if (streamRef.current) {
         setIsCameraAllowed(true);
         cameraAllowedRef.current = true;
+        setCameraStatus("ready");
         return streamRef.current;
       }
 
+      setCameraStatus("requesting");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
         audio: false
@@ -1417,12 +1544,14 @@ export const AppProvider = ({ children }) => {
       streamRef.current = stream;
       setIsCameraAllowed(true);
       cameraAllowedRef.current = true;
+      setCameraStatus("ready");
       addLog("Camera access granted. Live stream connected.", "success");
       return stream;
     } catch (err) {
       console.error("Error accessing webcam:", err);
       setIsCameraAllowed(false);
       cameraAllowedRef.current = false;
+      setCameraStatus("error");
       addLog("Camera access denied or unavailable.", "error");
       throw err;
     }
@@ -1463,6 +1592,7 @@ export const AppProvider = ({ children }) => {
     setAttention(80);
     setFatigue(10);
     clearAllDebugMetricOverrides();
+    resetDebugSimulation();
     setYawnCount(0);
     setBlinkRate(12);
     setEyeOpenness(1.0);
@@ -1474,11 +1604,19 @@ export const AppProvider = ({ children }) => {
     liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setHasDetectedHand(false);
     setTelemetryTable([]);
     setRawLandmarksHistory([]);
     resetEstimatorSession(80, 10);
     resetAffectState();
     resetSessionClock();
+    setCheckpointStatus({
+      state: "idle",
+      lastAttemptedAt: null,
+      lastCommittedAt: null,
+      reason: null,
+      error: null,
+    });
     setRecoveryPromptDismissedSessionId(null);
     await sessionRuntimeRef.current.clear();
     syncSessionState();
@@ -1493,6 +1631,7 @@ export const AppProvider = ({ children }) => {
         setIsMonitoring,
         isCameraAllowed,
         setIsCameraAllowed,
+        cameraStatus,
         showCameraDialog,
         setShowCameraDialog,
         cameraStream,
@@ -1505,6 +1644,8 @@ export const AppProvider = ({ children }) => {
         activeSession,
         completedSessions,
         activeSessionSamples,
+        sessionRepositoryKind,
+        checkpointStatus,
         prepareSession,
         activatePreparedSession,
         startSession,
@@ -1523,6 +1664,13 @@ export const AppProvider = ({ children }) => {
         setDebugMetricOverride,
         clearDebugMetricOverride,
         clearAllDebugMetricOverrides,
+        debugLiveMetrics,
+        debugDisplayMetrics,
+        debugSimulation,
+        setDebugSimulationEnabled,
+        setDebugSimulationMetric,
+        applyDebugSimulationPreset: applyDebugSimulationPresetById,
+        resetDebugSimulation,
         affectState,
         updateAffectMetrics,
         resetAffectState,
@@ -1540,6 +1688,7 @@ export const AppProvider = ({ children }) => {
         latency,
         eventLog,
         addLog,
+        clearEventLog,
         metricsHistory,
         activeSessionLiveMetrics,
         isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
@@ -1551,6 +1700,8 @@ export const AppProvider = ({ children }) => {
         aiError,
         inferenceFps,
         setInferenceFps,
+        faceLandmarkerStatus,
+        gestureRecognizerStatus,
         telemetryTable,
         setTelemetryTable,
         rawLandmarksHistory,

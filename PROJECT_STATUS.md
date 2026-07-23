@@ -19,11 +19,12 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Dashboard SVG gauges, line chart, radar chart, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
+- Debug Mode exposes a developer diagnostics drawer with read-only pipeline status, live metric inspection, memory-only simulated display metrics, and a sanitized bounded event log.
 
 ## In Progress
 
 - Improving the accuracy and cooldown behavior of heuristic metric updates.
-- Clarifying scientific limitations of focus, fatigue, stress, and arousal inference.
+- Clarifying scientific limitations of heuristic behavioral metrics and affect-model outputs.
 - Keeping documentation aligned with the current source code.
 
 ## Next Tasks
@@ -41,12 +42,11 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 
 - `git` is not available on PATH in the current shell environment.
 - Metrics are heuristic and not clinically validated.
-- Stress and arousal are only partially grounded in observed CV signals.
-- The fallback simulation in `AppContext.js` can still update metrics when monitoring runs without real tracking.
 - Raw telemetry and landmark history are stored in React state and are lost on page refresh unless exported.
 - Completed session history is local-only IndexedDB data; clearing browser site data, private/incognito browsing, or storage restrictions can remove or prevent durable history.
 - Interrupted active sessions can lose up to roughly one checkpoint interval. Recovery is local-only and depends on browser IndexedDB availability.
-- Recovery resumes the study timer only. Webcam and Monitoring stay disabled until manually restarted.
+- Recovered or camera-disabled sessions remain paused until the user grants camera access successfully. Webcam and Monitoring are not restarted automatically.
+- Debug Simulation values are memory-only display previews; they do not enter formal samples, statistics, completed history, or IndexedDB.
 - CSV exports contain landmark coordinates and should be handled as sensitive data.
 - Some source strings display mojibake characters.
 

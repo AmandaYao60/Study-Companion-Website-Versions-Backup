@@ -96,4 +96,24 @@ Decision: Active sessions write local timer checkpoints to IndexedDB about every
 
 Rationale: Study time should survive ordinary refreshes without counting time away from the page or requiring camera access during startup.
 
-Consequences or trade-offs: Recovery is local to the same browser and origin, may lose up to roughly one checkpoint interval, and does not restore webcam streams, Monitoring, short-term baselines, pending observations, raw telemetry, landmarks, or model state. Resume preserves the same session ID and starts the study clock from the checkpoint while leaving webcam and Monitoring disabled for manual restart.
+Consequences or trade-offs: Recovery is local to the same browser and origin, may lose up to roughly one checkpoint interval, and does not restore webcam streams, Monitoring, short-term baselines, pending observations, raw telemetry, landmarks, or model state. Returning from the recovery modal keeps the session paused. Resume preserves the same session ID but starts the study clock, Monitoring, and analysis only after the user grants camera access successfully.
+
+## Debug Simulation Is Display-Only
+
+Decision: Debug Mode exposes a developer diagnostics drawer with memory-only simulated display metrics selected through a display boundary:
+
+```text
+displayMetrics = simulationEnabled ? simulatedMetrics : liveMetrics
+```
+
+Rationale: UI development needs predictable attention, fatigue, valence, arousal, emotion, confidence, face-state, and data-quality previews without corrupting live inference or persisted study history.
+
+Consequences or trade-offs: Simulation can preview immediate diagnostic UI but does not create observations, formal metric samples, session statistics, completed history, repository writes, model output, camera state, Monitoring state, or checkpoint writes. Simulation and debug overrides reset when Debug Mode is turned off or the page refreshes.
+
+## Diagnostic Logs Are Sanitized And Memory-Only
+
+Decision: The developer diagnostics event log is bounded to approximately 100 recent entries, coalesces immediate duplicates, supports clearing/copying sanitized text, and remains in React memory.
+
+Rationale: Developers need a compact view of camera, model, session, sample, and checkpoint events without persisting sensitive runtime details.
+
+Consequences or trade-offs: The log intentionally excludes images, media streams, landmarks, face coordinates, raw observations, logits, full probability arrays, tokens, and stack traces. It is lost on refresh and is not written to IndexedDB or any cloud service.

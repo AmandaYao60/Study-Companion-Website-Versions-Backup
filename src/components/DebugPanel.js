@@ -1,341 +1,609 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../context/AppContext";
+import { DATA_QUALITY, EMOTION_LABELS } from "../services/session/sessionConstants";
+import {
+  DEBUG_SIMULATION_MODE,
+  DEBUG_SIMULATION_PRESETS,
+} from "../services/debug/debugSimulation";
+import { formatSanitizedDebugLog } from "../services/debug/debugEventLog";
 
-const clampPercent = (value) => Math.min(100, Math.max(0, Number(value) || 0));
+const statusStyles = {
+  ready: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  valid: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  active: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  on: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  loading: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+  requesting: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+  writing: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+  partial: "border-amber-400/20 bg-amber-400/10 text-amber-200",
+  paused: "border-amber-400/20 bg-amber-400/10 text-amber-200",
+  "recovery-pending": "border-amber-400/20 bg-amber-400/10 text-amber-200",
+  error: "border-red-400/20 bg-red-400/10 text-red-200",
+  off: "border-white/10 bg-slate-900 text-slate-300",
+  idle: "border-white/10 bg-slate-900 text-slate-300",
+  unavailable: "border-white/10 bg-slate-900 text-slate-300",
+};
+
+const dataQualityLabel = (value) => {
+  if (value === DATA_QUALITY.GOOD) return "valid";
+  if (value === DATA_QUALITY.PARTIAL) return "partial";
+  return "unavailable";
+};
+
+const formatPercent = (value) => (
+  Number.isFinite(value) ? `${Math.round(value)}%` : "n/a"
+);
+
+const formatSigned = (value) => (
+  Number.isFinite(value) ? value.toFixed(2) : "n/a"
+);
+
+const formatConfidence = (value) => (
+  Number.isFinite(value) ? `${Math.round(value * 100)}%` : "n/a"
+);
+
+const formatElapsed = (ms) => {
+  const value = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  const totalSeconds = Math.floor(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+};
+
+const formatTimestamp = (value) => {
+  if (!value) return "n/a";
+  const time = typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(time)) return "n/a";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(time));
+};
+
+const formatAge = (value, now) => {
+  if (!value) return "n/a";
+  const time = typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(time)) return "n/a";
+  const seconds = Math.max(0, Math.round((now - time) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s ago`;
+};
+
+function StatusBadge({ value }) {
+  const label = value || "unavailable";
+  const className = statusStyles[label] || statusStyles.unavailable;
+  return (
+    <span className={`rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${className}`}>
+      {label}
+    </span>
+  );
+}
+
+function Section({ title, children }) {
+  return (
+    <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+      <h3 className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">{title}</h3>
+      <div className="mt-4 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function KeyValue({ label, value, status }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-slate-900/55 px-3 py-2">
+      <span className="min-w-0 text-[11px] font-semibold text-slate-400">{label}</span>
+      {status ? <StatusBadge value={status} /> : <span className="text-right text-xs font-bold text-white">{value}</span>}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, detail, simulated }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-slate-900/55 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+        {simulated && (
+          <span className="rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-200">
+            Simulated
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-lg font-black text-white">{value}</p>
+      {detail && <p className="mt-1 text-[10px] text-slate-500">{detail}</p>}
+    </div>
+  );
+}
+
+function SliderControl({ label, value, min, max, step, formatter, disabled, onChange }) {
+  return (
+    <label className="block rounded-xl border border-white/5 bg-slate-900/45 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
+        <span className="font-mono text-xs font-bold text-white">{formatter(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value ?? 0}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-slate-800 accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+      />
+    </label>
+  );
+}
 
 export default function DebugPanel() {
   const {
-    resolvedDebugMetrics,
-    setDebugMetricOverride,
-    clearDebugMetricOverride,
-    clearAllDebugMetricOverrides,
-    blinkRate,
-    headPose,
-    currentGesture,
-    latency,
-    eventLog,
-    addLog,
-    resetMetrics,
+    isDebugMode,
     isMonitoring,
-
-    // AI SDK additions
+    isCameraAllowed,
+    cameraStatus,
+    showCameraDialog,
     isAiLoaded,
     aiLoadingProgress,
     aiError,
+    faceLandmarkerStatus,
+    gestureRecognizerStatus,
+    affectModelStatus,
+    hasDetectedFace,
+    runtimeStatus,
+    activeSession,
+    activeSessionSamples,
+    sessionClock,
+    getSessionElapsedMs,
+    sessionRepositoryKind,
+    checkpointStatus,
+    debugLiveMetrics,
+    debugDisplayMetrics,
+    debugSimulation,
+    setDebugSimulationEnabled,
+    setDebugSimulationMetric,
+    applyDebugSimulationPreset,
+    resetDebugSimulation,
+    resolvedDebugMetrics,
+    clearAllDebugMetricOverrides,
+    blinkRate,
+    eyeOpenness,
+    headPose,
+    currentGesture,
+    latency,
     inferenceFps,
     setInferenceFps,
     telemetryTable,
+    rawLandmarksHistory,
     exportTelemetryCSV,
-    eyeOpenness
+    eventLog,
+    addLog,
+    clearEventLog,
   } = useAppState();
 
-  const [customLog, setCustomLog] = useState("");
-  const [activeTab, setActiveTab] = useState("simulator"); // simulator, telemetry
+  const [isOpenRequested, setIsOpenRequested] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [now, setNow] = useState(0);
+  const openButtonRef = useRef(null);
+  const drawerRef = useRef(null);
+  const isOpen = isDebugMode && isOpenRequested;
 
-  const handleCustomLogSubmit = (e) => {
-    e.preventDefault();
-    if (!customLog.trim()) return;
-    addLog(`USER_DEBUG: ${customLog}`, "info");
-    setCustomLog("");
+  useEffect(() => {
+    if (isDebugMode) return undefined;
+    const timer = window.setTimeout(() => {
+      setIsOpenRequested(false);
+      setCopyStatus("");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isDebugMode]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const previous = document.activeElement;
+    drawerRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setIsOpenRequested(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previous?.focus?.();
+    };
+  }, [isOpen]);
+
+  const latestSample = activeSessionSamples[activeSessionSamples.length - 1] || null;
+  const latestSampleTime = latestSample?.intervalEndedAt || latestSample?.recordedAt || null;
+  const displayMetrics = debugDisplayMetrics.metrics;
+  const simulationMetrics = debugSimulation.metrics;
+  const isSimulationEnabled = debugDisplayMetrics.mode === DEBUG_SIMULATION_MODE.SIMULATION;
+  const sessionStatus = !activeSession
+    ? "none"
+    : activeSession.recoveryPending
+      ? "recovery-pending"
+      : activeSession.status;
+  const elapsedMs = getSessionElapsedMs();
+  const durableElapsedMs = activeSession?.accumulatedStudyMs ?? sessionClock.accumulatedMs ?? 0;
+  const faceStatus = !isCameraAllowed || !isAiLoaded ? "unavailable" : hasDetectedFace ? "yes" : "no";
+  const dataQualityStatus = dataQualityLabel(debugLiveMetrics.dataQuality);
+
+  const systemRows = useMemo(() => ([
+    ["Camera", showCameraDialog && cameraStatus === "off" ? "off" : cameraStatus],
+    ["FaceLandmarker", faceLandmarkerStatus],
+    ["GestureRecognizer", gestureRecognizerStatus],
+    ["Affect model", affectModelStatus],
+    ["Face detected", faceStatus],
+    ["Monitoring", isMonitoring ? "on" : "off"],
+    ["Session", sessionStatus],
+    ["Repository", sessionRepositoryKind || "memory"],
+    ["Data quality", dataQualityStatus],
+  ]), [
+    affectModelStatus,
+    cameraStatus,
+    dataQualityStatus,
+    faceLandmarkerStatus,
+    faceStatus,
+    gestureRecognizerStatus,
+    isMonitoring,
+    sessionRepositoryKind,
+    sessionStatus,
+    showCameraDialog,
+  ]);
+
+  if (!isDebugMode) return null;
+
+  const handleCopyLog = async () => {
+    const text = formatSanitizedDebugLog(eventLog);
+    try {
+      await navigator.clipboard.writeText(text || "No diagnostic events.");
+      setCopyStatus("Copied");
+      addLog("Sanitized diagnostic log copied.", "debug");
+    } catch {
+      setCopyStatus("Copy failed");
+      addLog("Could not copy sanitized diagnostic log.", "error");
+    }
   };
 
-  const renderMetricOverride = (metricId, label, valueClass, accentClass) => {
-    const metric = resolvedDebugMetrics[metricId];
-    const sliderValue = clampPercent(metric.displayedValue ?? metric.inferredValue ?? 0);
-
-    return (
-      <div className="space-y-2 rounded-xl border border-white/5 bg-slate-900/35 p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <span className="text-slate-400 font-medium">{label}</span>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <span className={`font-bold ${valueClass}`}>{Math.round(sliderValue)}%</span>
-              <span className="rounded border border-cyan-400/20 bg-cyan-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-cyan-200">
-                HEURISTIC {Math.round(metric.inferredValue ?? 0)}%
-              </span>
-              {metric.overrideActive && (
-                <span className="rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-200">
-                  OVERRIDE
-                </span>
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (metric.overrideActive) {
-                clearDebugMetricOverride(metricId);
-                addLog(`${label} override cleared.`, "debug");
-              } else {
-                setDebugMetricOverride(metricId, metric.inferredValue ?? 0);
-                addLog(`${label} override enabled.`, "debug");
-              }
-            }}
-            className="rounded border border-white/10 bg-slate-950 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-300 transition-all hover:bg-slate-850"
-          >
-            {metric.overrideActive ? "Disable" : "Enable"}
-          </button>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={sliderValue}
-          disabled={!metric.overrideActive}
-          onChange={(e) => {
-            const nextValue = clampPercent(e.target.value);
-            setDebugMetricOverride(metricId, nextValue);
-            addLog(`${label} override adjusted to ${nextValue}%.`, "debug");
-          }}
-          className={`w-full rounded-lg bg-slate-900 appearance-none h-1.5 ${metric.overrideActive ? `cursor-pointer ${accentClass}` : "cursor-not-allowed opacity-40 accent-slate-700"}`}
-        />
-        <p className="text-[9px] leading-relaxed text-slate-500">
-          Override affects Debug and status displays only. Session samples keep the inferred heuristic value.
-        </p>
-      </div>
-    );
-  };
+  const renderPreview = (metrics, simulated = false) => (
+    <div className="grid grid-cols-2 gap-2">
+      <MetricCard label="Attention" value={formatPercent(metrics.attention)} simulated={simulated} />
+      <MetricCard label="Fatigue" value={formatPercent(metrics.fatigue)} simulated={simulated} />
+      <MetricCard label="Valence" value={formatSigned(metrics.valence)} simulated={simulated} />
+      <MetricCard label="Arousal" value={formatSigned(metrics.arousal)} simulated={simulated} />
+      <MetricCard
+        label="Emotion"
+        value={metrics.emotion || "n/a"}
+        detail={`Top probability: ${formatConfidence(metrics.emotionConfidence)}`}
+        simulated={simulated}
+      />
+      <MetricCard
+        label="Detection"
+        value={metrics.faceDetected ? "Face" : "No face"}
+        detail={metrics.handDetected ? "Hand detected" : `Quality: ${metrics.dataQuality}`}
+        simulated={simulated}
+      />
+    </div>
+  );
 
   return (
-    <div className="flex flex-col h-full rounded-2xl border border-cyan-500/20 bg-slate-950/70 p-4 shadow-2xl backdrop-blur-xl animate-in slide-in-from-right duration-300">
-      {/* Panel Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-3">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-          <h2 className="text-sm font-bold tracking-wide text-white uppercase">CV Telemetry & Debug</h2>
-        </div>
-        <button
-          onClick={resetMetrics}
-          className="rounded bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-slate-300 border border-white/10 hover:bg-slate-850 hover:text-white transition-all"
-        >
-          Reset Baseline
-        </button>
-      </div>
+    <>
+      <button
+        ref={openButtonRef}
+        type="button"
+        aria-label="Open developer diagnostics"
+        aria-expanded={isOpen}
+        onClick={() => {
+          setNow(Date.now());
+          setIsOpenRequested(true);
+        }}
+        className="fixed bottom-4 right-4 z-[60] rounded-full border border-cyan-400/30 bg-cyan-400 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-950 shadow-2xl shadow-cyan-950/40 transition-all hover:bg-cyan-300"
+      >
+        Diagnostics
+      </button>
 
-      {/* Model Loader Status */}
-      {!isAiLoaded && (
-        <div className="mt-3 rounded-xl bg-slate-900/60 p-3 border border-white/5 text-[11px] space-y-2">
-          <div className="flex justify-between font-semibold text-slate-350">
-            <span>{aiError ? "AI Load Error" : "Loading Web-SDK AI Models..."}</span>
-            <span className="font-mono text-cyan-400">{aiLoadingProgress}%</span>
-          </div>
-          <div className="h-1.5 w-full rounded bg-slate-950 overflow-hidden">
-            <div
-              className={`h-full transition-all duration-300 ${aiError ? "bg-red-500" : "bg-cyan-400"}`}
-              style={{ width: `${aiLoadingProgress}%` }}
-            />
-          </div>
-          {aiError && <p className="text-[10px] text-red-400">{aiError}</p>}
-        </div>
-      )}
-
-      {/* Tab Selector */}
-      <div className="flex border-b border-white/5 mt-3 shrink-0">
-        <button
-          onClick={() => setActiveTab("simulator")}
-          className={`flex-1 pb-2 text-[10px] uppercase font-bold tracking-wider transition-all border-b-2 text-center ${
-            activeTab === "simulator"
-              ? "border-cyan-400 text-cyan-400"
-              : "border-transparent text-slate-500 hover:text-slate-300"
-          }`}
-        >
-          Overrides
-        </button>
-        <button
-          onClick={() => setActiveTab("telemetry")}
-          className={`flex-1 pb-2 text-[10px] uppercase font-bold tracking-wider transition-all border-b-2 text-center ${
-            activeTab === "telemetry"
-              ? "border-cyan-400 text-cyan-400"
-              : "border-transparent text-slate-500 hover:text-slate-300"
-          }`}
-        >
-          Telemetry Log
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto pr-1 space-y-5 mt-4 text-xs">
-        {activeTab === "simulator" ? (
-          <>
-            {/* Section: Frame Sampler Configuration */}
-            <div className="space-y-2 bg-cyan-950/10 border border-cyan-500/10 rounded-xl p-3">
-              <h3 className="font-bold text-cyan-400 uppercase tracking-wider text-[10px]">Frame Sampler Config</h3>
-              <p className="text-[10px] text-slate-400 leading-relaxed">
-                Reduce sampler rate to save computing budget. Current: <span className="text-white font-bold">{inferenceFps} FPS</span> (every {Math.round(1000/inferenceFps)}ms)
-              </p>
-              <div className="space-y-1">
-                <input
-                  type="range"
-                  min="1"
-                  max="15"
-                  value={inferenceFps}
-                  onChange={(e) => {
-                    setInferenceFps(parseInt(e.target.value, 10));
-                    addLog(`Frame sampler rate adjusted to ${e.target.value} FPS`, "debug");
-                  }}
-                  className="w-full accent-cyan-400 bg-slate-900 rounded-lg appearance-none h-1.5 cursor-pointer"
-                />
-                <div className="flex justify-between text-[8px] text-slate-500 font-mono">
-                  <span>1 FPS (Eco)</span>
-                  <span>5 FPS (Def)</span>
-                  <span>15 FPS (Max)</span>
-                </div>
+      {isOpen && (
+        <div className="fixed inset-0 z-[65] bg-slate-950/45 backdrop-blur-sm" role="presentation">
+          <aside
+            ref={drawerRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="debug-panel-title"
+            className="fixed inset-x-0 bottom-0 flex max-h-[92vh] flex-col rounded-t-2xl border border-white/10 bg-slate-950 text-slate-100 shadow-2xl outline-none sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:max-h-none sm:w-[min(460px,calc(100vw-2rem))] sm:rounded-l-2xl sm:rounded-tr-none"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-white/10 p-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">Debug Mode</p>
+                <h2 id="debug-panel-title" className="mt-1 text-lg font-black text-white">Developer Diagnostics</h2>
+                <p className="mt-1 text-xs text-slate-500">Read-only pipeline status plus isolated UI simulation.</p>
               </div>
-            </div>
+              <button
+                type="button"
+                aria-label="Close developer diagnostics"
+                onClick={() => setIsOpenRequested(false)}
+                className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 transition-all hover:bg-slate-800"
+              >
+                Close
+              </button>
+            </header>
 
-            {/* Section: Debug-only display overrides */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Manual Display Overrides</h3>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              <Section title="System Status">
+                <div className="grid grid-cols-1 gap-2">
+                  {systemRows.map(([label, status]) => (
+                    <KeyValue key={label} label={label} status={status} />
+                  ))}
+                  <KeyValue label="Latest formal sample" value={formatAge(latestSampleTime, now)} />
+                  <KeyValue label="Runtime" value={runtimeStatus || "idle"} />
+                  {!isAiLoaded && (
+                    <KeyValue label={aiError ? "AI load error" : "AI load progress"} value={aiError || `${aiLoadingProgress}%`} />
+                  )}
+                </div>
+              </Section>
+
+              <Section title="Live Metrics">
+                <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-emerald-200">Authoritative pipeline values</p>
+                  <div className="mt-3">{renderPreview(debugLiveMetrics, false)}</div>
+                </div>
+                {isSimulationEnabled && (
+                  <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-amber-200">Simulated display preview</p>
+                    <div className="mt-3">{renderPreview(displayMetrics, true)}</div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-2">
+                  <KeyValue label="Latest observation" value={formatAge(debugLiveMetrics.latestObservationAt, now)} />
+                  <KeyValue label="Latest aggregation" value={formatAge(debugLiveMetrics.latestSampleAt, now)} />
+                  <KeyValue label="Head pose" value={`Y ${headPose.yaw} / P ${headPose.pitch} / R ${headPose.roll}`} />
+                  <KeyValue label="Eye and blink" value={`${formatPercent(eyeOpenness * 100)} eye, ${blinkRate} blinks/min`} />
+                  <KeyValue label="Gesture" value={currentGesture || "None"} />
+                  <KeyValue label="Latency" value={`${latency} ms`} />
+                </div>
+              </Section>
+
+              <Section title="Safe Simulation Controls">
+                <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-slate-900/45 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setDebugSimulationEnabled(false)}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${!isSimulationEnabled ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:bg-slate-800"}`}
+                  >
+                    Live Input
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDebugSimulationEnabled(true)}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${isSimulationEnabled ? "bg-amber-300 text-slate-950" : "text-slate-400 hover:bg-slate-800"}`}
+                  >
+                    Debug Simulation
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(DEBUG_SIMULATION_PRESETS).map(([presetId, preset]) => (
+                    <button
+                      key={presetId}
+                      type="button"
+                      onClick={() => applyDebugSimulationPreset(presetId)}
+                      className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-[10px] font-bold text-slate-300 transition-all hover:border-amber-300/30 hover:text-amber-100"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <SliderControl
+                  label="Attention"
+                  value={simulationMetrics.attention}
+                  min={0}
+                  max={100}
+                  step={1}
+                  formatter={formatPercent}
+                  disabled={!isSimulationEnabled}
+                  onChange={(value) => setDebugSimulationMetric("attention", value)}
+                />
+                <SliderControl
+                  label="Fatigue"
+                  value={simulationMetrics.fatigue}
+                  min={0}
+                  max={100}
+                  step={1}
+                  formatter={formatPercent}
+                  disabled={!isSimulationEnabled}
+                  onChange={(value) => setDebugSimulationMetric("fatigue", value)}
+                />
+                <SliderControl
+                  label="Valence"
+                  value={simulationMetrics.valence ?? 0}
+                  min={-1}
+                  max={1}
+                  step={0.01}
+                  formatter={formatSigned}
+                  disabled={!isSimulationEnabled}
+                  onChange={(value) => setDebugSimulationMetric("valence", value)}
+                />
+                <SliderControl
+                  label="Arousal"
+                  value={simulationMetrics.arousal ?? 0}
+                  min={-1}
+                  max={1}
+                  step={0.01}
+                  formatter={formatSigned}
+                  disabled={!isSimulationEnabled}
+                  onChange={(value) => setDebugSimulationMetric("arousal", value)}
+                />
+                <SliderControl
+                  label="Emotion confidence"
+                  value={simulationMetrics.emotionConfidence ?? 0}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  formatter={formatConfidence}
+                  disabled={!isSimulationEnabled}
+                  onChange={(value) => setDebugSimulationMetric("emotionConfidence", value)}
+                />
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Emotion</span>
+                    <select
+                      value={simulationMetrics.emotion || ""}
+                      disabled={!isSimulationEnabled}
+                      onChange={(event) => setDebugSimulationMetric("emotion", event.target.value || null)}
+                      className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white disabled:opacity-40"
+                    >
+                      <option value="">None</option>
+                      {EMOTION_LABELS.map((label) => <option key={label} value={label}>{label}</option>)}
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Face state</span>
+                    <select
+                      value={simulationMetrics.faceDetected ? "face" : "no-face"}
+                      disabled={!isSimulationEnabled}
+                      onChange={(event) => setDebugSimulationMetric("faceDetected", event.target.value === "face")}
+                      className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white disabled:opacity-40"
+                    >
+                      <option value="face">Face</option>
+                      <option value="no-face">No face</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Data quality</span>
+                    <select
+                      value={simulationMetrics.dataQuality}
+                      disabled={!isSimulationEnabled}
+                      onChange={(event) => setDebugSimulationMetric("dataQuality", event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white disabled:opacity-40"
+                    >
+                      <option value={DATA_QUALITY.GOOD}>Good</option>
+                      <option value={DATA_QUALITY.PARTIAL}>Partial</option>
+                      <option value={DATA_QUALITY.INSUFFICIENT}>Insufficient</option>
+                    </select>
+                  </label>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => {
-                    clearAllDebugMetricOverrides();
-                    addLog("All metric overrides cleared.", "debug");
-                  }}
-                  className="rounded border border-white/10 bg-slate-900 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-300 transition-all hover:bg-slate-850"
+                  onClick={resetDebugSimulation}
+                  className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 transition-all hover:bg-slate-800"
                 >
-                  Clear All Overrides
+                  Reset Simulation
                 </button>
-              </div>
+              </Section>
 
-              {renderMetricOverride("attention", "Attention Estimate", "text-cyan-400", "accent-cyan-400")}
-              {renderMetricOverride("fatigue", "Fatigue Estimate", "text-rose-400", "accent-rose-400")}
-            </div>
-
-            {/* Section: Raw Coordinates & Values */}
-            <div className="space-y-2.5 bg-slate-900/40 border border-white/5 rounded-xl p-3">
-              <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Raw Landmarking Data</h3>
-
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <div className="rounded bg-slate-950/80 p-1.5 border border-white/5">
-                  <span className="text-slate-500 block text-[9px] uppercase">Head Pose</span>
-                  <span className="text-white font-mono">Y: {headPose.yaw} deg | P: {headPose.pitch} deg</span>
+              <Section title="Session Status And Event Log">
+                <div className="grid grid-cols-1 gap-2">
+                  <KeyValue label="Session ID" value={activeSession?.id ? `${activeSession.id.slice(0, 8)}...` : "none"} />
+                  <KeyValue label="Status" status={sessionStatus} />
+                  <KeyValue label="Elapsed active time" value={formatElapsed(elapsedMs)} />
+                  <KeyValue label="Durable accumulated time" value={formatElapsed(durableElapsedMs)} />
+                  <KeyValue label="Recovery pending" value={activeSession?.recoveryPending ? "yes" : "no"} />
+                  <KeyValue label="Last checkpoint" value={formatTimestamp(activeSession?.lastCheckpointAt || checkpointStatus.lastCommittedAt)} />
+                  <KeyValue label="Checkpoint write" status={checkpointStatus.state} />
+                  <KeyValue label="Latest sample" value={formatTimestamp(latestSampleTime)} />
+                  <KeyValue label="Formal sample count" value={activeSessionSamples.length} />
+                  <KeyValue label="Camera / Monitoring" value={`${isCameraAllowed ? "camera on" : "camera off"} / ${isMonitoring ? "monitoring on" : "monitoring off"}`} />
+                  <KeyValue label="Telemetry frames" value={`${telemetryTable.length} table / ${rawLandmarksHistory.length} raw frames`} />
                 </div>
-                <div className="rounded bg-slate-950/80 p-1.5 border border-white/5">
-                  <span className="text-slate-500 block text-[9px] uppercase">Eye Openness</span>
-                  <span className="text-cyan-400 font-mono font-bold">{(eyeOpenness * 100).toFixed(0)}%</span>
-                </div>
-                <div className="rounded bg-slate-950/80 p-1.5 border border-white/5">
-                  <span className="text-slate-500 block text-[9px] uppercase">Blinks (Rate)</span>
-                  <span className="text-white font-mono">{blinkRate} blinks/min</span>
-                </div>
-                <div className="rounded bg-slate-950/80 p-1.5 border border-white/5">
-                  <span className="text-slate-500 block text-[9px] uppercase">Current Gesture</span>
-                  <span className="text-cyan-400 font-semibold truncate block">{currentGesture}</span>
-                </div>
-              </div>
 
-              {/* Performance stats */}
-              <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1.5 border-t border-white/5">
-                <span>Sampler Target: <span className="font-mono text-cyan-400">{inferenceFps} FPS</span></span>
-                <span>Latency: <span className="font-mono text-emerald-400">{latency} ms</span></span>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="space-y-3 flex flex-col h-full min-h-0">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Consolidated Telemetry Table</h3>
-              <button
-                onClick={exportTelemetryCSV}
-                className="rounded bg-gradient-to-r from-cyan-500 to-blue-500 px-2.5 py-1 text-[9px] font-bold text-white shadow-md shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400 transition-all"
-              >
-                Export CSV
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-auto rounded-xl border border-white/15 bg-black/45 shadow-inner max-h-[360px]">
-              <table className="w-full text-left border-collapse text-[10px] text-slate-300">
-                <thead className="sticky top-0 bg-slate-950 text-slate-400 border-b border-white/10 uppercase tracking-wider text-[8px] font-bold">
-                  <tr>
-                    <th className="p-2 border-r border-white/5">Time</th>
-                    <th className="p-2 border-r border-white/5">Eye Open</th>
-                    <th className="p-2 border-r border-white/5">Blink</th>
-                    <th className="p-2 border-r border-white/5">Yaw/Pitch</th>
-                    <th className="p-2 border-r border-white/5">Gesture</th>
-                    <th className="p-2 text-center">Hands</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 font-mono">
-                  {telemetryTable.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="p-4 text-center text-slate-500 italic">
-                        {isMonitoring ? "Waiting for frame samples..." : "Start session to record data frames"}
-                      </td>
-                    </tr>
-                  ) : (
-                    telemetryTable.map((row) => (
-                      <tr key={row.id} className="hover:bg-white/5">
-                        <td className="p-2 border-r border-white/5 text-slate-500">{row.time}</td>
-                        <td className="p-2 border-r border-white/5 text-cyan-400 font-bold">{Number.isFinite(row.eyeOpenness) ? row.eyeOpenness.toFixed(2) : "n/a"}</td>
-                        <td className={`p-2 border-r border-white/5 font-bold ${row.blink === "Yes" ? "text-amber-400 animate-pulse" : "text-slate-500"}`}>{row.blink}</td>
-                        <td className="p-2 border-r border-white/5 text-slate-400">{row.yaw} deg/{row.pitch} deg</td>
-                        <td className={`p-2 border-r border-white/5 font-semibold ${row.gesture !== "None" ? "text-emerald-400" : "text-slate-500"}`}>{row.gesture}</td>
-                        <td className="p-2 text-center text-slate-400">{row.hands}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <p className="text-[9px] text-slate-500 leading-relaxed italic">
-              * Table displays aggregated indices per sampled video frame. Export logs as CSV to inspect full X/Y/Z coordinate matrices.
-            </p>
-          </div>
-        )}
-
-        {/* Section: Event Log (Console) */}
-        <div className="space-y-2 pt-2 border-t border-white/5">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Real-time Log Console</h3>
-            {!isMonitoring && (
-              <span className="text-[9px] text-amber-500 animate-pulse font-semibold">PAUSED</span>
-            )}
-          </div>
-
-          {/* The scrolling terminal log */}
-          <div className="h-32 w-full overflow-y-auto rounded-lg border border-white/10 bg-black/85 p-2 font-mono text-[10px] leading-relaxed shadow-inner">
-            {eventLog.length === 0 ? (
-              <p className="text-slate-600">No events logged yet.</p>
-            ) : (
-              eventLog.map((log) => {
-                let colorClass = "text-slate-400";
-                if (log.type === "success") colorClass = "text-emerald-400";
-                if (log.type === "warning") colorClass = "text-amber-400";
-                if (log.type === "error") colorClass = "text-red-400";
-                if (log.type === "debug") colorClass = "text-cyan-400/80";
-
-                return (
-                  <div key={log.id} className="border-b border-white/5 py-0.5 last:border-b-0">
-                    <span className="text-slate-600">[{log.time}]</span>{" "}
-                    <span className={colorClass}>{log.message}</span>
+                <div className="rounded-xl border border-white/10 bg-black/70 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Memory-only event log</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyLog()}
+                        className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-300 transition-all hover:bg-slate-800"
+                      >
+                        Copy Sanitized Log
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearEventLog}
+                        className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-300 transition-all hover:bg-slate-800"
+                      >
+                        Clear Log
+                      </button>
+                    </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+                  {copyStatus && <p className="mt-2 text-[10px] text-cyan-300">{copyStatus}</p>}
+                  <div className="mt-3 max-h-48 overflow-y-auto font-mono text-[10px]">
+                    {eventLog.length === 0 ? (
+                      <p className="text-slate-600">No events logged yet.</p>
+                    ) : (
+                      eventLog.map((entry) => (
+                        <div key={entry.id} className="border-b border-white/5 py-1 last:border-b-0">
+                          <span className="text-slate-600">[{entry.time}]</span>{" "}
+                          <span className={entry.type === "error" ? "text-red-300" : entry.type === "warning" ? "text-amber-300" : entry.type === "success" ? "text-emerald-300" : entry.type === "debug" ? "text-cyan-300" : "text-slate-300"}>
+                            {entry.message}
+                          </span>
+                          {entry.count > 1 && <span className="text-slate-500"> x{entry.count}</span>}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
 
-          {/* Custom Log Injector Form */}
-          <form onSubmit={handleCustomLogSubmit} className="flex gap-1.5">
-            <input
-              type="text"
-              placeholder="Inject custom log message..."
-              value={customLog}
-              onChange={(e) => setCustomLog(e.target.value)}
-              className="flex-1 rounded bg-slate-900 border border-white/10 px-2 py-1 text-[10px] text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500"
-            />
-            <button
-              type="submit"
-              className="rounded bg-cyan-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-cyan-500 transition-all"
-            >
-              Send
-            </button>
-          </form>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="rounded-xl border border-white/5 bg-slate-900/45 p-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Inference FPS</span>
+                    <div className="mt-2 flex items-center gap-3">
+                      <input
+                        type="range"
+                        min="1"
+                        max="15"
+                        value={inferenceFps}
+                        onChange={(event) => {
+                          setInferenceFps(parseInt(event.target.value, 10));
+                          addLog(`Frame sampler rate adjusted to ${event.target.value} FPS.`, "debug");
+                        }}
+                        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-slate-800 accent-cyan-400"
+                      />
+                      <span className="font-mono text-xs font-bold text-white">{inferenceFps}</span>
+                    </div>
+                  </label>
+                  <div className="space-y-2 rounded-xl border border-white/5 bg-slate-900/45 p-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearAllDebugMetricOverrides();
+                        addLog("Display overrides cleared.", "debug");
+                      }}
+                      className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-[10px] font-bold text-slate-300 transition-all hover:bg-slate-800"
+                    >
+                      Clear Display Overrides
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportTelemetryCSV}
+                      className="w-full rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-[10px] font-bold text-cyan-200 transition-all hover:bg-cyan-400/20"
+                    >
+                      Export Raw Landmark CSV
+                    </button>
+                  </div>
+                </div>
+
+                {resolvedDebugMetrics.attention.overrideActive || resolvedDebugMetrics.fatigue.overrideActive ? (
+                  <p className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-[10px] leading-relaxed text-amber-100">
+                    Display overrides are active for status-message testing only. Formal session samples continue to use inferred metric refs.
+                  </p>
+                ) : null}
+              </Section>
+            </div>
+          </aside>
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
