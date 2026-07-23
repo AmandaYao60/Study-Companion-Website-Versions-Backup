@@ -81,3 +81,11 @@ Decision: Documentation must be updated from the current files, not prior AI-gen
 Rationale: The camera and telemetry implementation has changed outside prior documentation.
 
 Consequences or trade-offs: Historical documents are archived and marked as historical instead of being treated as active architecture.
+
+## Completed Sessions Persist Locally In IndexedDB
+
+Decision: The application uses a native IndexedDB implementation of the existing session repository contract as the browser app's default storage backend.
+
+Rationale: Completed study-session summaries and formal interval metric samples should survive refreshes without introducing cloud synchronization, authentication, or a backend dependency.
+
+Consequences or trade-offs: Persistence is local to the current browser and origin. Clearing site data, private/incognito browsing, or browser storage restrictions can remove or prevent durable history. Raw video, images, face crops, landmarks, telemetry rows, model logits, and full emotion probability arrays remain outside IndexedDB. Interrupted prepared, active, or paused sessions are left untouched for a later recovery-policy task rather than being automatically resumed or converted.

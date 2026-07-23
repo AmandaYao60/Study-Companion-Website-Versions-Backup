@@ -12,8 +12,13 @@ export default function ProductDashboard() {
   const badgeLabel = source.kind === "active" ? "Live Session" : source.kind === "completed" ? "Session Complete" : "No Session Data";
 
   const handleClear = async () => {
-    if (!window.confirm("Clear all in-memory session data? This cannot be undone.")) return;
-    await resetMetrics();
+    if (!window.confirm("Clear all local session data? This cannot be undone.")) return;
+    try {
+      await resetMetrics();
+    } catch (error) {
+      console.error("Failed to clear local session data:", error);
+      window.alert("Could not clear local session data. Please try again.");
+    }
   };
 
   return (
@@ -25,7 +30,7 @@ export default function ProductDashboard() {
             <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">{badgeLabel}</span>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            {source.kind === "active" ? "This session is still in progress. Opening Dashboard does not pause monitoring." : "Review completed study sessions using local in-memory history."}
+            {source.kind === "active" ? "This session is still in progress. Opening Dashboard does not pause monitoring." : "Review completed study sessions stored locally in this browser."}
           </p>
         </div>
 

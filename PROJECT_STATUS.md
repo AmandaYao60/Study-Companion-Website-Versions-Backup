@@ -17,6 +17,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - AppContext telemetry from face blendshapes, facial transformation matrices, gestures, face landmarks, and multi-hand landmarks.
 - Rolling telemetry table and CSV export for raw face/hand landmark coordinates.
 - Dashboard SVG gauges, line chart, radar chart, and summary statistics.
+- Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 
 ## In Progress
 
@@ -41,7 +42,9 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Metrics are heuristic and not clinically validated.
 - Stress and arousal are only partially grounded in observed CV signals.
 - The fallback simulation in `AppContext.js` can still update metrics when monitoring runs without real tracking.
-- Telemetry is stored in React state and is lost on page refresh unless exported.
+- Raw telemetry and landmark history are stored in React state and are lost on page refresh unless exported.
+- Completed session history is local-only IndexedDB data; clearing browser site data, private/incognito browsing, or storage restrictions can remove or prevent durable history.
+- Interrupted active-session recovery is not implemented; prepared, active, or paused records may remain in local storage but are not automatically resumed, completed, discarded, or shown as completed history.
 - CSV exports contain landmark coordinates and should be handled as sensitive data.
 - Some source strings display mojibake characters.
 

@@ -31,6 +31,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
     isMonitoring,
     pauseSession,
     resumeSession,
+    addLog,
   } = useAppState();
   const { elapsedMs } = useSmoothSessionTimer(200);
   const [isToggling, setIsToggling] = useState(false);
@@ -57,6 +58,9 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
       } else {
         await resumeSession();
       }
+    } catch (error) {
+      console.error("Failed to toggle focus session:", error);
+      addLog("Could not update the study session state. Local storage may be unavailable.", "error");
     } finally {
       setIsToggling(false);
     }

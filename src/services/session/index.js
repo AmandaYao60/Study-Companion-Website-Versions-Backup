@@ -7,4 +7,5 @@ export * from "./sessionSelectors.js";
 export * from "./circumplexConfig.js";
 export * from "./repositories/sessionRepository.js";
 export * from "./repositories/memorySessionRepository.js";
+export * from "./repositories/indexedDbSessionRepository.js";
 export * from "./sessionRuntime.js";

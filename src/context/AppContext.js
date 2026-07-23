@@ -1,7 +1,12 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { createSessionRuntime, SESSION_STATUS } from "../services/session/index.js";
+import {
+  createIndexedDbSessionRepository,
+  createSessionRuntime,
+  SESSION_STATUS,
+  validateSessionRepositoryContract,
+} from "../services/session/index.js";
 
 const AppContext = createContext();
 const EYE_LANDMARKS = {
@@ -197,8 +202,16 @@ export const AppProvider = ({ children }) => {
   const [metricsHistory, setMetricsHistory] = useState([]);
   const [activeSessionLiveMetrics, setActiveSessionLiveMetrics] = useState([]);
 
-  const [sessionRuntime] = useState(() => createSessionRuntime());
+  const [sessionRuntime] = useState(() => {
+    const repository = createIndexedDbSessionRepository();
+    const contract = validateSessionRepositoryContract(repository);
+    if (!contract.valid) {
+      throw new Error(`IndexedDB session repository is missing methods: ${contract.missing.join(", ")}`);
+    }
+    return createSessionRuntime({ repository });
+  });
   const sessionRuntimeRef = useRef(sessionRuntime);
+  const hasHydratedCompletedSessionsRef = useRef(false);
 
   const [activeSession, setActiveSession] = useState(null);
   const [completedSessions, setCompletedSessions] = useState([]);
@@ -347,6 +360,29 @@ export const AppProvider = ({ children }) => {
     setActiveSessionSamples(snapshot.activeSessionSamples);
     setCompletedSessions(snapshot.completedSessions);
   }, []);
+
+  useEffect(() => {
+    if (hasHydratedCompletedSessionsRef.current) return undefined;
+    let isMounted = true;
+
+    sessionRuntimeRef.current.listCompletedSessions()
+      .then(() => {
+        if (!isMounted) return;
+        hasHydratedCompletedSessionsRef.current = true;
+        syncSessionState();
+      })
+      .catch((error) => {
+        if (!isMounted) return;
+        hasHydratedCompletedSessionsRef.current = true;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Session history storage initialization failed:", error);
+        addLog(`Local session history could not be loaded: ${message}`, "error");
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [addLog, syncSessionState]);
 
   useEffect(() => {
     latestAttentionRef.current = attention;
@@ -1257,7 +1293,7 @@ export const AppProvider = ({ children }) => {
 
     return null;
   };
-  // Reset metrics and clear in-memory session data
+  // Reset metrics and clear local session data
   const resetMetrics = async () => {
     setIsMonitoring(false);
     clearCameraStream();

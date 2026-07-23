@@ -55,12 +55,22 @@ export default function StudySpace() {
     finishSession,
     discardSession,
     stopCamera,
+    addLog,
   } = useAppState();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
 
   const hasActivatedSession = activeSession && activeSession.status !== "prepared";
+
+  const handleDisableWebcam = async () => {
+    try {
+      await stopCamera();
+    } catch (error) {
+      console.error("Failed to disable webcam:", error);
+      addLog("Could not disable the webcam cleanly. Local storage may be unavailable.", "error");
+    }
+  };
 
   const handlePauseResume = async () => {
     if (!hasActivatedSession) return;
@@ -71,6 +81,9 @@ export default function StudySpace() {
       } else {
         await resumeSession();
       }
+    } catch (error) {
+      console.error("Failed to toggle study session:", error);
+      addLog("Could not update the study session state. Local storage may be unavailable.", "error");
     } finally {
       setIsToggling(false);
     }
@@ -82,6 +95,9 @@ export default function StudySpace() {
       const completed = await finishSession();
       setIsDialogOpen(false);
       router.push(completed ? "/app/dashboard" : "/app");
+    } catch (error) {
+      console.error("Failed to finish study session:", error);
+      addLog("Could not finish and save the study session. Please try again.", "error");
     } finally {
       setIsEnding(false);
     }
@@ -94,6 +110,9 @@ export default function StudySpace() {
       await discardSession();
       setIsDialogOpen(false);
       router.push("/app");
+    } catch (error) {
+      console.error("Failed to discard study session:", error);
+      addLog("Could not discard the study session. Local storage may be unavailable.", "error");
     } finally {
       setIsEnding(false);
     }
@@ -108,7 +127,7 @@ export default function StudySpace() {
             isCameraAllowed={isCameraAllowed}
             isAiLoaded={isAiLoaded}
             affectModelStatus={affectModelStatus}
-            onDisableWebcam={stopCamera}
+            onDisableWebcam={() => void handleDisableWebcam()}
           />
           {isDebugMode && <DebugPanel />}
         </aside>

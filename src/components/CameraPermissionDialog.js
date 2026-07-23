@@ -35,7 +35,9 @@ export default function CameraPermissionDialog() {
   const handleCancel = () => {
     setShowCameraDialog(false);
     if (!isMonitoring && activeSession?.status === "prepared") {
-      void stopCamera({ pauseActiveSession: false });
+      void stopCamera({ pauseActiveSession: false }).catch((error) => {
+        console.error("Failed to stop camera after cancelling permission dialog:", error);
+      });
     }
   };
 

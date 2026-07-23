@@ -6,12 +6,14 @@ import {
   DATA_QUALITY,
   DEFAULT_METRIC_TREND_THRESHOLDS,
   EMOTION_LABELS,
+  INDEXED_DB_SESSION_DATABASE,
   SESSION_STATUS,
   aggregateMetricObservations,
   calculateMetricStatistics,
   calculateSessionStatistics,
   classifyDataQuality,
   createCompletedStudySession,
+  createIndexedDbSessionRepository,
   createMemorySessionRepository,
   createStudySession,
   generateSessionSummary,
@@ -19,6 +21,7 @@ import {
   selectDashboardMetricCards,
   selectDominantEmotion,
   sortSessionsByNewest,
+  validateSessionRepositoryContract,
 } from "./index.js";
 
 const baseTime = "2026-01-01T00:00:00.000Z";
@@ -186,6 +189,17 @@ test("memory repository separates session summaries from samples and deletes sam
   await repository.deleteSession(session.id);
   assert.equal(await repository.getSessionById(session.id), null);
   assert.deepEqual(await repository.getMetricSamples(session.id), []);
+});
+
+test("indexeddb repository factory exposes the repository contract without opening storage", () => {
+  const repository = createIndexedDbSessionRepository();
+  const contract = validateSessionRepositoryContract(repository);
+
+  assert.equal(contract.valid, true);
+  assert.equal(INDEXED_DB_SESSION_DATABASE.name, "aegismind-session-data");
+  assert.equal(INDEXED_DB_SESSION_DATABASE.version, 1);
+  assert.equal(INDEXED_DB_SESSION_DATABASE.stores.sessions, "study_sessions");
+  assert.equal(INDEXED_DB_SESSION_DATABASE.stores.samples, "metric_samples");
 });
 
 test("completed sessions and newest sorting support future history browsing", () => {
