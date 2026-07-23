@@ -214,10 +214,12 @@ export const AppProvider = ({ children }) => {
   const sessionRuntimeRef = useRef(sessionRuntime);
   const hasHydratedCompletedSessionsRef = useRef(false);
   const lastCheckpointFailureRef = useRef(null);
+  const resumeTransitionPromiseRef = useRef(null);
 
   const [activeSession, setActiveSession] = useState(null);
   const [completedSessions, setCompletedSessions] = useState([]);
   const [activeSessionSamples, setActiveSessionSamples] = useState([]);
+  const [recoveryPromptDismissedSessionId, setRecoveryPromptDismissedSessionId] = useState(null);
 
   const streamRef = useRef(null);
   const sessionClockRef = useRef(sessionClock);
@@ -372,6 +374,16 @@ export const AppProvider = ({ children }) => {
     setCompletedSessions(snapshot.completedSessions);
   }, []);
 
+  const runResumeTransition = useCallback((operation) => {
+    if (resumeTransitionPromiseRef.current) return resumeTransitionPromiseRef.current;
+
+    const promise = operation().finally(() => {
+      resumeTransitionPromiseRef.current = null;
+    });
+    resumeTransitionPromiseRef.current = promise;
+    return promise;
+  }, []);
+
   useEffect(() => {
     if (hasHydratedCompletedSessionsRef.current) return undefined;
     let isMounted = true;
@@ -399,6 +411,7 @@ export const AppProvider = ({ children }) => {
           monitoringRef.current = false;
           setIsCameraAllowed(false);
           cameraAllowedRef.current = false;
+          setRecoveryPromptDismissedSessionId(null);
           addLog("Interrupted study session recovered from local checkpoint.", "warning");
         }
         if (result?.invalidRecoverableSessions?.length > 0) {
@@ -1146,23 +1159,36 @@ export const AppProvider = ({ children }) => {
       return active;
     }
 
-    const session = active.status === SESSION_STATUS.PREPARED
-      ? await sessionRuntimeRef.current.activatePreparedSession()
-      : await sessionRuntimeRef.current.resumeSession();
+    return runResumeTransition(async () => {
+      const session = active.status === SESSION_STATUS.PREPARED
+        ? await sessionRuntimeRef.current.activatePreparedSession()
+        : await sessionRuntimeRef.current.resumeSession();
 
-    if (active.status === SESSION_STATUS.PREPARED) {
-      resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
-      startSessionClockFromZero();
-      await sessionRuntimeRef.current.checkpointActiveSession(0, { checkpointedAt: new Date().toISOString(), reason: "start" });
-    } else {
-      startSessionClock();
-    }
+      if (active.status === SESSION_STATUS.PREPARED) {
+        resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
+        startSessionClockFromZero();
+        await sessionRuntimeRef.current.checkpointActiveSession(0, { checkpointedAt: new Date().toISOString(), reason: "start" });
+      } else if (active.recoveryPending === true) {
+        const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
+          ? Math.max(0, active.accumulatedStudyMs)
+          : 0;
+        startSessionClockFromElapsed(elapsedMs);
+        sessionClockRef.current = {
+          accumulatedMs: elapsedMs,
+          runningSince: Date.now(),
+          isRunning: true,
+        };
+      } else {
+        startSessionClock();
+      }
 
-    setIsMonitoring(true);
-    syncSessionState();
-    addLog(active.status === SESSION_STATUS.PREPARED ? "Study session started." : "Study session resumed.", "success");
-    return session;
-  }, [addLog, resetEstimatorSession, startSessionClock, startSessionClockFromZero, syncSessionState]);
+      setRecoveryPromptDismissedSessionId(null);
+      setIsMonitoring(true);
+      syncSessionState();
+      addLog(active.status === SESSION_STATUS.PREPARED ? "Study session started." : "Study session resumed.", "success");
+      return session;
+    });
+  }, [addLog, resetEstimatorSession, runResumeTransition, startSessionClock, startSessionClockFromElapsed, startSessionClockFromZero, syncSessionState]);
 
   const startSession = prepareSession;
 
@@ -1202,13 +1228,16 @@ export const AppProvider = ({ children }) => {
       return null;
     }
 
-    const session = await sessionRuntimeRef.current.resumeSession();
-    startSessionClock();
-    setIsMonitoring(true);
-    syncSessionState();
-    addLog("Study session resumed.", "success");
-    return session;
-  }, [activatePreparedSession, addLog, startSessionClock, syncSessionState]);
+    return runResumeTransition(async () => {
+      const session = await sessionRuntimeRef.current.resumeSession();
+      startSessionClock();
+      setRecoveryPromptDismissedSessionId(null);
+      setIsMonitoring(true);
+      syncSessionState();
+      addLog("Study session resumed.", "success");
+      return session;
+    });
+  }, [activatePreparedSession, addLog, runResumeTransition, startSessionClock, syncSessionState]);
 
   const stopCamera = useCallback(async ({ pauseActiveSession = true } = {}) => {
     const active = activeSessionRef.current;
@@ -1228,7 +1257,7 @@ export const AppProvider = ({ children }) => {
     return true;
   }, [addLog, clearCameraStream, freezeSessionClock, getSessionElapsedMs, resetTransientInferenceState, syncSessionState]);
 
-  const resumeRecoveredSession = useCallback(async () => {
+  const returnToRecoveredSession = useCallback(async () => {
     const active = activeSessionRef.current;
     if (!active || active.recoveryPending !== true) return null;
 
@@ -1240,20 +1269,47 @@ export const AppProvider = ({ children }) => {
     monitoringRef.current = false;
     clearCameraStream();
     resetTransientInferenceState();
-
-    const session = await sessionRuntimeRef.current.resumeSession();
-    startSessionClockFromElapsed(elapsedMs);
     sessionClockRef.current = {
       accumulatedMs: elapsedMs,
-      runningSince: Date.now(),
-      isRunning: true,
+      runningSince: null,
+      isRunning: false,
     };
-    setIsMonitoring(false);
-    monitoringRef.current = false;
+    setSessionClock(sessionClockRef.current);
+    setRecoveryPromptDismissedSessionId(active.id);
     syncSessionState();
-    addLog("Recovered study session resumed. Webcam and Monitoring remain disabled.", "success");
-    return session;
-  }, [addLog, clearCameraStream, resetTransientInferenceState, startSessionClockFromElapsed, syncSessionState]);
+    addLog("Recovered study session returned to Study Space. Choose how to continue.", "info");
+    return active;
+  }, [addLog, clearCameraStream, resetTransientInferenceState, syncSessionState]);
+
+  const resumeSessionWithoutCamera = useCallback(async () => {
+    const active = activeSessionRef.current;
+    if (!active || active.status !== SESSION_STATUS.PAUSED) return null;
+
+    const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
+      ? Math.max(0, active.accumulatedStudyMs)
+      : getSessionElapsedMs();
+
+    return runResumeTransition(async () => {
+      setIsMonitoring(false);
+      monitoringRef.current = false;
+      clearCameraStream();
+      resetTransientInferenceState();
+
+      const session = await sessionRuntimeRef.current.resumeSession();
+      startSessionClockFromElapsed(elapsedMs);
+      sessionClockRef.current = {
+        accumulatedMs: elapsedMs,
+        runningSince: Date.now(),
+        isRunning: true,
+      };
+      setIsMonitoring(false);
+      monitoringRef.current = false;
+      setRecoveryPromptDismissedSessionId(null);
+      syncSessionState();
+      addLog("Study session continued without webcam or Monitoring.", "success");
+      return session;
+    });
+  }, [addLog, clearCameraStream, getSessionElapsedMs, resetTransientInferenceState, runResumeTransition, startSessionClockFromElapsed, syncSessionState]);
 
   const finishSession = useCallback(async () => {
     if (!activeSessionRef.current) return null;
@@ -1269,6 +1325,7 @@ export const AppProvider = ({ children }) => {
     setActiveSessionLiveMetrics([]);
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setRecoveryPromptDismissedSessionId(null);
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
     return completed;
@@ -1288,6 +1345,7 @@ export const AppProvider = ({ children }) => {
     liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
+    setRecoveryPromptDismissedSessionId(null);
     syncSessionState();
     addLog("Study session discarded.", "warning");
     return discarded;
@@ -1451,6 +1509,7 @@ export const AppProvider = ({ children }) => {
     resetEstimatorSession(80, 10);
     resetAffectState();
     resetSessionClock();
+    setRecoveryPromptDismissedSessionId(null);
     await sessionRuntimeRef.current.clear();
     syncSessionState();
     addLog("Metrics and session data reset to baseline.", "info");
@@ -1481,7 +1540,8 @@ export const AppProvider = ({ children }) => {
         startSession,
         pauseSession,
         resumeSession,
-        resumeRecoveredSession,
+        resumeSessionWithoutCamera,
+        returnToRecoveredSession,
         finishSession,
         discardSession,
         updateSessionTask,
@@ -1513,6 +1573,8 @@ export const AppProvider = ({ children }) => {
         addLog,
         metricsHistory,
         activeSessionLiveMetrics,
+        isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
+          recoveryPromptDismissedSessionId !== activeSession.id,
         
         // AI Web-SDK additions
         isAiLoaded,

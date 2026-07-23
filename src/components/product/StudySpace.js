@@ -52,6 +52,7 @@ export default function StudySpace() {
     isDebugMode,
     pauseSession,
     resumeSession,
+    resumeSessionWithoutCamera,
     finishSession,
     discardSession,
     stopCamera,
@@ -62,6 +63,8 @@ export default function StudySpace() {
   const [isToggling, setIsToggling] = useState(false);
 
   const hasActivatedSession = activeSession && activeSession.status !== "prepared";
+  const isSessionActive = activeSession?.status === "active";
+  const canContinueWithoutCamera = activeSession?.status === "paused" && !isCameraAllowed;
 
   const handleDisableWebcam = async () => {
     try {
@@ -78,6 +81,10 @@ export default function StudySpace() {
     try {
       if (isMonitoring) {
         await pauseSession();
+      } else if (isSessionActive) {
+        await pauseSession();
+      } else if (canContinueWithoutCamera) {
+        await resumeSessionWithoutCamera();
       } else {
         await resumeSession();
       }
@@ -148,12 +155,18 @@ export default function StudySpace() {
                 onClick={() => void handlePauseResume()}
                 disabled={isToggling}
                 className={`rounded-xl px-4 py-3 text-sm font-bold transition-all disabled:cursor-wait disabled:opacity-70 ${
-                  isMonitoring
+                  isMonitoring || isSessionActive
                     ? "border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20"
                     : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
                 }`}
               >
-                {isMonitoring ? "Pause Session" : isToggling ? "Resuming..." : "Resume Session"}
+                {isMonitoring || isSessionActive
+                  ? "Pause Session"
+                  : isToggling
+                    ? "Resuming..."
+                    : canContinueWithoutCamera
+                      ? "Continue without Camera"
+                      : "Resume Session"}
               </button>
               <button
                 type="button"

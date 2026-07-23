@@ -19,7 +19,8 @@ export default function SessionRecoveryDialog() {
   const pathname = usePathname();
   const {
     activeSession,
-    resumeRecoveredSession,
+    isRecoveryPromptOpen,
+    returnToRecoveredSession,
     finishSession,
     discardSession,
     addLog,
@@ -29,7 +30,7 @@ export default function SessionRecoveryDialog() {
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  const isOpen = activeSession?.recoveryPending === true;
+  const isOpen = isRecoveryPromptOpen === true;
   const studyTime = useMemo(() => (
     formatElapsedTime(activeSession?.accumulatedStudyMs || 0)
   ), [activeSession?.accumulatedStudyMs]);
@@ -73,8 +74,8 @@ export default function SessionRecoveryDialog() {
     }
   };
 
-  const handleResume = async () => {
-    const session = await runAction("resume", resumeRecoveredSession);
+  const handleReturn = async () => {
+    const session = await runAction("return to", returnToRecoveredSession);
     if (session) setConfirmDiscard(false);
   };
 
@@ -128,7 +129,7 @@ export default function SessionRecoveryDialog() {
         </dl>
 
         <p className="mt-4 text-xs leading-relaxed text-slate-400">
-          Resuming keeps the webcam and Monitoring disabled. You can turn them back on manually from the normal controls.
+          Returning keeps the session paused. Choose whether to continue without the webcam or enable the camera from the normal Study Space controls.
         </p>
 
         {confirmDiscard && (
@@ -147,11 +148,11 @@ export default function SessionRecoveryDialog() {
           <button
             ref={resumeRef}
             type="button"
-            onClick={() => void handleResume()}
+            onClick={() => void handleReturn()}
             disabled={isBusy}
             className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-bold text-slate-950 transition-all hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-60"
           >
-            {action === "resume" ? "Resuming..." : "Resume Session"}
+            {action === "return to" ? "Returning..." : "Return to Session"}
           </button>
           <button
             type="button"
