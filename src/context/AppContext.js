@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createSessionRuntime, SESSION_STATUS } from "../services/session/index.js";
 
 const AppContext = createContext();
@@ -27,6 +27,11 @@ const clamp = (value, min, max) => {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
 };
+
+const createDefaultDebugMetricOverrides = () => ({
+  attention: { active: false, value: null },
+  fatigue: { active: false, value: null },
+});
 
 const calculateDistance = (a, b, videoWidth, videoHeight) => {
   if (!a || !b || videoWidth <= 0 || videoHeight <= 0) return null;
@@ -94,7 +99,7 @@ export const useAppState = () => {
 
 export const AppProvider = ({ children }) => {
   // Global Mode States
-  const [isDebugMode, setIsDebugMode] = useState(false);
+  const [isDebugMode, setIsDebugModeState] = useState(false);
   
   // Monitoring & Camera States
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -146,7 +151,7 @@ export const AppProvider = ({ children }) => {
   const lastDebugLogRef = useRef(0);
   const attentionEstimateRef = useRef(85);
   const fatigueEstimateRef = useRef(15);
-  const latestFocusRef = useRef(85);
+  const latestAttentionRef = useRef(85);
   const latestFatigueRef = useRef(15);
   const debugModeRef = useRef(false);
   const lastLiveMetricAtRef = useRef(0);
@@ -156,11 +161,10 @@ export const AppProvider = ({ children }) => {
   const smoothedValenceRef = useRef(null);
   const smoothedArousalRef = useRef(null);
 
-  // Mental States (0 - 100)
-  const [focus, setFocus] = useState(85);
-  const [stress, setStress] = useState(30);
+  // Inferred behavioral states (0 - 100)
+  const [attention, setAttention] = useState(85);
   const [fatigue, setFatigue] = useState(15);
-  const [arousal, setArousal] = useState(45);
+  const [debugMetricOverrides, setDebugMetricOverrides] = useState(createDefaultDebugMetricOverrides);
 
   // Local affect model state
   const [affectState, setAffectState] = useState({
@@ -305,6 +309,35 @@ export const AppProvider = ({ children }) => {
     ]);
   }, []);
 
+  const setDebugMetricOverride = useCallback((metric, value) => {
+    if (!isDebugMode || !["attention", "fatigue"].includes(metric)) return;
+    const nextValue = Math.round(clamp(Number(value), 0, 100));
+    setDebugMetricOverrides((previous) => ({
+      ...previous,
+      [metric]: { active: true, value: nextValue },
+    }));
+  }, [isDebugMode]);
+
+  const clearDebugMetricOverride = useCallback((metric) => {
+    if (!["attention", "fatigue"].includes(metric)) return;
+    setDebugMetricOverrides((previous) => ({
+      ...previous,
+      [metric]: { active: false, value: null },
+    }));
+  }, []);
+
+  const clearAllDebugMetricOverrides = useCallback(() => {
+    setDebugMetricOverrides(createDefaultDebugMetricOverrides());
+  }, []);
+
+  const setIsDebugMode = useCallback((nextValue) => {
+    const resolvedValue = Boolean(nextValue);
+    if (!resolvedValue) {
+      setDebugMetricOverrides(createDefaultDebugMetricOverrides());
+    }
+    setIsDebugModeState(resolvedValue);
+  }, []);
+
   const syncSessionState = useCallback(() => {
     const snapshot = sessionRuntimeRef.current.getSnapshot();
     setActiveSession(snapshot.activeSession);
@@ -313,8 +346,8 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    latestFocusRef.current = focus;
-  }, [focus]);
+    latestAttentionRef.current = attention;
+  }, [attention]);
 
   useEffect(() => {
     debugModeRef.current = isDebugMode;
@@ -345,8 +378,28 @@ export const AppProvider = ({ children }) => {
 
   useEffect(() => {
     if (!isMonitoring) return;
-    resetEstimatorSession(latestFocusRef.current, latestFatigueRef.current);
+    resetEstimatorSession(latestAttentionRef.current, latestFatigueRef.current);
   }, [isMonitoring, resetEstimatorSession]);
+
+  const resolvedDebugMetrics = useMemo(() => {
+    const attentionOverrideActive = isDebugMode && debugMetricOverrides.attention.active;
+    const fatigueOverrideActive = isDebugMode && debugMetricOverrides.fatigue.active;
+
+    return {
+      attention: {
+        displayedValue: attentionOverrideActive ? debugMetricOverrides.attention.value : attention,
+        inferredValue: attention,
+        source: attentionOverrideActive ? "override" : "heuristic",
+        overrideActive: attentionOverrideActive,
+      },
+      fatigue: {
+        displayedValue: fatigueOverrideActive ? debugMetricOverrides.fatigue.value : fatigue,
+        inferredValue: fatigue,
+        source: fatigueOverrideActive ? "override" : "heuristic",
+        overrideActive: fatigueOverrideActive,
+      },
+    };
+  }, [attention, debugMetricOverrides, fatigue, isDebugMode]);
 
   // AI Web-SDK loaders and updates
   const loadAiModels = useCallback(async () => {
@@ -491,7 +544,7 @@ export const AppProvider = ({ children }) => {
     const observation = {
       recordedAt,
       elapsedMs: getSessionElapsedMs(),
-      attention: latestFocusRef.current,
+      attention: latestAttentionRef.current,
       fatigue: latestFatigueRef.current,
       valence: currentAffect.valid ? currentAffect.valence : null,
       arousal: currentAffect.valid ? currentAffect.arousal : null,
@@ -820,7 +873,7 @@ export const AppProvider = ({ children }) => {
         const attentionEstimate =
           attentionEstimateRef.current * 0.8 + attentionRaw * 0.2;
         attentionEstimateRef.current = clamp(attentionEstimate, 0, 100);
-        setFocus(Math.round(attentionEstimateRef.current));
+        setAttention(Math.round(attentionEstimateRef.current));
       }
 
       const fatigueWindow = getRecentObservations(observationsRef.current, timestamp, FATIGUE_WINDOW_MS);
@@ -1199,10 +1252,9 @@ export const AppProvider = ({ children }) => {
     setIsMonitoring(false);
     clearCameraStream();
     resetTransientInferenceState();
-    setFocus(80);
-    setStress(25);
+    setAttention(80);
     setFatigue(10);
-    setArousal(45);
+    clearAllDebugMetricOverrides();
     setYawnCount(0);
     setBlinkRate(12);
     setEyeOpenness(1.0);
@@ -1255,14 +1307,12 @@ export const AppProvider = ({ children }) => {
         updateTargetDuration,
         getSessionById,
         getMetricSamples,
-        focus,
-        setFocus,
-        stress,
-        setStress,
+        attention,
         fatigue,
-        setFatigue,
-        arousal,
-        setArousal,
+        resolvedDebugMetrics,
+        setDebugMetricOverride,
+        clearDebugMetricOverride,
+        clearAllDebugMetricOverrides,
         affectState,
         updateAffectMetrics,
         resetAffectState,

@@ -3,25 +3,17 @@
 import React, { useState } from "react";
 import { useAppState } from "../context/AppContext";
 
+const clampPercent = (value) => Math.min(100, Math.max(0, Number(value) || 0));
+
 export default function DebugPanel() {
   const {
-    focus,
-    setFocus,
-    stress,
-    setStress,
-    fatigue,
-    setFatigue,
-    arousal,
-    setArousal,
+    resolvedDebugMetrics,
+    setDebugMetricOverride,
+    clearDebugMetricOverride,
+    clearAllDebugMetricOverrides,
     blinkRate,
-    setBlinkRate,
-    yawnCount,
-    setYawnCount,
     headPose,
-    setHeadPose,
     currentGesture,
-    setCurrentGesture,
-    fps,
     latency,
     eventLog,
     addLog,
@@ -42,28 +34,68 @@ export default function DebugPanel() {
   const [customLog, setCustomLog] = useState("");
   const [activeTab, setActiveTab] = useState("simulator"); // simulator, telemetry
 
-  const injectYawn = () => {
-    setYawnCount((prev) => prev + 1);
-    setFatigue((prev) => Math.min(100, prev + 15));
-    setFocus((prev) => Math.max(0, prev - 10));
-    addLog("DEBUG: Injected Yawn event. Fatigue increased.", "warning");
-  };
-
-  const injectBlink = () => {
-    setBlinkRate((prev) => Math.min(30, prev + 1));
-    addLog("DEBUG: Injected Blink event.", "debug");
-  };
-
-  const injectGesture = (gesture) => {
-    setCurrentGesture(gesture);
-    addLog(`DEBUG: Injected Gesture: ${gesture}`, "info");
-  };
-
   const handleCustomLogSubmit = (e) => {
     e.preventDefault();
     if (!customLog.trim()) return;
     addLog(`USER_DEBUG: ${customLog}`, "info");
     setCustomLog("");
+  };
+
+  const renderMetricOverride = (metricId, label, valueClass, accentClass) => {
+    const metric = resolvedDebugMetrics[metricId];
+    const sliderValue = clampPercent(metric.displayedValue ?? metric.inferredValue ?? 0);
+
+    return (
+      <div className="space-y-2 rounded-xl border border-white/5 bg-slate-900/35 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <span className="text-slate-400 font-medium">{label}</span>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span className={`font-bold ${valueClass}`}>{Math.round(sliderValue)}%</span>
+              <span className="rounded border border-cyan-400/20 bg-cyan-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-cyan-200">
+                HEURISTIC {Math.round(metric.inferredValue ?? 0)}%
+              </span>
+              {metric.overrideActive && (
+                <span className="rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-200">
+                  OVERRIDE
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (metric.overrideActive) {
+                clearDebugMetricOverride(metricId);
+                addLog(`${label} override cleared.`, "debug");
+              } else {
+                setDebugMetricOverride(metricId, metric.inferredValue ?? 0);
+                addLog(`${label} override enabled.`, "debug");
+              }
+            }}
+            className="rounded border border-white/10 bg-slate-950 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-300 transition-all hover:bg-slate-850"
+          >
+            {metric.overrideActive ? "Disable" : "Enable"}
+          </button>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={sliderValue}
+          disabled={!metric.overrideActive}
+          onChange={(e) => {
+            const nextValue = clampPercent(e.target.value);
+            setDebugMetricOverride(metricId, nextValue);
+            addLog(`${label} override adjusted to ${nextValue}%.`, "debug");
+          }}
+          className={`w-full rounded-lg bg-slate-900 appearance-none h-1.5 ${metric.overrideActive ? `cursor-pointer ${accentClass}` : "cursor-not-allowed opacity-40 accent-slate-700"}`}
+        />
+        <p className="text-[9px] leading-relaxed text-slate-500">
+          Override affects Debug and status displays only. Session samples keep the inferred heuristic value.
+        </p>
+      </div>
+    );
   };
 
   return (
@@ -90,9 +122,9 @@ export default function DebugPanel() {
             <span className="font-mono text-cyan-400">{aiLoadingProgress}%</span>
           </div>
           <div className="h-1.5 w-full rounded bg-slate-950 overflow-hidden">
-            <div 
-              className={`h-full transition-all duration-300 ${aiError ? "bg-red-500" : "bg-cyan-400"}`} 
-              style={{ width: `${aiLoadingProgress}%` }} 
+            <div
+              className={`h-full transition-all duration-300 ${aiError ? "bg-red-500" : "bg-cyan-400"}`}
+              style={{ width: `${aiLoadingProgress}%` }}
             />
           </div>
           {aiError && <p className="text-[10px] text-red-400">{aiError}</p>}
@@ -139,7 +171,7 @@ export default function DebugPanel() {
                   max="15"
                   value={inferenceFps}
                   onChange={(e) => {
-                    setInferenceFps(parseInt(e.target.value));
+                    setInferenceFps(parseInt(e.target.value, 10));
                     addLog(`Frame sampler rate adjusted to ${e.target.value} FPS`, "debug");
                   }}
                   className="w-full accent-cyan-400 bg-slate-900 rounded-lg appearance-none h-1.5 cursor-pointer"
@@ -152,95 +184,34 @@ export default function DebugPanel() {
               </div>
             </div>
 
-            {/* Section: Interactive Simulation Sliders */}
+            {/* Section: Debug-only display overrides */}
             <div className="space-y-3">
-              <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Manual State Overrides</h3>
-              
-              {/* Focus Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-medium">Focus Index</span>
-                  <span className="text-cyan-400 font-bold">{focus}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={focus}
-                  onChange={(e) => {
-                    setFocus(parseInt(e.target.value));
-                    addLog(`Focus manually adjusted to ${e.target.value}%`, "debug");
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Manual Display Overrides</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearAllDebugMetricOverrides();
+                    addLog("All metric overrides cleared.", "debug");
                   }}
-                  className="w-full accent-cyan-400 bg-slate-900 rounded-lg appearance-none h-1.5 cursor-pointer"
-                />
+                  className="rounded border border-white/10 bg-slate-900 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-300 transition-all hover:bg-slate-850"
+                >
+                  Clear All Overrides
+                </button>
               </div>
 
-              {/* Stress Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-medium">Stress Level</span>
-                  <span className="text-orange-400 font-bold">{stress}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={stress}
-                  onChange={(e) => {
-                    setStress(parseInt(e.target.value));
-                    addLog(`Stress manually adjusted to ${e.target.value}%`, "debug");
-                  }}
-                  className="w-full accent-orange-400 bg-slate-900 rounded-lg appearance-none h-1.5 cursor-pointer"
-                />
-              </div>
-
-              {/* Fatigue Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-medium">Fatigue Index</span>
-                  <span className="text-rose-400 font-bold">{fatigue}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={fatigue}
-                  onChange={(e) => {
-                    setFatigue(parseInt(e.target.value));
-                    addLog(`Fatigue manually adjusted to ${e.target.value}%`, "debug");
-                  }}
-                  className="w-full accent-rose-400 bg-slate-900 rounded-lg appearance-none h-1.5 cursor-pointer"
-                />
-              </div>
-
-              {/* Arousal Slider */}
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-medium">Arousal / Engagement</span>
-                  <span className="text-amber-400 font-bold">{arousal}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={arousal}
-                  onChange={(e) => {
-                    setArousal(parseInt(e.target.value));
-                    addLog(`Arousal manually adjusted to ${e.target.value}%`, "debug");
-                  }}
-                  className="w-full accent-amber-400 bg-slate-900 rounded-lg appearance-none h-1.5 cursor-pointer"
-                />
-              </div>
+              {renderMetricOverride("attention", "Attention Estimate", "text-cyan-400", "accent-cyan-400")}
+              {renderMetricOverride("fatigue", "Fatigue Estimate", "text-rose-400", "accent-rose-400")}
             </div>
 
             {/* Section: Raw Coordinates & Values */}
             <div className="space-y-2.5 bg-slate-900/40 border border-white/5 rounded-xl p-3">
               <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Raw Landmarking Data</h3>
-              
+
               <div className="grid grid-cols-2 gap-2 text-[11px]">
                 <div className="rounded bg-slate-950/80 p-1.5 border border-white/5">
                   <span className="text-slate-500 block text-[9px] uppercase">Head Pose</span>
-                  <span className="text-white font-mono">Y: {headPose.yaw}° | P: {headPose.pitch}°</span>
+                  <span className="text-white font-mono">Y: {headPose.yaw} deg | P: {headPose.pitch} deg</span>
                 </div>
                 <div className="rounded bg-slate-950/80 p-1.5 border border-white/5">
                   <span className="text-slate-500 block text-[9px] uppercase">Eye Openness</span>
@@ -262,37 +233,6 @@ export default function DebugPanel() {
                 <span>Latency: <span className="font-mono text-emerald-400">{latency} ms</span></span>
               </div>
             </div>
-
-            {/* Section: Event Injector Buttons */}
-            <div className="space-y-2">
-              <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Simulate CV Events</h3>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={injectBlink}
-                  className="flex-1 min-w-[70px] rounded bg-slate-900 border border-white/10 py-1 hover:bg-slate-850 text-slate-300 font-medium text-[10px] transition-all"
-                >
-                  👁️ Blink
-                </button>
-                <button
-                  onClick={injectYawn}
-                  className="flex-1 min-w-[70px] rounded bg-slate-900 border border-white/10 py-1 hover:bg-slate-850 text-slate-300 font-medium text-[10px] transition-all"
-                >
-                  🥱 Yawn
-                </button>
-                <button
-                  onClick={() => injectGesture("Hand on Chin")}
-                  className="flex-1 min-w-[90px] rounded bg-slate-900 border border-white/10 py-1 hover:bg-slate-850 text-slate-300 font-medium text-[10px] transition-all"
-                >
-                  🤔 Hand on Chin
-                </button>
-                <button
-                  onClick={() => injectGesture("Leaning Forward")}
-                  className="flex-1 min-w-[90px] rounded bg-slate-900 border border-white/10 py-1 hover:bg-slate-850 text-slate-300 font-medium text-[10px] transition-all"
-                >
-                  ↗️ Lean Forward
-                </button>
-              </div>
-            </div>
           </>
         ) : (
           <div className="space-y-3 flex flex-col h-full min-h-0">
@@ -302,7 +242,7 @@ export default function DebugPanel() {
                 onClick={exportTelemetryCSV}
                 className="rounded bg-gradient-to-r from-cyan-500 to-blue-500 px-2.5 py-1 text-[9px] font-bold text-white shadow-md shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400 transition-all"
               >
-                📥 Export CSV
+                Export CSV
               </button>
             </div>
 
@@ -331,7 +271,7 @@ export default function DebugPanel() {
                         <td className="p-2 border-r border-white/5 text-slate-500">{row.time}</td>
                         <td className="p-2 border-r border-white/5 text-cyan-400 font-bold">{Number.isFinite(row.eyeOpenness) ? row.eyeOpenness.toFixed(2) : "n/a"}</td>
                         <td className={`p-2 border-r border-white/5 font-bold ${row.blink === "Yes" ? "text-amber-400 animate-pulse" : "text-slate-500"}`}>{row.blink}</td>
-                        <td className="p-2 border-r border-white/5 text-slate-400">{row.yaw}°/{row.pitch}°</td>
+                        <td className="p-2 border-r border-white/5 text-slate-400">{row.yaw} deg/{row.pitch} deg</td>
                         <td className={`p-2 border-r border-white/5 font-semibold ${row.gesture !== "None" ? "text-emerald-400" : "text-slate-500"}`}>{row.gesture}</td>
                         <td className="p-2 text-center text-slate-400">{row.hands}</td>
                       </tr>
@@ -340,7 +280,7 @@ export default function DebugPanel() {
                 </tbody>
               </table>
             </div>
-            
+
             <p className="text-[9px] text-slate-500 leading-relaxed italic">
               * Table displays aggregated indices per sampled video frame. Export logs as CSV to inspect full X/Y/Z coordinate matrices.
             </p>

@@ -8,16 +8,16 @@ import useDraggablePanel from "../../hooks/useDraggablePanel";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import SessionProgress from "../session/SessionProgress";
 
-const getStudyStatusText = (focus, fatigue) => {
+const getStudyStatusText = (attention, fatigue) => {
   if (fatigue >= 70) {
     return "You seem a little tired. It is okay to slow down.";
   }
 
-  if (focus >= 75 && fatigue < 55) {
+  if (attention >= 75 && fatigue < 55) {
     return "Deeply focused. Keep this steady rhythm.";
   }
 
-  if (focus < 45) {
+  if (attention < 45) {
     return "Your attention may be drifting. Gently bring it back.";
   }
 
@@ -26,8 +26,7 @@ const getStudyStatusText = (focus, fatigue) => {
 
 export default function FocusMonitorWindow({ stageRef, onHide }) {
   const {
-    focus,
-    fatigue,
+    resolvedDebugMetrics,
     activeSession,
     isMonitoring,
     pauseSession,
@@ -43,7 +42,12 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
     isDragging,
   } = useDraggablePanel(stageRef, { topClearance: 70 });
 
-  const statusText = isMonitoring ? getStudyStatusText(focus, fatigue) : "Monitoring is paused. Resume when you are ready to continue.";
+  const attentionMetric = resolvedDebugMetrics.attention;
+  const fatigueMetric = resolvedDebugMetrics.fatigue;
+  const hasDebugOverride = attentionMetric.overrideActive || fatigueMetric.overrideActive;
+  const statusText = isMonitoring
+    ? getStudyStatusText(attentionMetric.displayedValue, fatigueMetric.displayedValue)
+    : "Monitoring is paused. Resume when you are ready to continue.";
 
   const handlePauseResume = async () => {
     setIsToggling(true);
@@ -95,7 +99,14 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
         </div>
 
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.06] p-3">
-          <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-cyan-300">Study Status</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-cyan-300">Study Status</p>
+            {hasDebugOverride && (
+              <span className="rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-200">
+                DEBUG OVERRIDE
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm leading-relaxed text-slate-100">{statusText}</p>
         </div>
 
