@@ -105,10 +105,10 @@ export const calculateSessionStatistics = (metricSamples = [], session = {}, opt
       : normalizedSession.accumulatedStudyMs || 0;
 
   return {
-    attention: calculateMetricStatistics(samples.map((sample) => sample.attention), options),
-    fatigue: calculateMetricStatistics(samples.map((sample) => sample.fatigue), options),
-    valence: calculateMetricStatistics(samples.map((sample) => sample.valence), options),
-    arousal: calculateMetricStatistics(samples.map((sample) => sample.arousal), options),
+    attention: calculateMetricStatistics(samples.map((sample) => sample.attention), {...options, meaningfulTrendChange:5}),
+    fatigue: calculateMetricStatistics(samples.map((sample) => sample.fatigue), {...options, meaningfulTrendChange:5}),
+    valence: calculateMetricStatistics(samples.map((sample) => sample.valence), {...options, meaningfulTrendChange:0.05}),
+    arousal: calculateMetricStatistics(samples.map((sample) => sample.arousal), {...options, meaningfulTrendChange:0.05}),
     dominantEmotion,
     dominantEmotionShare,
     dataCoverage,

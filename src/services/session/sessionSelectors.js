@@ -115,14 +115,17 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
       dataQuality: null,
     }));
   }
-
+  
+  const chronologicalLiveMetrics = sortSamplesChronologically(liveMetrics);
   const latest = samples[samples.length - 1] || {};
-  const latestLive = liveMetrics[liveMetrics.length - 1] || null;
+  const latestLive = chronologicalLiveMetrics[chronologicalLiveMetrics.length - 1] || null;
   const statistics = getStatistics(session, samples);
 
   return metricDefinitions.map((definition) => {
-    const metricStats = isActive
-      ? calculateMetricStatistics(liveMetrics.map((row) => row[definition.id]))
+    const metricStats = isActive 
+      ? calculateMetricStatistics(liveMetrics.map((row) => row[definition.id]), {
+        meaningfulTrendChange: definition.id === "valence" || definition.id === "arousal" ? 0.05 : 5,
+      })
       : statistics?.[definition.id] || {};
     const currentValue = isActive
       ? currentMetrics?.[definition.id] ?? latestLive?.[definition.id] ?? null
