@@ -1,5 +1,5 @@
 import * as ort from "onnxruntime-web";
-import { canvasToAffectTensor } from "./affectPreprocessing";
+import { canvasToAffectTensor } from "./affectPreprocessing.js";
 
 const MODEL_URL = "/models/emotieff/enet_b0_8_va_mtl.onnx";
 
@@ -19,6 +19,69 @@ const VALENCE_INDEX = 8;
 const AROUSAL_INDEX = 9;
 
 let sessionPromise = null;
+
+export const stableSoftmax = (logits) => {
+  if (!Array.isArray(logits) || logits.length !== EMOTION_LABELS.length) {
+    throw new Error(`Expected ${EMOTION_LABELS.length} emotion logits for softmax.`);
+  }
+
+  if (!logits.every(Number.isFinite)) {
+    throw new Error("Affect model returned non-finite emotion logits.");
+  }
+
+  const maxLogit = Math.max(...logits);
+  const exponentials = logits.map((value) => Math.exp(value - maxLogit));
+  const denominator = exponentials.reduce((sum, value) => sum + value, 0);
+
+  if (!Number.isFinite(denominator) || denominator <= 0) {
+    throw new Error("Affect emotion softmax denominator was invalid.");
+  }
+
+  const probabilities = exponentials.map((value) => value / denominator);
+
+  if (!probabilities.every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
+    throw new Error("Affect emotion softmax produced invalid probabilities.");
+  }
+
+  return probabilities;
+};
+
+export const parseAffectOutput = (rawOutput) => {
+  if (!Array.isArray(rawOutput) || rawOutput.length !== EXPECTED_OUTPUT_LENGTH) {
+    throw new Error(
+      `Unexpected affect output length: expected ${EXPECTED_OUTPUT_LENGTH}, received ${rawOutput?.length ?? 0}.`
+    );
+  }
+
+  if (!rawOutput.every(Number.isFinite)) {
+    throw new Error("Affect model returned non-finite output values.");
+  }
+
+  const emotionLogits = rawOutput.slice(0, EMOTION_LABELS.length);
+  const emotionProbabilities = stableSoftmax(emotionLogits);
+  const predictedEmotionIndex = emotionLogits.reduce(
+    (bestIndex, value, index, values) => value > values[bestIndex] ? index : bestIndex,
+    0
+  );
+
+  const probabilityIndex = emotionProbabilities.reduce(
+    (bestIndex, value, index, values) => value > values[bestIndex] ? index : bestIndex,
+    0
+  );
+
+  if (probabilityIndex !== predictedEmotionIndex) {
+    throw new Error("Affect emotion softmax argmax did not match logit argmax.");
+  }
+
+  return {
+    emotion: EMOTION_LABELS[predictedEmotionIndex],
+    emotionLogits,
+    emotionProbabilities,
+    topEmotionProbability: emotionProbabilities[predictedEmotionIndex],
+    valence: rawOutput[VALENCE_INDEX],
+    arousal: rawOutput[AROUSAL_INDEX],
+  };
+};
 
 const createSession = async () => {
   const session =
@@ -71,28 +134,14 @@ export const predictAffectFromCanvas = async (canvas) => {
   }
 
   const rawOutput = Array.from(outputTensor.data);
-
-  if (rawOutput.length !== EXPECTED_OUTPUT_LENGTH) {
-    throw new Error(
-      `Unexpected affect output length: expected ${EXPECTED_OUTPUT_LENGTH}, received ${rawOutput.length}.`
-    );
-  }
-  
-  const emotionLogits = rawOutput.slice(0, EMOTION_LABELS.length);
-  const predictedEmotionIndex = emotionLogits.reduce((bestIndex, value, index, values) => value > values[bestIndex] ? index : bestIndex, 0);
-
-  const valence = rawOutput[VALENCE_INDEX];
-  const arousal = rawOutput[AROUSAL_INDEX];
+  const affectOutput = parseAffectOutput(rawOutput);
 
   return {
-    valence,
-    arousal,
-    emotion: EMOTION_LABELS[predictedEmotionIndex],
-     emotionLogits,
+    ...affectOutput,
     rawOutput,
     outputName,
     outputDimensions: Array.from(outputTensor.dims),
     source: "browser-onnx-wasm",
-    valid: Number.isFinite(valence) && Number.isFinite(arousal),
+    valid: true,
   };
 };

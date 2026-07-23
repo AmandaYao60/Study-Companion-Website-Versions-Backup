@@ -49,3 +49,11 @@ export const DEFAULT_DATA_QUALITY_THRESHOLDS = Object.freeze({
   good: 0.8,
   partial: 0.5,
 });
+
+// Provisional display/trend thresholds only; not clinically or scientifically validated boundaries.
+export const DEFAULT_METRIC_TREND_THRESHOLDS = Object.freeze({
+  attention: 5,
+  fatigue: 5,
+  valence: 0.05,
+  arousal: 0.05,
+});

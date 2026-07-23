@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   CIRCUMPLEX_REFERENCE_LABELS,
   DATA_QUALITY,
+  DEFAULT_METRIC_TREND_THRESHOLDS,
   EMOTION_LABELS,
   SESSION_STATUS,
   aggregateMetricObservations,
@@ -15,6 +16,7 @@ import {
   createStudySession,
   generateSessionSummary,
   hasCompleteCircumplexReferenceSet,
+  selectDashboardMetricCards,
   selectDominantEmotion,
   sortSessionsByNewest,
 } from "./index.js";
@@ -98,6 +100,63 @@ test("statistics ignore null values and trends require enough data", () => {
   const increasing = calculateMetricStatistics([10, null, 20, 35, 50], { meaningfulTrendChange: 10 });
   assert.equal(increasing.mean, 28.75);
   assert.equal(increasing.trend, "increasing");
+});
+
+test("dashboard live card trends use chronological live metrics", () => {
+  const liveMetrics = [
+    { id: "late", recordedAt: "2026-01-01T00:00:20.000Z", attention: 30, fatigue: 30, valence: 0.2, arousal: 0.2, dataQuality: "good" },
+    { id: "early", recordedAt: "2026-01-01T00:00:00.000Z", attention: 10, fatigue: 10, valence: 0.1, arousal: 0.1, dataQuality: "partial" },
+    { id: "middle", recordedAt: "2026-01-01T00:00:10.000Z", attention: 20, fatigue: 20, valence: 0.15, arousal: 0.15, dataQuality: "good" },
+  ];
+
+  const cards = selectDashboardMetricCards({
+    session: { id: "active-session" },
+    liveMetrics,
+    isActive: true,
+  });
+  const attention = cards.find((card) => card.id === "attention");
+
+  assert.equal(attention.currentValue, 30);
+  assert.equal(attention.trend, "increasing");
+  assert.equal(attention.dataQuality, "good");
+});
+
+test("dashboard completed card latest values and trends use chronological samples", () => {
+  const samples = [
+    { id: "late", sessionId: "s1", recordedAt: "2026-01-01T00:00:20.000Z", intervalStartedAt: "2026-01-01T00:00:20.000Z", intervalEndedAt: "2026-01-01T00:00:25.000Z", elapsedMs: 25000, attention: 30, fatigue: 30, valence: 0.02, arousal: 0.02, emotionConfidence: null, dataQuality: "good" },
+    { id: "early", sessionId: "s1", recordedAt: "2026-01-01T00:00:00.000Z", intervalStartedAt: "2026-01-01T00:00:00.000Z", intervalEndedAt: "2026-01-01T00:00:05.000Z", elapsedMs: 5000, attention: 10, fatigue: 10, valence: 0, arousal: 0, emotionConfidence: null, dataQuality: "partial" },
+    { id: "middle", sessionId: "s1", recordedAt: "2026-01-01T00:00:10.000Z", intervalStartedAt: "2026-01-01T00:00:10.000Z", intervalEndedAt: "2026-01-01T00:00:15.000Z", elapsedMs: 15000, attention: 20, fatigue: 20, valence: 0.04, arousal: 0.04, emotionConfidence: null, dataQuality: "good" },
+  ];
+
+  const cards = selectDashboardMetricCards({
+    session: { id: "completed-session" },
+    samples,
+    isActive: false,
+  });
+  const attention = cards.find((card) => card.id === "attention");
+  const valence = cards.find((card) => card.id === "valence");
+
+  assert.equal(attention.currentValue, 30);
+  assert.equal(attention.trend, "increasing");
+  assert.equal(valence.trend, "stable");
+});
+
+test("session trend thresholds have one exported source of truth", () => {
+  assert.deepEqual(DEFAULT_METRIC_TREND_THRESHOLDS, {
+    attention: 5,
+    fatigue: 5,
+    valence: 0.05,
+    arousal: 0.05,
+  });
+
+  const statistics = calculateSessionStatistics([
+    { id: "s1-1", sessionId: "s1", recordedAt: "2026-01-01T00:00:00.000Z", intervalStartedAt: "2026-01-01T00:00:00.000Z", intervalEndedAt: "2026-01-01T00:00:05.000Z", elapsedMs: 5000, attention: 10, fatigue: 10, valence: 0, arousal: 0, emotionConfidence: null, dataQuality: "good" },
+    { id: "s1-2", sessionId: "s1", recordedAt: "2026-01-01T00:00:10.000Z", intervalStartedAt: "2026-01-01T00:00:10.000Z", intervalEndedAt: "2026-01-01T00:00:15.000Z", elapsedMs: 15000, attention: 13, fatigue: 13, valence: 0.04, arousal: 0.04, emotionConfidence: null, dataQuality: "good" },
+    { id: "s1-3", sessionId: "s1", recordedAt: "2026-01-01T00:00:20.000Z", intervalStartedAt: "2026-01-01T00:00:20.000Z", intervalEndedAt: "2026-01-01T00:00:25.000Z", elapsedMs: 25000, attention: 14, fatigue: 14, valence: 0.04, arousal: 0.04, emotionConfidence: null, dataQuality: "good" },
+  ], { id: "s1" });
+
+  assert.equal(statistics.attention.trend, "stable");
+  assert.equal(statistics.valence.trend, "stable");
 });
 
 test("summary generation becomes cautious when coverage is insufficient", () => {

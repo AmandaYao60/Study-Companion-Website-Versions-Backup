@@ -331,10 +331,13 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   const setIsDebugMode = useCallback((nextValue) => {
-    const resolvedValue = Boolean(nextValue);
+    const resolvedValue = Boolean(
+      typeof nextValue === "function" ? nextValue(debugModeRef.current) : nextValue
+    );
     if (!resolvedValue) {
       setDebugMetricOverrides(createDefaultDebugMetricOverrides());
     }
+    debugModeRef.current = resolvedValue;
     setIsDebugModeState(resolvedValue);
   }, []);
 
@@ -491,11 +494,18 @@ export const AppProvider = ({ children }) => {
     smoothedValenceRef.current = nextValence;
     smoothedArousalRef.current = nextArousal;
 
+    const topEmotionProbability = Number.isFinite(result.topEmotionProbability) &&
+      result.topEmotionProbability >= 0 &&
+      result.topEmotionProbability <= 1
+      ? result.topEmotionProbability
+      : null;
+
     setAffectState({
       valence: nextValence,
       arousal: nextArousal,
       emotion: typeof result.emotion === "string" ? result.emotion : null,
-      confidence: Number.isFinite(result.confidence) ? result.confidence : null,
+      // Backward-compatible name: top softmax probability, not calibrated model confidence.
+      confidence: topEmotionProbability,
       valid: true,
       source: result.source ?? "browser-onnx",
       updatedAt: Date.now(),

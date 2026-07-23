@@ -1,4 +1,4 @@
-import { SESSION_STATUS } from "./sessionConstants.js";
+import { DEFAULT_METRIC_TREND_THRESHOLDS, SESSION_STATUS } from "./sessionConstants.js";
 import { calculateMetricStatistics, calculateSessionStatistics } from "./sessionStatistics.js";
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -116,15 +116,16 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
     }));
   }
   
+  const chronologicalSamples = sortSamplesChronologically(samples);
   const chronologicalLiveMetrics = sortSamplesChronologically(liveMetrics);
-  const latest = samples[samples.length - 1] || {};
+  const latest = chronologicalSamples[chronologicalSamples.length - 1] || {};
   const latestLive = chronologicalLiveMetrics[chronologicalLiveMetrics.length - 1] || null;
-  const statistics = getStatistics(session, samples);
+  const statistics = getStatistics(session, chronologicalSamples);
 
   return metricDefinitions.map((definition) => {
     const metricStats = isActive 
-      ? calculateMetricStatistics(liveMetrics.map((row) => row[definition.id]), {
-        meaningfulTrendChange: definition.id === "valence" || definition.id === "arousal" ? 0.05 : 5,
+      ? calculateMetricStatistics(chronologicalLiveMetrics.map((row) => row[definition.id]), {
+        meaningfulTrendChange: DEFAULT_METRIC_TREND_THRESHOLDS[definition.id],
       })
       : statistics?.[definition.id] || {};
     const currentValue = isActive
