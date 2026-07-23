@@ -1281,36 +1281,6 @@ export const AppProvider = ({ children }) => {
     return active;
   }, [addLog, clearCameraStream, resetTransientInferenceState, syncSessionState]);
 
-  const resumeSessionWithoutCamera = useCallback(async () => {
-    const active = activeSessionRef.current;
-    if (!active || active.status !== SESSION_STATUS.PAUSED) return null;
-
-    const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
-      ? Math.max(0, active.accumulatedStudyMs)
-      : getSessionElapsedMs();
-
-    return runResumeTransition(async () => {
-      setIsMonitoring(false);
-      monitoringRef.current = false;
-      clearCameraStream();
-      resetTransientInferenceState();
-
-      const session = await sessionRuntimeRef.current.resumeSession();
-      startSessionClockFromElapsed(elapsedMs);
-      sessionClockRef.current = {
-        accumulatedMs: elapsedMs,
-        runningSince: Date.now(),
-        isRunning: true,
-      };
-      setIsMonitoring(false);
-      monitoringRef.current = false;
-      setRecoveryPromptDismissedSessionId(null);
-      syncSessionState();
-      addLog("Study session continued without webcam or Monitoring.", "success");
-      return session;
-    });
-  }, [addLog, clearCameraStream, getSessionElapsedMs, resetTransientInferenceState, runResumeTransition, startSessionClockFromElapsed, syncSessionState]);
-
   const finishSession = useCallback(async () => {
     if (!activeSessionRef.current) return null;
 
@@ -1540,7 +1510,6 @@ export const AppProvider = ({ children }) => {
         startSession,
         pauseSession,
         resumeSession,
-        resumeSessionWithoutCamera,
         returnToRecoveredSession,
         finishSession,
         discardSession,

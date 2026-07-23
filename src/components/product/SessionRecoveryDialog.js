@@ -129,7 +129,7 @@ export default function SessionRecoveryDialog() {
         </dl>
 
         <p className="mt-4 text-xs leading-relaxed text-slate-400">
-          Returning keeps the session paused. Choose whether to continue without the webcam or enable the camera from the normal Study Space controls.
+          Returning keeps the session paused. Use Resume Session or Enable Camera to grant camera access before continuing.
         </p>
 
         {confirmDiscard && (

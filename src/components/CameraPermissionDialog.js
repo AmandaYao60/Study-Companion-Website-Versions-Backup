@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useAppState } from "../context/AppContext";
 
 export default function CameraPermissionDialog() {
@@ -15,19 +15,30 @@ export default function CameraPermissionDialog() {
   } = useAppState();
   const [isInitializing, setIsInitializing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const requestInFlightRef = useRef(false);
 
   if (!showCameraDialog) return null;
 
   const handleRequestAccess = async () => {
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
     setIsInitializing(true);
     setErrorMsg("");
+    let cameraStarted = false;
     try {
       await startCamera();
+      cameraStarted = true;
       await activatePreparedSession();
       setShowCameraDialog(false);
     } catch {
+      if (cameraStarted) {
+        await stopCamera({ pauseActiveSession: false }).catch((error) => {
+          console.error("Failed to stop camera after session activation failed:", error);
+        });
+      }
       setErrorMsg("Could not access camera. Please ensure permissions are granted and no other app is using it.");
     } finally {
+      requestInFlightRef.current = false;
       setIsInitializing(false);
     }
   };
@@ -70,7 +81,8 @@ export default function CameraPermissionDialog() {
         <div className="mt-6 flex gap-3">
           <button
             onClick={handleCancel}
-            className="flex-1 rounded-xl border border-white/10 bg-slate-900 py-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-800"
+            disabled={isInitializing}
+            className="flex-1 rounded-xl border border-white/10 bg-slate-900 py-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
           >
             Cancel
           </button>
