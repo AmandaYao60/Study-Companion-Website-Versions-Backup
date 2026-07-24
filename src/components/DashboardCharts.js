@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAppState } from "../context/AppContext";
 import {
@@ -14,20 +14,28 @@ import EmotionalEngagementChart from "./dashboard/EmotionalEngagementChart";
 import LongTermTrendsPlaceholder from "./dashboard/LongTermTrendsPlaceholder";
 import MetricStreamTable from "./dashboard/MetricStreamTable";
 import SessionHistoryList from "./dashboard/SessionHistoryList";
+import SessionHistoryModal from "./dashboard/SessionHistoryModal";
 import SessionSelfReportPanel from "./dashboard/SessionSelfReportPanel";
 import SessionSummaryPanel from "./dashboard/SessionSummaryPanel";
 
 export default function DashboardCharts() {
   const {
     activeSession,
+    activeSessionSamples,
+    attention,
+    fatigue,
+    affectState,
     completedSessions,
     getSessionById,
     getMetricSamples,
   } = useAppState();
 
-  const [requestedSessionId, setRequestedSessionId] = useState(null);
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [selectedSamples, setSelectedSamples] = useState([]);
+  const [completedSourceSession, setCompletedSourceSession] = useState(null);
+  const [completedSourceSamples, setCompletedSourceSamples] = useState([]);
+  const [historyModalSessionId, setHistoryModalSessionId] = useState(null);
+  const [historyModalSession, setHistoryModalSession] = useState(null);
+  const [historyModalSamples, setHistoryModalSamples] = useState([]);
+  const [isHistoryModalLoading, setIsHistoryModalLoading] = useState(false);
 
   const source = useMemo(() => (
     selectDashboardSessionSource({ activeSession, completedSessions })
@@ -37,39 +45,102 @@ export default function DashboardCharts() {
     selectSessionHistoryRows(completedSessions)
   ), [completedSessions]);
 
-  const latestSessionId = source.session?.id || null;
-  const selectedSessionId = completedSessions.some((session) => session.id === requestedSessionId)
-    ? requestedSessionId
-    : latestSessionId;
+  const latestCompletedSessionId = source.kind === "latest-completed" ? source.session?.id || null : null;
 
   useEffect(() => {
-    if (!selectedSessionId) return undefined;
+    if (!latestCompletedSessionId) return undefined;
 
     let cancelled = false;
     Promise.all([
-      getSessionById(selectedSessionId),
-      getMetricSamples(selectedSessionId),
+      getSessionById(latestCompletedSessionId),
+      getMetricSamples(latestCompletedSessionId),
     ])
       .then(([session, samples]) => {
         if (cancelled) return;
-        setSelectedSession(session);
-        setSelectedSamples(samples);
+        setCompletedSourceSession(session);
+        setCompletedSourceSamples(samples);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load dashboard session source:", error);
+        setCompletedSourceSession(null);
+        setCompletedSourceSamples([]);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedSessionId, getSessionById, getMetricSamples]);
+  }, [latestCompletedSessionId, getSessionById, getMetricSamples]);
 
-  const sessionForPanels = selectedSession?.id === selectedSessionId
-    ? selectedSession
-    : completedSessions.find((session) => session.id === selectedSessionId) || null;
-  const sourceSamples = selectedSession?.id === selectedSessionId ? selectedSamples : [];
+  useEffect(() => {
+    if (!historyModalSessionId) return undefined;
+
+    let cancelled = false;
+    Promise.all([
+      getSessionById(historyModalSessionId),
+      getMetricSamples(historyModalSessionId),
+    ])
+      .then(([session, samples]) => {
+        if (cancelled) return;
+        setHistoryModalSession(session);
+        setHistoryModalSamples(samples);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load historical session:", error);
+        setHistoryModalSession(null);
+        setHistoryModalSamples([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsHistoryModalLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [historyModalSessionId, getSessionById, getMetricSamples]);
+
+  const closeHistoryModal = useCallback(() => {
+    setHistoryModalSessionId(null);
+    setHistoryModalSession(null);
+    setHistoryModalSamples([]);
+    setIsHistoryModalLoading(false);
+  }, []);
+
+  const openHistoryModal = useCallback((sessionId) => {
+    setHistoryModalSessionId(sessionId);
+    setHistoryModalSession(null);
+    setHistoryModalSamples([]);
+    setIsHistoryModalLoading(true);
+  }, []);
+
+  const isCurrentSessionSource = source.kind === "active" || source.kind === "paused";
+  const sessionForPanels = isCurrentSessionSource
+    ? activeSession
+    : completedSourceSession?.id === latestCompletedSessionId
+      ? completedSourceSession
+      : source.session;
+  const sourceSamples = isCurrentSessionSource ? activeSessionSamples : completedSourceSamples;
+  const currentMetrics = source.kind === "active"
+    ? {
+      attention,
+      fatigue,
+      valence: affectState.valid ? affectState.valence : null,
+      arousal: affectState.valid ? affectState.arousal : null,
+    }
+    : null;
+  const chartMode = source.kind === "active" ? "live" : "historical";
+  const emotionalViewState = source.kind === "active"
+    ? "active"
+    : source.kind === "paused"
+      ? "paused"
+      : "end";
 
   const metricCards = selectDashboardMetricCards({
     session: sessionForPanels,
     samples: sourceSamples,
-    isActive: false,
+    currentMetrics,
+    isActive: source.kind === "active",
   });
 
   return (
@@ -89,16 +160,16 @@ export default function DashboardCharts() {
           <DashboardMetricCards cards={metricCards} />
 
           <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
-            <BehavioralEngagementChart samples={sourceSamples} mode="historical" />
+            <BehavioralEngagementChart samples={sourceSamples} mode={chartMode} />
             <EmotionalEngagementChart
               samples={sourceSamples}
-              mode="historical"
-              viewState="end"
+              mode={chartMode}
+              viewState={emotionalViewState}
               allowExpandedAnalysis
             />
           </div>
 
-          <MetricStreamTable rows={sourceSamples} mode="historical" />
+          <MetricStreamTable rows={sourceSamples} mode={chartMode} />
 
           <SessionSummaryPanel session={sessionForPanels} sourceLabel={source.label} />
 
@@ -106,7 +177,14 @@ export default function DashboardCharts() {
         </>
       )}
 
-      <SessionHistoryList rows={historyRows} selectedSessionId={selectedSessionId} onSelectSession={setRequestedSessionId} />
+      <SessionHistoryList rows={historyRows} onSelectSession={openHistoryModal} />
+
+      <SessionHistoryModal
+        session={historyModalSession}
+        samples={historyModalSamples}
+        isLoading={isHistoryModalLoading}
+        onClose={closeHistoryModal}
+      />
 
       <LongTermTrendsPlaceholder />
     </div>

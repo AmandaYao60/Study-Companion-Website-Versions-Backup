@@ -14,7 +14,7 @@ const timestampMs = (value) => {
 };
 const newestTime = (session) => Math.max(timestampMs(session.endedAt), timestampMs(session.updatedAt), timestampMs(session.startedAt));
 const sampleTime = (sample) => timestampMs(sample.intervalStartedAt || sample.recordedAt);
-const sortSamplesChronologically = (samples = []) => [...samples].sort((a, b) => {
+export const sortSamplesChronologically = (samples = []) => [...samples].sort((a, b) => {
   const timeDiff = sampleTime(a) - sampleTime(b);
   if (timeDiff !== 0) return timeDiff;
   return String(a.id || "").localeCompare(String(b.id || ""));
@@ -124,14 +124,50 @@ const metricDefinitions = Object.freeze([
 
 const getStatistics = (session, samples) => session?.statistics || calculateSessionStatistics(samples, session || {});
 
-/** Select the historical dashboard source in priority order: latest completed session, empty state. @param {Object} input */
+/** Select the main dashboard source without conflating it with historical modal selection. @param {Object} input */
 export const selectDashboardSessionSource = ({ activeSession = null, completedSessions = [] } = {}) => {
-  const latestCompleted = selectLatestCompletedSession(completedSessions);
-  if (latestCompleted) {
-    return { kind: "completed", label: "Session Complete", session: latestCompleted };
+  if (activeSession?.status === SESSION_STATUS.ACTIVE) {
+    return {
+      kind: "active",
+      label: "Live Current Session",
+      session: activeSession,
+      isCurrentSession: true,
+      isActive: true,
+      isPaused: false,
+    };
   }
 
-  return { kind: "empty", label: activeSession ? "No Completed Sessions" : "No Session Data", session: null };
+  if (activeSession?.status === SESSION_STATUS.PAUSED) {
+    return {
+      kind: "paused",
+      label: "Paused Current Session",
+      session: activeSession,
+      isCurrentSession: true,
+      isActive: false,
+      isPaused: true,
+    };
+  }
+
+  const latestCompleted = selectLatestCompletedSession(completedSessions);
+  if (latestCompleted) {
+    return {
+      kind: "latest-completed",
+      label: "Latest Completed Session",
+      session: latestCompleted,
+      isCurrentSession: false,
+      isActive: false,
+      isPaused: false,
+    };
+  }
+
+  return {
+    kind: "empty",
+    label: "No Session Data",
+    session: null,
+    isCurrentSession: false,
+    isActive: false,
+    isPaused: false,
+  };
 };
 
 export const selectSessionContext = (session = null) => {
@@ -158,7 +194,7 @@ export const selectFormattedStrategies = (session = null) => {
 };
 
 /** Return dashboard metric card models without exposing repository or statistics details to components. @param {Object} input */
-export const selectDashboardMetricCards = ({ session = null, samples = [], currentMetrics = null, liveMetrics = [], isActive = false } = {}) => {
+export const selectDashboardMetricCards = ({ session = null, samples = [], currentMetrics = null, isActive = false } = {}) => {
   if (!session) {
     return metricDefinitions.map((definition) => ({
       ...definition,
@@ -171,19 +207,16 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
   }
   
   const chronologicalSamples = sortSamplesChronologically(samples);
-  const chronologicalLiveMetrics = sortSamplesChronologically(liveMetrics);
   const latest = chronologicalSamples[chronologicalSamples.length - 1] || {};
-  const latestLive = chronologicalLiveMetrics[chronologicalLiveMetrics.length - 1] || null;
   const statistics = getStatistics(session, chronologicalSamples);
 
   return metricDefinitions.map((definition) => {
-    const metricStats = isActive 
-      ? calculateMetricStatistics(chronologicalLiveMetrics.map((row) => row[definition.id]), {
-        meaningfulTrendChange: DEFAULT_METRIC_TREND_THRESHOLDS[definition.id],
-      })
-      : statistics?.[definition.id] || {};
+    const metricStats = statistics?.[definition.id] || calculateMetricStatistics(
+      chronologicalSamples.map((row) => row[definition.id]),
+      { meaningfulTrendChange: DEFAULT_METRIC_TREND_THRESHOLDS[definition.id] }
+    );
     const currentValue = isActive
-      ? currentMetrics?.[definition.id] ?? latestLive?.[definition.id] ?? null
+      ? currentMetrics?.[definition.id] ?? latest[definition.id] ?? null
       : latest[definition.id] ?? metricStats.mean ?? null;
 
     return {
@@ -192,7 +225,7 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
       averageValue: metricStats.mean ?? null,
       trend: metricStats.trend || "insufficient",
       status: metricStats.validCount > 0 ? metricStats.trend || "available" : "Unavailable",
-      dataQuality: isActive ? latestLive?.dataQuality ?? null : latest.dataQuality ?? null,
+      dataQuality: latest.dataQuality ?? null,
     };
   });
 };

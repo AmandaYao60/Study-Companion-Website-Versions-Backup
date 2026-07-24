@@ -288,6 +288,7 @@ export const createSessionRuntime = (options = {}) => {
     async pauseSession(accumulatedStudyMs = 0) {
       if (!activeSession) return null;
       if (activeSession.status === SESSION_STATUS.PREPARED) return clone(activeSession);
+      await flushPendingObservations({ force: true });
       const checkpointedAt = now();
       activeSession = await queueTimingWrite(async () => repository.updateSession(activeSession.id, {
         status: SESSION_STATUS.PAUSED,

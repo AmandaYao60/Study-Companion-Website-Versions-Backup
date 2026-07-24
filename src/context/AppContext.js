@@ -181,8 +181,7 @@ export const AppProvider = ({ children }) => {
   const latestAttentionRef = useRef(85);
   const latestFatigueRef = useRef(15);
   const debugModeRef = useRef(false);
-  const lastLiveMetricAtRef = useRef(0);
-  const liveMetricSequenceRef = useRef(0);
+  const sensitiveDebugPreviewRef = useRef(false);
 
   // Affect smoothing state
   const smoothedValenceRef = useRef(null);
@@ -219,10 +218,6 @@ export const AppProvider = ({ children }) => {
 
   // Event Log (for Debug Mode Console)
   const [eventLog, setEventLog] = useState([]);
-
-  // Historical data for charts (stores live points only; no random seed data)
-  const [metricsHistory, setMetricsHistory] = useState([]);
-  const [activeSessionLiveMetrics, setActiveSessionLiveMetrics] = useState([]);
 
   const [sessionRuntimeBundle] = useState(() => {
     const repository = createIndexedDbSessionRepository();
@@ -285,6 +280,10 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     aiLoadedRef.current = isAiLoaded;
   }, [isAiLoaded]);
+
+  useEffect(() => {
+    sensitiveDebugPreviewRef.current = isSensitiveDebugPreviewEnabled;
+  }, [isSensitiveDebugPreviewEnabled]);
 
   const getSessionElapsedMs = useCallback(() => {
     const clock = sessionClockRef.current;
@@ -412,7 +411,12 @@ export const AppProvider = ({ children }) => {
 
   const setSensitiveDebugPreviewEnabled = useCallback((enabled) => {
     if (!debugModeRef.current && enabled) return;
-    setIsSensitiveDebugPreviewEnabledState(Boolean(enabled));
+    const resolvedValue = Boolean(enabled);
+    sensitiveDebugPreviewRef.current = resolvedValue;
+    setIsSensitiveDebugPreviewEnabledState(resolvedValue);
+    if (!resolvedValue) {
+      setRawLandmarksHistory([]);
+    }
   }, []);
 
   const setIsDebugMode = useCallback((nextValue) => {
@@ -422,6 +426,9 @@ export const AppProvider = ({ children }) => {
     if (!resolvedValue) {
       setDebugMetricOverrides(createDefaultDebugMetricOverrides());
       setDebugSimulation(createDefaultDebugSimulationState());
+      setTelemetryTable([]);
+      setRawLandmarksHistory([]);
+      sensitiveDebugPreviewRef.current = false;
       setIsSensitiveDebugPreviewEnabledState(false);
     }
     debugModeRef.current = resolvedValue;
@@ -553,7 +560,6 @@ export const AppProvider = ({ children }) => {
   }, [attention, debugMetricOverrides, fatigue, isDebugMode]);
 
   const debugLiveMetrics = useMemo(() => {
-    const latestLiveMetric = activeSessionLiveMetrics[activeSessionLiveMetrics.length - 1] || null;
     const latestSample = activeSessionSamples[activeSessionSamples.length - 1] || null;
     const hasEstimatorSnapshot = Boolean(debugDiagnosticSnapshot.updatedAt);
 
@@ -566,11 +572,11 @@ export const AppProvider = ({ children }) => {
       emotionConfidence: affectState.valid ? affectState.confidence : null,
       faceDetected: hasDetectedFace,
       handDetected: hasDetectedHand,
-      dataQuality: latestLiveMetric?.dataQuality || "insufficient",
-      latestObservationAt: hasEstimatorSnapshot ? debugDiagnosticSnapshot.updatedAt : latestLiveMetric?.recordedAt || null,
+      dataQuality: latestSample?.dataQuality || debugDiagnosticSnapshot.aggregation?.dataQuality || "insufficient",
+      latestObservationAt: hasEstimatorSnapshot ? debugDiagnosticSnapshot.updatedAt : null,
       latestSampleAt: latestSample?.intervalEndedAt || latestSample?.recordedAt || null,
     };
-  }, [activeSessionLiveMetrics, activeSessionSamples, affectState, debugDiagnosticSnapshot, hasDetectedFace, hasDetectedHand]);
+  }, [activeSessionSamples, affectState, debugDiagnosticSnapshot, hasDetectedFace, hasDetectedHand]);
 
   const debugDisplayMetrics = useMemo(() => (
     selectDebugDisplayMetrics(debugLiveMetrics, isDebugMode ? debugSimulation : null)
@@ -763,26 +769,6 @@ export const AppProvider = ({ children }) => {
       affectValid: Boolean(currentAffect.valid),
       dataValid,
     };
-
-    if (timestamp - lastLiveMetricAtRef.current >= ESTIMATOR_INTERVAL_MS) {
-      lastLiveMetricAtRef.current = timestamp;
-      liveMetricSequenceRef.current += 1;
-      setActiveSessionLiveMetrics((previous) => [
-        ...previous,
-        {
-          id: `${active.id}-live-${liveMetricSequenceRef.current}`,
-          recordedAt,
-          elapsedMs: observation.elapsedMs,
-          attention: observation.attention,
-          fatigue: observation.fatigue,
-          valence: observation.valence,
-          arousal: observation.arousal,
-          emotion: observation.emotion,
-          emotionConfidence: observation.emotionConfidence,
-          dataQuality: dataValid ? "good" : faceDetected ? "partial" : "insufficient",
-        },
-      ]);
-    }
 
     void sessionRuntimeRef.current.appendObservation(observation)
       .then((samples) => {
@@ -1233,28 +1219,31 @@ export const AppProvider = ({ children }) => {
       });
     }
 
-    const tableRow = {
-      id: timestamp,
-      time: timeStr,
-      eyeOpenness: currentEyeOpenness,
-      blink: isBlinkDetected ? "Yes" : "No",
-      longClosure: isLongClosureDetected ? "Yes" : "No",
-      yaw: yawValue,
-      pitch: pitchValue,
-      gesture: activeG,
-      hands: handsCount
-    };
     recordSessionObservation(timestamp, faceDetected);
 
-    if (isMonitoring) {
+    if (debugModeRef.current && isMonitoring) {
+      const tableRow = {
+        id: timestamp,
+        time: timeStr,
+        eyeOpenness: currentEyeOpenness,
+        blink: isBlinkDetected ? "Yes" : "No",
+        longClosure: isLongClosureDetected ? "Yes" : "No",
+        yaw: yawValue,
+        pitch: pitchValue,
+        gesture: activeG,
+        hands: handsCount
+      };
       setTelemetryTable((prev) => [tableRow, ...prev.slice(0, 49)]);
+    }
+
+    if (debugModeRef.current && sensitiveDebugPreviewRef.current && isMonitoring) {
       setRawLandmarksHistory((prev) => [frameLandmarks, ...prev.slice(0, 49)]);
     }
   }, [isMonitoring, inferenceFps, addLog, recordSessionObservation]);
 
   const exportTelemetryCSV = () => {
     if (rawLandmarksHistory.length === 0) {
-      alert("No raw landmarks recorded yet. Start camera monitoring to capture data.");
+      alert("No raw landmarks captured yet. Enable Debug Mode, open Advanced / Sensitive Data, and show the temporary face crop before exporting.");
       return;
     }
 
@@ -1302,6 +1291,7 @@ export const AppProvider = ({ children }) => {
     setHasDetectedHand(false);
     setRuntimeStatus("idle");
     setDebugDiagnosticSnapshot(createDefaultDiagnosticSnapshot());
+    setRawLandmarksHistory([]);
   }, [resetAffectState]);
 
   const prepareSession = useCallback(async ({
@@ -1324,9 +1314,6 @@ export const AppProvider = ({ children }) => {
     resetSessionClock();
     resetEstimatorSession(SESSION_START_BASELINE.attention, SESSION_START_BASELINE.fatigue);
 
-    setActiveSessionLiveMetrics([]);
-    lastLiveMetricAtRef.current = 0;
-    liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -1508,8 +1495,6 @@ export const AppProvider = ({ children }) => {
     clearCameraStream();
     resetTransientInferenceState();
     resetSessionClock();
-    setMetricsHistory([]);
-    setActiveSessionLiveMetrics([]);
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -1527,10 +1512,6 @@ export const AppProvider = ({ children }) => {
     resetTransientInferenceState();
     const discarded = await sessionRuntimeRef.current.discardSession();
     resetSessionClock();
-    setMetricsHistory([]);
-    setActiveSessionLiveMetrics([]);
-    lastLiveMetricAtRef.current = 0;
-    liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -1711,16 +1692,13 @@ export const AppProvider = ({ children }) => {
     setFatigue(10);
     clearAllDebugMetricOverrides();
     resetDebugSimulation();
+    sensitiveDebugPreviewRef.current = false;
     setIsSensitiveDebugPreviewEnabledState(false);
     setYawnCount(0);
     setBlinkRate(12);
     setEyeOpenness(1.0);
     setHeadPose({ yaw: 0, pitch: 0, roll: 0 });
     setCurrentGesture("None");
-    setMetricsHistory([]);
-    setActiveSessionLiveMetrics([]);
-    lastLiveMetricAtRef.current = 0;
-    liveMetricSequenceRef.current = 0;
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -1811,8 +1789,6 @@ export const AppProvider = ({ children }) => {
         eventLog,
         addLog,
         clearEventLog,
-        metricsHistory,
-        activeSessionLiveMetrics,
         isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
           recoveryPromptDismissedSessionId !== activeSession.id,
         
@@ -1825,9 +1801,7 @@ export const AppProvider = ({ children }) => {
         faceLandmarkerStatus,
         gestureRecognizerStatus,
         telemetryTable,
-        setTelemetryTable,
         rawLandmarksHistory,
-        setRawLandmarksHistory,
         eyeOpenness,
         setEyeOpenness,
         hasDetectedFace,

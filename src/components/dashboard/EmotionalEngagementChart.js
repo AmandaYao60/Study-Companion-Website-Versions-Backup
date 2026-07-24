@@ -24,6 +24,7 @@ const trajectoryPath = (points) => points.map((point, index) => `${index === 0 ?
 const formatProbability = (value) => isFiniteNumber(value) ? `${Math.round(value * 100)}%` : null;
 const chartModeLabel = (viewState, mode) => {
   if (viewState === "active" || mode === "live") return "Live";
+  if (viewState === "paused") return "Paused";
   if (viewState === "end") return "End Session";
   return "Historical";
 };
@@ -276,7 +277,7 @@ export default function EmotionalEngagementChart({
   const distribution = useMemo(() => selectExpressionIntervalDistribution(samples), [samples]);
   const closeExpandedDialog = useCallback(() => setIsExpanded(false), []);
   const resolvedViewState = viewState || (mode === "live" ? "active" : "historical");
-  const canExpand = allowExpandedAnalysis && (resolvedViewState === "active" || resolvedViewState === "end");
+  const canExpand = allowExpandedAnalysis && ["active", "paused", "end"].includes(resolvedViewState);
 
   return (
     <section className="flex h-full flex-col rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-2xl backdrop-blur-xl">

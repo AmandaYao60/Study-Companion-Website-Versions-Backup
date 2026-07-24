@@ -68,7 +68,7 @@ Consequences or trade-offs: CSV export is more useful, but downstream consumers 
 
 ## Two Visible Hands Are Only a Weak Possible Distraction Signal
 
-Decision: Sustained two-hand activity logs a warning and slightly reduces focus after 10 frames.
+Decision: Sustained two-hand activity logs a warning and slightly reduces attention after 10 frames.
 
 Rationale: This is a tentative product heuristic for possible distraction or non-study movement.
 
@@ -132,7 +132,7 @@ Decision: Face-crop preview and raw landmark CSV export live inside a collapsed 
 
 Rationale: Crops and landmark coordinates are sensitive biometric-derived developer artifacts even when they remain local and memory-only.
 
-Consequences or trade-offs: The preview is off by default, clears when Debug Mode closes, and the CSV export requires confirmation. These tools do not add crop images, landmarks, raw observations, logits, or full probability arrays to event logs, formal samples, session history, or IndexedDB.
+Consequences or trade-offs: The preview is off by default, raw landmarks are captured only while the sensitive preview/capture path is explicitly enabled, the buffer is bounded to approximately 50 recent frames, and the CSV export requires confirmation. These tools do not add crop images, landmarks, raw observations, logits, or full probability arrays to event logs, formal samples, session history, or IndexedDB.
 
 ## VA Charts Do Not Render Discrete Expression Regions
 
@@ -140,7 +140,15 @@ Decision: Emotional Engagement charts render a continuous valence-arousal trajec
 
 Rationale: Valence-arousal coordinates are continuous affect outputs and should not imply that discrete facial expressions can be derived from chart position.
 
-Consequences or trade-offs: Collapsed active/end-session cards and historical reports are static VA overviews. Active and latest completed sessions can open an expanded analysis dialog with point tooltips and an expression-interval distribution based only on stored top-1 classifier labels from valid affect intervals. Historical report modals have no expand action, tooltip, or distribution. No full probability vectors, logits, chart-only records, schema changes, or IndexedDB changes were added.
+Consequences or trade-offs: Collapsed active/end-session cards and historical reports are static VA overviews. Active, paused, and latest completed main Dashboard sessions can open an expanded analysis dialog with point tooltips and an expression-interval distribution based only on stored top-1 classifier labels from valid affect intervals. Historical report modals have no expand action, tooltip, or distribution. No full probability vectors, logits, chart-only records, schema changes, or IndexedDB changes were added.
+
+## Dashboard Uses Formal Samples As Its Chart Time Series
+
+Decision: Active and paused current sessions are the main Dashboard source, the latest completed session is used only when there is no current session, and historical rows open `SessionHistoryModal` without replacing the main Dashboard source.
+
+Rationale: The Dashboard previously had competing notions of selected data. Treating five-second `MetricSample` records as the single chart time series keeps active, paused, completed, and historical-modal views consistent.
+
+Consequences or trade-offs: Active and paused charts use `activeSessionSamples`; completed charts use stored repository samples. Immediate active metric cards may still show current authoritative metric values, but trends and charts use committed samples. Pausing force-flushes useful pending observations into a final partial sample, while empty intervals are discarded. The old duplicate one-second live-history state is removed.
 
 ## Session Check-In And Reflection Extend The Session Record
 

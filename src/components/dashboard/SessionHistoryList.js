@@ -10,7 +10,7 @@ const contextLabel = (row) => {
   return null;
 };
 
-export default function SessionHistoryList({ rows = [], selectedSessionId = null, onSelectSession }) {
+export default function SessionHistoryList({ rows = [], onSelectSession }) {
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-2xl backdrop-blur-xl">
       <div className="mb-4">
@@ -37,13 +37,13 @@ export default function SessionHistoryList({ rows = [], selectedSessionId = null
                 key={row.id}
                 type="button"
                 onClick={() => onSelectSession(row.id)}
-                className={`group grid w-full grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 px-4 py-3 text-left text-xs text-slate-300 transition-all hover:bg-cyan-400/[0.08] focus:bg-cyan-400/[0.1] focus:outline-none focus:ring-2 focus:ring-cyan-400/40 ${selectedSessionId === row.id ? "bg-cyan-400/[0.08]" : ""}`}
+                className="group grid w-full grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 px-4 py-3 text-left text-xs text-slate-300 transition-all hover:bg-cyan-400/[0.08] focus:bg-cyan-400/[0.1] focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
               >
                 <span>{formatDateTime(row.dateTime)}</span>
                 <span className="font-semibold text-slate-100">{formatTask(row.taskDescription)}</span>
                 <span>{contextLabel(row) || "Not provided"}</span>
                 <span>{formatTargetDuration(row.targetDurationMs)} / {formatDuration(row.actualDurationMs)}</span>
-                <span className="text-right text-cyan-300 opacity-80 transition-all group-hover:opacity-100">{selectedSessionId === row.id ? "Selected" : "Select"} &gt;</span>
+                <span className="text-right text-cyan-300 opacity-80 transition-all group-hover:opacity-100">View &gt;</span>
               </button>
             ))}
           </div>

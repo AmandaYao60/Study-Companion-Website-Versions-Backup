@@ -81,12 +81,15 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 
 ### DashboardCharts
 
-`src/components/DashboardCharts.js` renders dashboard visuals with inline SVG:
+`src/components/DashboardCharts.js` renders dashboard visuals with inline SVG and keeps the main dashboard source separate from the selected historical-modal session:
 
 - Metric cards for attention, fatigue, valence, and affect arousal.
-- Behavioral and emotional trend charts based on active live metrics or completed session samples. Emotional Engagement uses a continuous valence-arousal plot without discrete emotion regions.
-- An expanded Emotional Engagement analysis dialog for active sessions and the latest completed session. The dialog shows the enlarged VA trajectory plus an expression-interval distribution computed from stored top-1 classifier labels.
-- Session summary, metric stream, and completed-history detail views.
+- Behavioral and emotional trend charts based on formal five-second `MetricSample` records.
+- Active and paused current sessions use `activeSessionSamples`; completed-session analysis uses samples loaded through the repository.
+- An expanded Emotional Engagement analysis dialog for active, paused, and latest completed sessions. The dialog shows the enlarged VA trajectory plus an expression-interval distribution computed from stored top-1 classifier labels.
+- Session summary, metric stream, and completed-history rows.
+
+`src/services/session/sessionSelectors.js` owns chart selectors, latest-session selection, metric cards, and session-history rows. The Dashboard source order is current active session, current paused session, latest completed session, then empty state. Historical table rows open `SessionHistoryModal` and do not replace the main Dashboard source. The historical modal keeps Emotional Engagement static with no expanded analysis, point tooltip, or expression distribution.
 
 ## AppContext Responsibilities
 
@@ -99,8 +102,8 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 - Browser affect state: valence, affect arousal, discrete emotion, and top softmax probability stored as `emotionConfidence`.
 - CV telemetry: blink rate, yawn count, head pose, current gesture, measured processing FPS, and MediaPipe inference latency.
 - Developer diagnostics state: read-only live debug metrics, memory-only diagnostic snapshots, memory-only simulated display metrics, camera/model statuses, checkpoint write status, sensitive preview visibility, and a bounded sanitized event log.
-- Metrics history for charts.
-- Telemetry table and raw landmark history.
+- Formal active-session samples for charts.
+- Debug-only telemetry table and opt-in sensitive raw landmark history.
 - Camera start/stop lifecycle.
 - Monitoring toggle lifecycle.
 - Metric reset.
@@ -142,7 +145,11 @@ This separation is intentional: no-face state is a React UI message, not simulat
 
 ## Dashboard and Telemetry Flow
 
-`updateAiMetrics()` creates rows for `telemetryTable` and entries for `rawLandmarksHistory`. It also updates a read-only diagnostic snapshot at about one-second cadence from already-computed estimator intermediates such as face coverage, forward-pose score, head-stability score, EAR baseline progress, PERCLOS, blink-rate comparison, hand count, gesture summary, data-quality coverage, and MediaPipe latency. `DebugPanel` can show aggregate counts and exposes the raw landmark CSV only inside the collapsed sensitive-data section with confirmation; it does not display raw coordinate matrices inline. `activeSessionLiveMetrics` is updated on an interval while Monitoring is active, and `DashboardCharts` uses that state plus formal session samples for live and historical views.
+`updateAiMetrics()` updates the lightweight attention/fatigue observation window in refs, bounded to approximately the latest 60 seconds. It also updates a read-only diagnostic snapshot at about one-second cadence from already-computed estimator intermediates such as face coverage, forward-pose score, head-stability score, EAR baseline progress, PERCLOS, blink-rate comparison, hand count, gesture summary, data-quality coverage, and MediaPipe latency.
+
+Formal `MetricSample` records are the only Dashboard chart time series. `recordSessionObservation()` appends short-lived `MetricObservation` values into the session runtime, where they are aggregated into approximately five-second samples and persisted through the repository. Pausing an active session force-flushes useful pending observations into a final partial sample before the paused Dashboard renders. Empty or useless pending intervals are discarded rather than fabricated into samples.
+
+The Debug Panel can show a bounded telemetry table only while Debug Mode is active. Raw landmark history is captured only when Debug Mode and the explicit sensitive preview/capture path are enabled; it is memory-only, capped to approximately 50 recent frames, and cleared when sensitive capture is disabled, Debug Mode closes, or reset paths run. `DebugPanel` exposes raw landmark CSV only inside the collapsed sensitive-data section with confirmation; it does not display raw coordinate matrices inline.
 
 ## Privacy Boundaries
 
@@ -159,7 +166,7 @@ This separation is intentional: no-face state is a React UI message, not simulat
 The domain separates four levels of data:
 
 - `MetricObservation`: short-lived inference observations that can be aggregated later. These are not intended for durable storage.
-- `MetricSample`: future interval records, approximately 5 seconds each, containing means for attention, fatigue, valence, and arousal plus data coverage and data-quality metadata.
+- `MetricSample`: formal interval records, approximately 5 seconds each, containing means for attention, fatigue, valence, and arousal plus data coverage and data-quality metadata.
 - `SessionStatistics`: descriptive statistics computed across a completed session's interval samples.
 - `SessionSummary`: structured, replaceable rule-based summary sections generated from session-level statistics.
 
@@ -181,7 +188,7 @@ The reported primary learning activity values are `received_information`, `worke
 
 Completed study-session summaries and formal `MetricSample` records are stored locally in IndexedDB using the `aegismind-session-data` database. Active sessions also update durable timer checkpoints about every five seconds while the study clock is running. This lets completed history and one interrupted active session survive refreshes on the same browser and origin. The storage is local browser persistence only; it is not cloud synchronization, authentication, Supabase, or durable report storage.
 
-Raw video, images, face crops, canvas contents, face landmarks, hand landmarks, raw telemetry rows, raw landmark history, model logits, full emotion probability arrays, debug overrides, MediaPipe model objects, and camera streams are not stored in IndexedDB. Raw telemetry and landmark history remain in React memory unless the user explicitly exports the CSV.
+Raw video, images, face crops, canvas contents, face landmarks, hand landmarks, raw telemetry rows, raw landmark history, model logits, full emotion probability arrays, debug overrides, MediaPipe model objects, and camera streams are not stored in IndexedDB. Debug telemetry remains bounded in React memory while Debug Mode is active. Raw landmark history is additionally gated by the explicit sensitive preview/capture control unless the user exports a CSV.
 
 On startup, an unexpectedly interrupted active session is converted to a paused, recovery-pending session and shown over the normal Study Space in a modal. The recovered elapsed time comes only from the latest durable checkpoint; refresh time and time spent viewing the recovery modal are excluded. Returning from the recovery modal keeps the session paused. Resuming preserves the same session ID but requires the user to grant camera access successfully before the study clock, Monitoring, and data analysis restart.
 
@@ -199,7 +206,7 @@ The simulation controls are deliberately separated from authoritative metrics:
 displayMetrics = simulationEnabled ? simulatedMetrics : liveMetrics
 ```
 
-`liveMetrics` are derived from current AppContext state and session sample timestamps. `simulatedMetrics` are normalized memory-only values for previewing future UI consumers. The current Dashboard, completed history, session statistics, repository writes, checkpoint timing, emotion model, attention estimator, and fatigue estimator continue to use authoritative live data only.
+`liveMetrics` are derived from current AppContext state and committed session sample timestamps. `simulatedMetrics` are normalized memory-only values for previewing future UI consumers. The current Dashboard, completed history, session statistics, repository writes, checkpoint timing, emotion model, attention estimator, and fatigue estimator continue to use authoritative live data only.
 
 The diagnostic event log is bounded to approximately 100 entries, coalesces immediate duplicates, sanitizes copied text, and remains in memory. It must not contain camera frames, face crops, landmarks, raw observations, model logits, full probability arrays, tokens, stack traces, or persisted user data. Diagnostic snapshots, simulation values, crop previews, and sensitive export buffers are excluded from formal samples, statistics, checkpoints, completed history, and IndexedDB.
 
@@ -207,7 +214,7 @@ The diagnostic event log is bounded to approximately 100 entries, coalesces imme
 
 The Emotional Engagement VA chart shows only the continuous valence-arousal coordinate space, axes, trajectory points, start/current-final markers, and mean marker. It no longer renders hardcoded discrete-emotion regions because those regions could imply that expressions are inferred from VA coordinates.
 
-Collapsed active and end-session Emotional Engagement cards are non-interactive overviews: no point hover, no tooltip, and no expression distribution. Active and latest completed sessions can open the expanded analysis dialog. Inside that dialog only, point hover shows interval time, valence, arousal, stored top expression, stored top probability when present, and data quality. The probability is the interval's top softmax probability, not calibrated confidence.
+Collapsed active, paused, and end-session Emotional Engagement cards are non-interactive overviews: no point hover, no tooltip, and no expression distribution. Active, paused, and latest completed main Dashboard sessions can open the expanded analysis dialog. Inside that dialog only, point hover shows interval time, valence, arousal, stored top expression, stored top probability when present, and data quality. The probability is the interval's top softmax probability, not calibrated confidence.
 
 The expression distribution is available only in the expanded active/end-session dialog. It counts each valid classified affect interval once by its stored top-1 expression, excludes invalid, missing, or unclassified affect intervals from the denominator, and does not weight bars by `emotionConfidence` or reconstruct full probability vectors. Historical report modals keep a static VA trajectory and show no expand action, point tooltip, or expression distribution. No schema or full probability-vector persistence was added.
 

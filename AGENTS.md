@@ -18,6 +18,7 @@ Before making changes, future coding agents must:
 - Avoid relying on previous AI conversations, earlier generated reviews, or remembered file versions.
 - Make the smallest necessary change.
 - Avoid unrelated refactoring.
+- Update documentation only when behavior, architecture, data contracts, workflow, or user-facing operation changed.
 - Do not change dependencies or lockfiles unless the task genuinely requires it.
 - Do not introduce a new test framework without approval.
 - Preserve the current `CameraFeed.js` state behavior unless the user explicitly asks to change it.
@@ -25,12 +26,15 @@ Before making changes, future coding agents must:
 - Run `npm run lint`.
 - Run `npm run build`.
 - Run `git diff --check`.
+- Review the final diff for task scope, unrelated changes, and validation-sensitive mistakes.
 - Report every changed file.
 - Report only validation that actually ran.
 - Stage intended files explicitly; never use `git add .` or `git add -A`.
-- When the user requests a commit, create the requested local commit and do not push.
+- For successful code-changing tasks, automatically create one local Conventional Commit after task-related validation passes; do not commit if validation fails.
+- Do not create commits for read-only or no-change tasks.
+- Never push unless the user explicitly requests it.
+- Report the commit SHA, changed files, and validations.
 - Final reports should summarize changes and validation; do not paste the complete `git diff`.
-- Avoid committing unless the user explicitly requests a commit.
 - Do not run `npm audit fix --force`. It currently proposes downgrading
   Next.js from 16.x to 9.3.3.
 

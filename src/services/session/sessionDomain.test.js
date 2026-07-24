@@ -108,21 +108,22 @@ test("statistics ignore null values and trends require enough data", () => {
   assert.equal(increasing.trend, "increasing");
 });
 
-test("dashboard live card trends use chronological live metrics", () => {
-  const liveMetrics = [
-    { id: "late", recordedAt: "2026-01-01T00:00:20.000Z", attention: 30, fatigue: 30, valence: 0.2, arousal: 0.2, dataQuality: "good" },
-    { id: "early", recordedAt: "2026-01-01T00:00:00.000Z", attention: 10, fatigue: 10, valence: 0.1, arousal: 0.1, dataQuality: "partial" },
-    { id: "middle", recordedAt: "2026-01-01T00:00:10.000Z", attention: 20, fatigue: 20, valence: 0.15, arousal: 0.15, dataQuality: "good" },
+test("dashboard live cards use current values but sample-only trends", () => {
+  const samples = [
+    { id: "late", sessionId: "s1", recordedAt: "2026-01-01T00:00:20.000Z", intervalStartedAt: "2026-01-01T00:00:20.000Z", intervalEndedAt: "2026-01-01T00:00:25.000Z", elapsedMs: 25000, attention: 30, fatigue: 30, valence: 0.2, arousal: 0.2, dataQuality: "good" },
+    { id: "early", sessionId: "s1", recordedAt: "2026-01-01T00:00:00.000Z", intervalStartedAt: "2026-01-01T00:00:00.000Z", intervalEndedAt: "2026-01-01T00:00:05.000Z", elapsedMs: 5000, attention: 10, fatigue: 10, valence: 0.1, arousal: 0.1, dataQuality: "partial" },
+    { id: "middle", sessionId: "s1", recordedAt: "2026-01-01T00:00:10.000Z", intervalStartedAt: "2026-01-01T00:00:10.000Z", intervalEndedAt: "2026-01-01T00:00:15.000Z", elapsedMs: 15000, attention: 20, fatigue: 20, valence: 0.15, arousal: 0.15, dataQuality: "good" },
   ];
 
   const cards = selectDashboardMetricCards({
     session: { id: "active-session" },
-    liveMetrics,
+    samples,
+    currentMetrics: { attention: 88, fatigue: 12, valence: 0.4, arousal: 0.1 },
     isActive: true,
   });
   const attention = cards.find((card) => card.id === "attention");
 
-  assert.equal(attention.currentValue, 30);
+  assert.equal(attention.currentValue, 88);
   assert.equal(attention.trend, "increasing");
   assert.equal(attention.dataQuality, "good");
 });
@@ -305,8 +306,23 @@ test("post-session reflection normalization preserves partial answers", () => {
   assert.equal(reflection.nextSessionAdjustment, null);
 });
 
-test("dashboard historical source ignores active sessions and selects latest completed", () => {
-  const active = createStudySession({ id: "active", taskDescription: "Active", startedAt: baseTime, createdAt: baseTime, updatedAt: baseTime }, { now: () => baseTime });
+test("dashboard source prioritizes current sessions before latest completed history", () => {
+  const active = createStudySession({
+    id: "active",
+    taskDescription: "Active",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    status: SESSION_STATUS.ACTIVE,
+  }, { now: () => baseTime });
+  const paused = createStudySession({
+    id: "paused",
+    taskDescription: "Paused",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    status: SESSION_STATUS.PAUSED,
+  }, { now: () => baseTime });
   const completed = createCompletedStudySession(createStudySession({
     id: "completed",
     taskDescription: "Completed",
@@ -321,9 +337,21 @@ test("dashboard historical source ignores active sessions and selects latest com
     dataCoverage: 0,
   });
 
-  const source = selectDashboardSessionSource({ activeSession: active, completedSessions: [completed] });
-  assert.equal(source.kind, "completed");
-  assert.equal(source.session.id, "completed");
+  const activeSource = selectDashboardSessionSource({ activeSession: active, completedSessions: [completed] });
+  assert.equal(activeSource.kind, "active");
+  assert.equal(activeSource.session.id, "active");
+
+  const pausedSource = selectDashboardSessionSource({ activeSession: paused, completedSessions: [completed] });
+  assert.equal(pausedSource.kind, "paused");
+  assert.equal(pausedSource.session.id, "paused");
+
+  const completedSource = selectDashboardSessionSource({ activeSession: null, completedSessions: [completed] });
+  assert.equal(completedSource.kind, "latest-completed");
+  assert.equal(completedSource.session.id, "completed");
+
+  const emptySource = selectDashboardSessionSource({ activeSession: null, completedSessions: [] });
+  assert.equal(emptySource.kind, "empty");
+  assert.equal(emptySource.session, null);
 });
 
 test("expression interval distribution counts only valid classified affect intervals", () => {

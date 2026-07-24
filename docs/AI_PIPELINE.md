@@ -112,9 +112,9 @@ The highest-confidence gesture becomes the primary `currentGesture`. Metric effe
 
 Current gesture effects:
 
-- `Closed_Fist`: increases focus slightly.
-- `Thumb_Up`: logs positive reinforcement, increases focus, and reduces stress.
-- Sustained two-hand activity for 10 frames logs a warning and reduces focus slightly.
+- `Closed_Fist`: logs the detected gesture.
+- `Thumb_Up`: logs positive reinforcement.
+- Sustained two-hand activity for 10 frames logs a warning and can reduce attention slightly.
 
 Two visible hands are treated only as a weak possible distraction signal. This is a product heuristic, not a scientific conclusion.
 
@@ -147,13 +147,16 @@ These values are used as observed CV signals. Looking-away heuristics then compa
 
 ## Telemetry Storage and Export
 
-For each processed frame, `AppContext.js` stores:
+For processed frames while Debug Mode is active, `AppContext.js` can store a bounded telemetry table row with:
 
-- A telemetry table row with time, eye openness, blink state, long-closure state, yaw, pitch, gesture, and hand count.
-- Raw face landmarks.
-- Raw hand landmarks with hand IDs.
+- Time.
+- Eye openness.
+- Blink and long-closure state.
+- Yaw and pitch.
+- Gesture.
+- Hand count.
 
-The in-memory histories keep the latest 50 records. `exportTelemetryCSV()` serializes raw landmarks into a CSV with columns:
+Raw face and hand landmarks are captured only when Debug Mode is active and the collapsed sensitive preview/capture path has been explicitly enabled. The telemetry and raw-landmark histories are memory-only and keep approximately the latest 50 records. They are cleared when Debug Mode closes, sensitive capture is disabled, or reset paths run. `exportTelemetryCSV()` serializes captured raw landmarks into a CSV with columns:
 
 ```text
 Timestamp,Source,Point_ID,X,Y,Z
@@ -161,31 +164,19 @@ Timestamp,Source,Point_ID,X,Y,Z
 
 CSV files are downloaded in the browser through a Blob and object URL.
 
-## Focus, Fatigue, Stress, and Arousal Heuristics
+## Attention, Fatigue, and Affect Metrics
 
 The app currently combines observed CV signals and simple heuristics:
 
-- Low eye openness can raise fatigue and reduce focus.
-- Long eye closure can raise fatigue and reduce focus.
-- Looking away by yaw or pitch thresholds can reduce focus and arousal.
-- Looking toward the screen can increase focus slightly.
-- `Thumb_Up` can increase focus and reduce stress.
-- Sustained two-hand activity can reduce focus.
-- Manual debug controls can directly set metric values.
+- Low eye openness can raise fatigue and reduce attention.
+- Long eye closure can raise fatigue and reduce attention.
+- Looking away by yaw or pitch thresholds can reduce attention.
+- Looking toward the screen can increase attention slightly.
+- Sustained two-hand activity can reduce attention.
+- EmotiEffLib provides valence and affect arousal in the browser-local ONNX path.
+- Debug simulation controls can preview display metrics but do not set authoritative estimators or formal samples.
 
 These metrics are useful for product prototyping and visualization, but they are not validated psychological measurements.
-
-## Simulation Fallback Behavior
-
-`AppContext.js` still contains a simulation fallback. It runs only when monitoring is active and the app does not have both camera permission and loaded AI models.
-
-The fallback can:
-
-- Random-walk focus, stress, fatigue, and arousal.
-- Vary FPS and latency values.
-- Simulate blink, head-pose, gesture, and yawn events.
-
-This fallback does not mean the whole app is simulated. Current camera inference and landmark rendering use real MediaPipe outputs when available.
 
 ## Observed Signals Versus Interpretations
 
@@ -203,12 +194,12 @@ Heuristic interpretations:
 - Eye openness as fatigue evidence.
 - Head-pose deviation as looking away.
 - Sustained two-hand activity as possible distraction.
-- Certain gestures as positive or focus-related signals.
+- Certain gestures as positive or attention-related signals.
 
-Simulated fallback data:
+Memory-only Debug Simulation data:
 
-- Random metric changes when real tracking is unavailable.
-- Random fallback events while monitoring without camera/model availability.
+- Normalized display-preview values for attention, fatigue, valence, affect arousal, top expression, face state, and data quality.
+- Presets for UI development. These values do not enter formal samples, statistics, persistence, checkpoints, inference, or completed history.
 
 Unsupported conclusions:
 

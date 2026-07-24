@@ -14,15 +14,16 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Real face contour, eye, brow, lip, iris, mesh-dot, and hand skeleton rendering when detections exist.
 - React `No Face Detected` overlay when monitoring is active, camera is enabled, AI is loaded, and no face landmarks are returned.
 - Simple AI-loading fallback face plus loading/delayed-warning canvas messages before models are ready.
-- AppContext telemetry from face blendshapes, facial transformation matrices, gestures, face landmarks, and multi-hand landmarks.
-- Rolling telemetry table and CSV export for raw face/hand landmark coordinates.
-- Dashboard SVG gauges, line chart, radar chart, and summary statistics.
+- AppContext derives telemetry from face blendshapes, facial transformation matrices, gestures, face landmarks, and multi-hand landmarks without continuously storing raw coordinates in ordinary React state.
+- Debug Mode keeps a bounded telemetry table and opt-in sensitive raw-landmark CSV export for approximately the latest 50 captured frames.
+- Dashboard metric cards, five-second sample charts, current-session analysis, latest-completed analysis, historical report modal, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
+- Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
 - Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
-- Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active and latest completed sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
+- Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active, paused, and latest completed main Dashboard sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
 
 ## In Progress
 
@@ -34,7 +35,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 
 - Run browser QA with camera permissions on supported browsers.
 - QA `/focus` fullscreen behavior and floating monitor dragging across desktop/mobile layouts.
-- Decide whether two visible hands should always reduce focus after sustained detection.
+- Decide whether two visible hands should always reduce attention after sustained detection.
 - Add cooldowns or aggregation to gesture logs and metric effects.
 - QA interrupted-session recovery with real camera permissions across supported browsers.
 - Replace PDF export placeholder with a real report export path.
@@ -45,10 +46,11 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 
 - `git` is not available on PATH in the current shell environment.
 - Metrics are heuristic and not clinically validated.
-- Raw telemetry and landmark history are stored in React state and are lost on page refresh unless exported.
+- Raw telemetry and landmark capture are Debug-only, memory-only, bounded, and lost on page refresh unless explicitly exported.
 - Completed session history is local-only IndexedDB data; clearing browser site data, private/incognito browsing, or storage restrictions can remove or prevent durable history.
 - Interrupted active sessions can lose up to roughly one checkpoint interval. Recovery is local-only and depends on browser IndexedDB availability.
 - Recovered or camera-disabled sessions remain paused until the user grants camera access successfully. Webcam and Monitoring are not restarted automatically.
+- Active and paused current sessions are the main Dashboard source. With no current session, the Dashboard uses the latest completed session; historical rows open a static report modal without replacing the main source.
 - Debug Simulation values are memory-only display previews; they do not enter formal samples, statistics, completed history, or IndexedDB.
 - Debug diagnostic snapshots distinguish valid, idle, stale, baseline-collecting, insufficient-coverage, insufficient-observation, and model-unavailable states; they do not enter formal samples, statistics, completed history, or IndexedDB.
 - Expression distributions count only stored top-1 classifier labels from valid affect intervals. They do not infer expressions from VA coordinates or persist full probability vectors.

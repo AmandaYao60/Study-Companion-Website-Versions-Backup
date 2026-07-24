@@ -18,7 +18,7 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Simple AI-loading fallback face and delayed troubleshooting message.
 - Multi-hand landmark persistence with separate `handId` values.
 - Per-hand top-gesture extraction with highest-confidence primary gesture selection.
-- Sustained two-hand activity warning and weak focus-reduction heuristic.
+- Sustained two-hand activity warning and weak attention-reduction heuristic.
 - Telemetry table and raw landmark CSV export.
 
 ### Changed
@@ -29,6 +29,10 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Documentation now treats current source files as the only source of truth.
 - Updated Next.js and `eslint-config-next` from 16.2.9 to 16.2.10.
 - Added `onnxruntime-web` for planned browser-based affect inference.
+- Dashboard now treats active and paused current sessions as the main source, uses the latest completed session only when no current session exists, and opens historical rows in a static report modal.
+- Dashboard charts now use formal five-second `MetricSample` records instead of duplicate live-history rows.
+- Pausing an active session now force-flushes useful pending observations into a final partial sample.
+- Debug telemetry and raw-landmark capture are bounded, memory-only, and gated behind Debug Mode sensitive controls.
 
 ### Known Issues
 
@@ -42,6 +46,7 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Reset cached detections and face detection state during inference cleanup.
 - Avoided drawing fallback landmarks when AI is loaded but no face is detected.
 - Avoided drawing canvas overlays while monitoring is paused or the camera is disabled.
+- Removed redundant unbounded active-session live metric history from the dashboard data flow.
 
 ### Removed
 

@@ -66,17 +66,13 @@ test("session runtime prepares, activates, pauses, resumes, samples, and finishe
   assert.equal(resumed.status, SESSION_STATUS.ACTIVE);
 
   const appended = await runtime.appendObservation(createObservation(1200));
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].attention, 72);
-  assert.equal(appended[0].fatigue, 18);
-  assert.equal(appended[0].valence, null);
-  assert.equal(appended[0].arousal, null);
+  assert.deepEqual(appended, []);
 
   setNow("2026-01-01T00:20:00.000Z");
   const completed = await runtime.finishSession(1200);
   assert.equal(completed.status, SESSION_STATUS.COMPLETED);
   assert.equal(completed.actualDurationMs, 1200);
-  assert.equal(completed.sampleCount, 1);
+  assert.equal(completed.sampleCount, 2);
   assert.ok(completed.statistics);
   assert.ok(completed.summary);
 
@@ -88,8 +84,9 @@ test("session runtime prepares, activates, pauses, resumes, samples, and finishe
   assert.equal(sessionById.id, started.id);
 
   const samples = await runtime.getMetricSamples(started.id);
-  assert.equal(samples.length, 1);
+  assert.equal(samples.length, 2);
   assert.equal(samples[0].sessionId, started.id);
+  assert.equal(samples[1].sessionId, started.id);
 
   assert.equal(runtime.getSnapshot().activeSession, null);
 });
@@ -116,6 +113,85 @@ test("discard removes the active session without creating completed history", as
   assert.equal(runtime.getSnapshot().activeSession, null);
   assert.deepEqual(await runtime.listCompletedSessions(), []);
   assert.deepEqual(await runtime.getMetricSamples("runtime-session-discard"), []);
+});
+
+test("pause flushes a useful partial observation interval into the runtime snapshot", async () => {
+  setNow("2026-01-02T01:00:00.000Z");
+  const runtime = createSessionRuntime({
+    now,
+    idFactory: () => "runtime-session-pause-flush",
+    sampleIntervalMs: 1000,
+  });
+
+  await runtime.prepareSession({ taskDescription: "Pause flush task" });
+  await runtime.activatePreparedSession();
+  await runtime.appendObservation(createObservation(0));
+  await runtime.appendObservation(createObservation(500, { attention: 82, fatigue: 22 }));
+
+  const paused = await runtime.pauseSession(500);
+  assert.equal(paused.status, SESSION_STATUS.PAUSED);
+
+  const snapshot = runtime.getSnapshot();
+  assert.equal(snapshot.activeSessionSamples.length, 1);
+  assert.equal(snapshot.activeSessionSamples[0].elapsedMs, 500);
+  assert.equal(snapshot.activeSessionSamples[0].expectedObservationCount, 2);
+  assert.equal(snapshot.activeSessionSamples[0].validObservationCount, 2);
+
+  const storedSamples = await runtime.getMetricSamples(paused.id);
+  assert.equal(storedSamples.length, 1);
+  assert.equal(storedSamples[0].id, "runtime-session-pause-flush-sample-1");
+});
+
+test("pause does not fabricate a sample when pending observations are not useful", async () => {
+  setNow("2026-01-02T02:00:00.000Z");
+  const runtime = createSessionRuntime({
+    now,
+    idFactory: () => "runtime-session-pause-empty",
+    sampleIntervalMs: 1000,
+  });
+
+  await runtime.prepareSession({ taskDescription: "No useful data" });
+  await runtime.activatePreparedSession();
+  await runtime.appendObservation(createObservation(0, {
+    attention: null,
+    fatigue: null,
+    faceDetected: false,
+    affectValid: false,
+    dataValid: false,
+  }));
+
+  const paused = await runtime.pauseSession(400);
+  assert.equal(paused.status, SESSION_STATUS.PAUSED);
+  assert.equal(runtime.getSnapshot().activeSessionSamples.length, 0);
+  assert.deepEqual(await runtime.getMetricSamples(paused.id), []);
+});
+
+test("resuming after a pause flush starts a new aggregation interval", async () => {
+  setNow("2026-01-02T03:00:00.000Z");
+  const runtime = createSessionRuntime({
+    now,
+    idFactory: () => "runtime-session-pause-resume",
+    sampleIntervalMs: 1000,
+  });
+
+  const prepared = await runtime.prepareSession({ taskDescription: "Resume after pause" });
+  await runtime.activatePreparedSession();
+  await runtime.appendObservation(createObservation(0, { attention: 60 }));
+  await runtime.appendObservation(createObservation(500, { attention: 70 }));
+  await runtime.pauseSession(500);
+
+  await runtime.resumeSession();
+  assert.deepEqual(await runtime.appendObservation(createObservation(700, { attention: 80 })), []);
+  const appended = await runtime.appendObservation(createObservation(1700, { attention: 90 }));
+
+  assert.equal(appended.length, 1);
+  const samples = await runtime.getMetricSamples(prepared.id);
+  assert.deepEqual(samples.map((sample) => sample.id), [
+    "runtime-session-pause-resume-sample-1",
+    "runtime-session-pause-resume-sample-2",
+  ]);
+  assert.equal(samples[0].elapsedMs, 500);
+  assert.equal(samples[1].elapsedMs, 1700);
 });
 
 test("runtime recovers interrupted active sessions as paused without adding refresh time", async () => {

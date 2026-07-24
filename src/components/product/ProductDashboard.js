@@ -9,7 +9,12 @@ import { selectDashboardSessionSource } from "../../services/session/index.js";
 export default function ProductDashboard() {
   const { activeSession, completedSessions, resetMetrics } = useAppState();
   const source = useMemo(() => selectDashboardSessionSource({ activeSession, completedSessions }), [activeSession, completedSessions]);
-  const badgeLabel = source.kind === "completed" ? "Latest Session Analysis" : "No Completed Sessions";
+  const dashboardCopy = {
+    active: "Viewing the live current study session. Charts use committed five-second samples.",
+    paused: "Viewing the paused current study session. Data stays frozen until the session resumes.",
+    "latest-completed": "Reviewing the latest completed study session stored locally in this browser.",
+    empty: "Complete a study session to begin building local analytics history.",
+  };
 
   const handleClear = async () => {
     if (!window.confirm("Clear all local session data? This cannot be undone.")) return;
@@ -27,10 +32,10 @@ export default function ProductDashboard() {
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Analytics Dashboard</h1>
-            <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">{badgeLabel}</span>
+            <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">{source.label}</span>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Review completed study sessions stored locally in this browser.
+            {dashboardCopy[source.kind] || dashboardCopy.empty}
           </p>
         </div>
 

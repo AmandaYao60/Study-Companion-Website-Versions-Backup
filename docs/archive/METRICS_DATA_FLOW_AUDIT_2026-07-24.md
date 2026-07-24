@@ -1,5 +1,7 @@
 # Metrics Data Flow Audit
 
+Historical note: this audit captured the pre-migration metric data flow on July 24, 2026. It is archived because later milestones renamed the behavioral metric to `attention`, removed legacy `stress` and legacy 0-100 `arousal`, isolated Debug overrides, and made formal five-second `MetricSample` records the single Dashboard chart time series.
+
 ## Executive Summary
 
 Confirmed algorithm and semantic conflicts exist between the legacy live state names and the newer session model. The strongest conflict is that `AppContext` still exposes a live `focus` state, while formal session observations save that same value under the canonical `attention` field. This is not a separate algorithm: the session `attention` value is copied from `latestFocusRef.current` in `recordSessionObservation()` after `updateAiMetrics()` updates `focus` from the rolling attention estimator.
