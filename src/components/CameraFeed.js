@@ -46,6 +46,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     stopCamera,
     setShowCameraDialog,
     isDebugMode,
+    isSensitiveDebugPreviewEnabled,
     cameraStream,
     isAiLoaded,
     hasDetectedFace,
@@ -304,9 +305,15 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   }, [isMonitoring, isCameraAllowed, isAiLoaded, monitoringDetectionsRef]);
 
   useEffect(() => {
-    const shouldCopyCrop = isDebugMode && !isFocusPanel;
+    const shouldCopyCrop = isDebugMode && isSensitiveDebugPreviewEnabled && !isFocusPanel;
     const targetCanvas = debugCropCanvasRef.current;
-    if (!shouldCopyCrop || !targetCanvas) return undefined;
+    if (!targetCanvas) return undefined;
+
+    if (!shouldCopyCrop) {
+      const clearContext = targetCanvas.getContext("2d");
+      clearContext?.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      return undefined;
+    }
 
     const targetContext = targetCanvas.getContext("2d");
     if (!targetContext) return undefined;
@@ -328,7 +335,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
         cropAnimationRef.current = null;
       }
     };
-  }, [isDebugMode, isFocusPanel, runtimeFaceCropCanvasRef]);
+  }, [isDebugMode, isFocusPanel, isSensitiveDebugPreviewEnabled, runtimeFaceCropCanvasRef]);
 
   const handleDisableWebcam = () => {
     stopCamera();
@@ -384,15 +391,15 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
           width={AFFECT_INPUT_SIZE}
           height={AFFECT_INPUT_SIZE}
           className={
-            isDebugMode && !isFocusPanel
+            isDebugMode && isSensitiveDebugPreviewEnabled && !isFocusPanel
               ? "absolute bottom-2 right-2 z-30 h-28 w-28 -scale-x-100 border border-red-400 bg-black"
               : "hidden"
           }
-          aria-label={isDebugMode && !isFocusPanel ? "Affect model face crop preview" : undefined}
-          aria-hidden={!isDebugMode || isFocusPanel}
+          aria-label={isDebugMode && isSensitiveDebugPreviewEnabled && !isFocusPanel ? "Affect model face crop preview" : undefined}
+          aria-hidden={!isDebugMode || !isSensitiveDebugPreviewEnabled || isFocusPanel}
         />
 
-        {isDebugMode && !isFocusPanel && (
+        {isDebugMode && isSensitiveDebugPreviewEnabled && !isFocusPanel && (
           <span className="pointer-events-none absolute bottom-[7.5rem] right-2 z-30 rounded bg-red-950/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-300">
             Affect Crop Debug
           </span>

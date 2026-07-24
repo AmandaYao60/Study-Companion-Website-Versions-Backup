@@ -16,6 +16,12 @@ import {
 import {
   appendDebugLogMessage,
 } from "../services/debug/debugEventLog.js";
+import {
+  DIAGNOSTIC_SNAPSHOT_INTERVAL_MS,
+  createDefaultDiagnosticSnapshot,
+  createEstimatorDiagnosticSnapshot,
+  mergeAffectDiagnostic,
+} from "../services/debug/debugDiagnostics.js";
 
 const AppContext = createContext();
 const EYE_LANDMARKS = {
@@ -168,6 +174,8 @@ export const AppProvider = ({ children }) => {
   const monitoringSessionStartedAtRef = useRef(null);
   const lastEstimatorUpdateRef = useRef(0);
   const lastDebugLogRef = useRef(0);
+  const lastDiagnosticSnapshotAtRef = useRef(0);
+  const processingFrameTimestampsRef = useRef([]);
   const attentionEstimateRef = useRef(85);
   const fatigueEstimateRef = useRef(15);
   const latestAttentionRef = useRef(85);
@@ -185,6 +193,8 @@ export const AppProvider = ({ children }) => {
   const [fatigue, setFatigue] = useState(15);
   const [debugMetricOverrides, setDebugMetricOverrides] = useState(createDefaultDebugMetricOverrides);
   const [debugSimulation, setDebugSimulation] = useState(createDefaultDebugSimulationState);
+  const [debugDiagnosticSnapshot, setDebugDiagnosticSnapshot] = useState(createDefaultDiagnosticSnapshot);
+  const [isSensitiveDebugPreviewEnabled, setIsSensitiveDebugPreviewEnabledState] = useState(false);
 
   // Local affect model state
   const [affectState, setAffectState] = useState({
@@ -400,6 +410,11 @@ export const AppProvider = ({ children }) => {
     setDebugSimulation(createDefaultDebugSimulationState());
   }, []);
 
+  const setSensitiveDebugPreviewEnabled = useCallback((enabled) => {
+    if (!debugModeRef.current && enabled) return;
+    setIsSensitiveDebugPreviewEnabledState(Boolean(enabled));
+  }, []);
+
   const setIsDebugMode = useCallback((nextValue) => {
     const resolvedValue = Boolean(
       typeof nextValue === "function" ? nextValue(debugModeRef.current) : nextValue
@@ -407,6 +422,7 @@ export const AppProvider = ({ children }) => {
     if (!resolvedValue) {
       setDebugMetricOverrides(createDefaultDebugMetricOverrides());
       setDebugSimulation(createDefaultDebugSimulationState());
+      setIsSensitiveDebugPreviewEnabledState(false);
     }
     debugModeRef.current = resolvedValue;
     setIsDebugModeState(resolvedValue);
@@ -498,6 +514,8 @@ export const AppProvider = ({ children }) => {
     monitoringSessionStartedAtRef.current = null;
     lastEstimatorUpdateRef.current = 0;
     lastDebugLogRef.current = 0;
+    lastDiagnosticSnapshotAtRef.current = 0;
+    processingFrameTimestampsRef.current = [];
     attentionEstimateRef.current = clamp(attentionValue, 0, 100);
     fatigueEstimateRef.current = clamp(fatigueValue, 0, 100);
     blinkTimestampsRef.current = [];
@@ -537,10 +555,11 @@ export const AppProvider = ({ children }) => {
   const debugLiveMetrics = useMemo(() => {
     const latestLiveMetric = activeSessionLiveMetrics[activeSessionLiveMetrics.length - 1] || null;
     const latestSample = activeSessionSamples[activeSessionSamples.length - 1] || null;
+    const hasEstimatorSnapshot = Boolean(debugDiagnosticSnapshot.updatedAt);
 
     return {
-      attention,
-      fatigue,
+      attention: hasEstimatorSnapshot ? debugDiagnosticSnapshot.attention.value : null,
+      fatigue: hasEstimatorSnapshot ? debugDiagnosticSnapshot.fatigue.value : null,
       valence: affectState.valid ? affectState.valence : null,
       arousal: affectState.valid ? affectState.arousal : null,
       emotion: affectState.valid ? affectState.emotion : null,
@@ -548,10 +567,10 @@ export const AppProvider = ({ children }) => {
       faceDetected: hasDetectedFace,
       handDetected: hasDetectedHand,
       dataQuality: latestLiveMetric?.dataQuality || "insufficient",
-      latestObservationAt: latestLiveMetric?.recordedAt || null,
+      latestObservationAt: hasEstimatorSnapshot ? debugDiagnosticSnapshot.updatedAt : latestLiveMetric?.recordedAt || null,
       latestSampleAt: latestSample?.intervalEndedAt || latestSample?.recordedAt || null,
     };
-  }, [activeSessionLiveMetrics, activeSessionSamples, affectState, attention, fatigue, hasDetectedFace, hasDetectedHand]);
+  }, [activeSessionLiveMetrics, activeSessionSamples, affectState, debugDiagnosticSnapshot, hasDetectedFace, hasDetectedHand]);
 
   const debugDisplayMetrics = useMemo(() => (
     selectDebugDisplayMetrics(debugLiveMetrics, isDebugMode ? debugSimulation : null)
@@ -672,6 +691,17 @@ export const AppProvider = ({ children }) => {
       updatedAt: Date.now(),
       latencyMs: Number.isFinite(result.latencyMs) ? result.latencyMs : null,
     });
+
+    setDebugDiagnosticSnapshot((previous) => mergeAffectDiagnostic(previous, {
+      rawValence: result.valence,
+      rawArousal: result.arousal,
+      valence: nextValence,
+      arousal: nextArousal,
+      topEmotionProbabilities: result.topEmotionProbabilities,
+      latencyMs: result.latencyMs,
+      source: result.source ?? "browser-onnx",
+      updatedAt: Date.now(),
+    }));
   }, []);
 
   const resetAffectState = useCallback(() => {
@@ -688,6 +718,14 @@ export const AppProvider = ({ children }) => {
       updatedAt: null,
       latencyMs: null,
     });
+    setDebugDiagnosticSnapshot((previous) => ({
+      ...previous,
+      affect: createDefaultDiagnosticSnapshot().affect,
+      performance: {
+        ...previous.performance,
+        affectLatencyMs: null,
+      },
+    }));
   }, []);
 
   const recordSessionObservation = useCallback((timestamp, faceDetected) => {
@@ -780,6 +818,7 @@ export const AppProvider = ({ children }) => {
     let activeG = "None";
     let handsCount = 0;
     let detectedGestures = [];
+    let primaryGestureDiagnostic = null;
 
     const frameLandmarks = {
       timestamp,
@@ -788,6 +827,10 @@ export const AppProvider = ({ children }) => {
     };
 
     const faceDetected = faceResults?.faceLandmarks?.length > 0;
+    processingFrameTimestampsRef.current = [
+      ...processingFrameTimestampsRef.current.filter((time) => timestamp - time <= 1000),
+      timestamp,
+    ];
 
     if (faceDetected) {
       const landmarks = faceResults.faceLandmarks[0];
@@ -886,6 +929,7 @@ export const AppProvider = ({ children }) => {
             current.score > best.score ? current : best
         );
 
+        primaryGestureDiagnostic = primaryGesture;
         activeG = primaryGesture.name;
         setCurrentGesture(activeG);
       } else {
@@ -1003,6 +1047,7 @@ export const AppProvider = ({ children }) => {
     let longClosuresLastMinute = longClosureTimestampsRef.current.length;
     let longClosureScore = clamp(longClosuresLastMinute * 25, 0, 100);
     let blinkRateScore = 0;
+    let currentBlinkRateEstimate = null;
     let fatigueRaw = null;
 
     if (shouldRunEstimator) {
@@ -1080,6 +1125,7 @@ export const AppProvider = ({ children }) => {
       if (baselineBlinkRateRef.current) {
         const currentWindowMinutes = Math.min(Math.max(sessionAge / 60000, 1 / 60), 1);
         const currentBlinkRate = blinkTimestampsRef.current.length / currentWindowMinutes;
+        currentBlinkRateEstimate = currentBlinkRate;
         const blinkRateDeviation =
           Math.abs(currentBlinkRate - baselineBlinkRateRef.current) /
           Math.max(baselineBlinkRateRef.current, 1);
@@ -1132,6 +1178,61 @@ export const AppProvider = ({ children }) => {
       ]);
     }
 
+    if (timestamp - lastDiagnosticSnapshotAtRef.current >= DIAGNOSTIC_SNAPSHOT_INTERVAL_MS) {
+      lastDiagnosticSnapshotAtRef.current = timestamp;
+      const measuredProcessingFps = processingFrameTimestampsRef.current.length;
+      const calibrationElapsedMs = monitoringSessionStartedAtRef.current
+        ? timestamp - monitoringSessionStartedAtRef.current
+        : 0;
+
+      setFps(measuredProcessingFps);
+      setDebugDiagnosticSnapshot((previous) => {
+        const estimatorSnapshot = createEstimatorDiagnosticSnapshot({
+          now: timestamp,
+          isMonitoring,
+          isCameraAllowed: cameraAllowedRef.current,
+          isAiLoaded: aiLoadedRef.current,
+          attention: attentionEstimateRef.current,
+          fatigue: fatigueEstimateRef.current,
+          averageEAR,
+          baselineEAR: baselineOpenEARRef.current,
+          calibrationElapsedMs,
+          calibrationTargetMs: EYE_CALIBRATION_WINDOW_MS,
+          calibrationSampleCount: eyeCalibrationSamplesRef.current.length,
+          calibrationMinimumSamples: MIN_EYE_CALIBRATION_SAMPLES,
+          eyeCalibrationReady,
+          facePresenceScore,
+          forwardPoseScore,
+          headStabilityScore,
+          attentionRaw,
+          closedEyeRatio,
+          perclosScore,
+          longEyeClosureCount: longClosuresLastMinute,
+          currentBlinkRate: currentBlinkRateEstimate ?? blinkTimestampsRef.current.length,
+          baselineBlinkRate: baselineBlinkRateRef.current,
+          blinkRateScore,
+          fatigueRaw,
+          dataQualityRatio,
+          dataQuality,
+          validFaceObservations: validFaceSamples,
+          totalObservations: totalSamples,
+          detectedHandCount: handsCount,
+          primaryGesture: primaryGestureDiagnostic?.name ?? activeG,
+          primaryGestureScore: primaryGestureDiagnostic?.score ?? null,
+          twoHandFrames: bothHandsFrameCountRef.current,
+          targetInferenceFps: inferenceFps,
+          measuredProcessingFps,
+          mediaPipeLatencyMs: latencyTime,
+          affectLatencyMs: previous.performance.affectLatencyMs,
+        });
+
+        return {
+          ...estimatorSnapshot,
+          affect: previous.affect,
+        };
+      });
+    }
+
     const tableRow = {
       id: timestamp,
       time: timeStr,
@@ -1149,7 +1250,7 @@ export const AppProvider = ({ children }) => {
       setTelemetryTable((prev) => [tableRow, ...prev.slice(0, 49)]);
       setRawLandmarksHistory((prev) => [frameLandmarks, ...prev.slice(0, 49)]);
     }
-  }, [isMonitoring, addLog, recordSessionObservation]);
+  }, [isMonitoring, inferenceFps, addLog, recordSessionObservation]);
 
   const exportTelemetryCSV = () => {
     if (rawLandmarksHistory.length === 0) {
@@ -1200,6 +1301,7 @@ export const AppProvider = ({ children }) => {
     setHasDetectedFace(false);
     setHasDetectedHand(false);
     setRuntimeStatus("idle");
+    setDebugDiagnosticSnapshot(createDefaultDiagnosticSnapshot());
   }, [resetAffectState]);
 
   const prepareSession = useCallback(async ({ taskDescription = "", targetDurationMs = null, preSessionCheckIn = null } = {}) => {
@@ -1593,6 +1695,7 @@ export const AppProvider = ({ children }) => {
     setFatigue(10);
     clearAllDebugMetricOverrides();
     resetDebugSimulation();
+    setIsSensitiveDebugPreviewEnabledState(false);
     setYawnCount(0);
     setBlinkRate(12);
     setEyeOpenness(1.0);
@@ -1667,10 +1770,13 @@ export const AppProvider = ({ children }) => {
         debugLiveMetrics,
         debugDisplayMetrics,
         debugSimulation,
+        debugDiagnosticSnapshot,
         setDebugSimulationEnabled,
         setDebugSimulationMetric,
         applyDebugSimulationPreset: applyDebugSimulationPresetById,
         resetDebugSimulation,
+        isSensitiveDebugPreviewEnabled,
+        setSensitiveDebugPreviewEnabled,
         affectState,
         updateAffectMetrics,
         resetAffectState,

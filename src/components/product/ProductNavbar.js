@@ -47,6 +47,7 @@ export default function ProductNavbar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isDebugMode, setIsDebugMode } = useAppState();
+  const isDeveloperDebugAvailable = process.env.NODE_ENV !== "production";
   const isSettings = pathname.startsWith("/app/settings");
   const isAccount = pathname.startsWith("/app/account");
 
@@ -66,17 +67,19 @@ export default function ProductNavbar() {
         </Link>
 
         <div className="flex min-w-0 items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setIsDebugMode(!isDebugMode)}
-            className={`rounded-full border px-3 py-2 text-xs font-semibold transition-all ${
-              isDebugMode
-                ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
-                : "border-white/10 bg-slate-900 text-slate-400 hover:text-white"
-            }`}
-          >
-            <span>{isDebugMode ? "Debug On" : "Debug Off"}</span>
-          </button>
+          {isDeveloperDebugAvailable && (
+            <button
+              type="button"
+              onClick={() => setIsDebugMode(!isDebugMode)}
+              className={`rounded-full border px-3 py-2 text-xs font-semibold transition-all ${
+                isDebugMode
+                  ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
+                  : "border-white/10 bg-slate-900 text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>{isDebugMode ? "Debug On" : "Debug Off"}</span>
+            </button>
+          )}
 
           <button type="button" onClick={handleSettingsClick} aria-label={isSettings ? "Close settings" : "Open settings"} title="Settings" className={iconButtonClass(isSettings)}>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">

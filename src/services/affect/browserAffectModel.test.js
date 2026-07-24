@@ -29,6 +29,11 @@ test("affect output parser excludes valence and arousal from emotion softmax", (
   assert.deepEqual(result.emotionLogits, output.slice(0, 8));
   assert.equal(result.emotionProbabilities.length, 8);
   assert.equal(result.topEmotionProbability, Math.max(...result.emotionProbabilities));
+  assert.deepEqual(result.topEmotionProbabilities.map((entry) => entry.emotion), [
+    "Surprise",
+    "Sadness",
+    "Neutral",
+  ]);
   assert.equal(argmax(result.emotionProbabilities), argmax(result.emotionLogits));
   assert.ok(Math.abs(sum(result.emotionProbabilities) - 1) < 1e-12);
 });

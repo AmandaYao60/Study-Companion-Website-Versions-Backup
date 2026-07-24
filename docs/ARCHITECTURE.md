@@ -37,7 +37,7 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 - `src/app/page.js`: Overview page. Presents the Phase 1 POC, feature cards, privacy approach, and links to Study Space and Analytics.
 - `src/app/monitor/page.js`: Redirects to the product Study Space at `/app/study`.
 - `src/app/focus/page.js`: Focus Space shell. Renders a fullscreen-capable visual-stage placeholder and, while monitoring is active, a draggable floating monitor panel that reuses `CameraFeed` in `focus-panel` presentation.
-- `src/app/dashboard/page.js`: Analytics view. Renders `DashboardCharts`, session diagnosis copy, debug sliders when Debug Mode is enabled, and placeholder PDF export.
+- `src/app/dashboard/page.js`: Analytics view. Renders `DashboardCharts`, session diagnosis copy, and placeholder PDF export.
 
 ## Component Responsibilities
 
@@ -71,9 +71,11 @@ The panel provides:
 
 - Read-only system status for camera, MediaPipe FaceLandmarker, MediaPipe GestureRecognizer, affect model, face detection, Monitoring, active session state, repository type, data quality, and latest formal sample age.
 - Live metric inspection for the authoritative pipeline values: attention, fatigue, valence, affect arousal, detected emotion, top softmax probability stored as `emotionConfidence`, face/hand detection state, latest observation time, and latest formal sample time.
+- A memory-only estimator diagnostic snapshot updated at about one-second cadence while live inference is running. It exposes already-calculated attention, fatigue, affect, gesture, aggregation-quality, and performance intermediates with validity, staleness, source, update-time, and gate-reason labels.
 - A memory-only Debug Simulation mode with normalized display-preview values for attention, fatigue, valence, arousal, emotion, emotion confidence, face state, and data quality. These values are labeled as simulated and are selected through a display boundary rather than being written to authoritative metric state.
 - Session diagnostics for the current session ID, status, elapsed active time, durable accumulated time, recovery-pending state, checkpoint status, sample count, camera/Monitoring state, and in-memory telemetry counts.
 - A bounded, sanitized, memory-only event log with Clear Log and Copy Sanitized Log actions.
+- Collapsed advanced controls for live inference FPS and collapsed sensitive-data tools for face-crop preview and raw landmark CSV export. The sensitive preview is off by default, clears when Debug Mode closes, and export requires confirmation.
 
 Debug Simulation and display overrides are cleared when Debug Mode is turned off and are not persisted across refreshes. They must not enter `MetricObservation`, formal `MetricSample` records, session statistics, completed history, IndexedDB, or model output.
 
@@ -94,8 +96,8 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 - MediaPipe model loading state and model refs.
 - Inferred behavioral metrics: attention and fatigue.
 - Browser affect state: valence, affect arousal, discrete emotion, and top softmax probability stored as `emotionConfidence`.
-- CV telemetry: blink rate, yawn count, head pose, current gesture, FPS, latency.
-- Developer diagnostics state: read-only live debug metrics, memory-only simulated display metrics, camera/model statuses, checkpoint write status, and a bounded sanitized event log.
+- CV telemetry: blink rate, yawn count, head pose, current gesture, measured processing FPS, and MediaPipe inference latency.
+- Developer diagnostics state: read-only live debug metrics, memory-only diagnostic snapshots, memory-only simulated display metrics, camera/model statuses, checkpoint write status, sensitive preview visibility, and a bounded sanitized event log.
 - Metrics history for charts.
 - Telemetry table and raw landmark history.
 - Camera start/stop lifecycle.
@@ -139,7 +141,7 @@ This separation is intentional: no-face state is a React UI message, not simulat
 
 ## Dashboard and Telemetry Flow
 
-`updateAiMetrics()` creates rows for `telemetryTable` and entries for `rawLandmarksHistory`. `DebugPanel` can show aggregate counts and export the existing raw landmark CSV, but it does not display raw coordinate matrices inline. `activeSessionLiveMetrics` is updated on an interval while Monitoring is active, and `DashboardCharts` uses that state plus formal session samples for live and historical views.
+`updateAiMetrics()` creates rows for `telemetryTable` and entries for `rawLandmarksHistory`. It also updates a read-only diagnostic snapshot at about one-second cadence from already-computed estimator intermediates such as face coverage, forward-pose score, head-stability score, EAR baseline progress, PERCLOS, blink-rate comparison, hand count, gesture summary, data-quality coverage, and MediaPipe latency. `DebugPanel` can show aggregate counts and exposes the raw landmark CSV only inside the collapsed sensitive-data section with confirmation; it does not display raw coordinate matrices inline. `activeSessionLiveMetrics` is updated on an interval while Monitoring is active, and `DashboardCharts` uses that state plus formal session samples for live and historical views.
 
 ## Privacy Boundaries
 
@@ -147,7 +149,7 @@ This separation is intentional: no-face state is a React UI message, not simulat
 - No backend upload route for camera frames is defined in the current repository.
 - The normal Monitor presentation shows the real camera preview when enabled.
 - The Focus panel presentation hides real camera pixels but keeps the video element available for local inference and face cropping.
-- Raw landmark CSV export can include biometric-derived coordinate data and should be handled carefully.
+- Raw landmark CSV export and face-crop preview can include biometric-derived data. They are hidden behind collapsed sensitive developer controls, require explicit action, remain memory-only unless the CSV is exported by the user, and are cleared from view when Debug Mode closes.
 
 ## Session Domain Layer
 
@@ -180,7 +182,9 @@ Clearing browser site data removes local session history and any recoverable ses
 
 ## Developer Diagnostics And Simulation
 
-Debug Mode is intended for local developer inspection of the browser camera/model/session pipeline. The diagnostics drawer reads existing AppContext and session-runtime state; opening it does not start the camera, request permissions, load extra models, start Monitoring, start a session, or write session data.
+Debug Mode is intended for local developer inspection of the browser camera/model/session pipeline. The diagnostics entry point is available in development builds. The diagnostics drawer reads existing AppContext and session-runtime state; opening it does not start the camera, request permissions, load extra models, start Monitoring, start a session, or write session data.
+
+The diagnostic snapshot distinguishes `N/A`, `Idle`, `Stale`, `Collecting baseline`, `Insufficient face coverage`, `Insufficient observations`, and `Model unavailable` states so startup placeholders are not presented as authoritative live measurements. MediaPipe inference latency and affect-model inference latency are shown separately. The emotion probability label refers to top softmax probability, not calibrated confidence, while the persisted session field remains named `emotionConfidence` for compatibility.
 
 The simulation controls are deliberately separated from authoritative metrics:
 
@@ -190,5 +194,5 @@ displayMetrics = simulationEnabled ? simulatedMetrics : liveMetrics
 
 `liveMetrics` are derived from current AppContext state and session sample timestamps. `simulatedMetrics` are normalized memory-only values for previewing future UI consumers. The current Dashboard, completed history, session statistics, repository writes, checkpoint timing, emotion model, attention estimator, and fatigue estimator continue to use authoritative live data only.
 
-The diagnostic event log is bounded to approximately 100 entries, coalesces immediate duplicates, sanitizes copied text, and remains in memory. It must not contain camera frames, face crops, landmarks, raw observations, model logits, full probability arrays, tokens, stack traces, or persisted user data.
+The diagnostic event log is bounded to approximately 100 entries, coalesces immediate duplicates, sanitizes copied text, and remains in memory. It must not contain camera frames, face crops, landmarks, raw observations, model logits, full probability arrays, tokens, stack traces, or persisted user data. Diagnostic snapshots, simulation values, crop previews, and sensitive export buffers are excluded from formal samples, statistics, checkpoints, completed history, and IndexedDB.
 

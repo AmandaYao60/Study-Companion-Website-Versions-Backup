@@ -106,9 +106,17 @@ Decision: Debug Mode exposes a developer diagnostics drawer with memory-only sim
 displayMetrics = simulationEnabled ? simulatedMetrics : liveMetrics
 ```
 
-Rationale: UI development needs predictable attention, fatigue, valence, arousal, emotion, confidence, face-state, and data-quality previews without corrupting live inference or persisted study history.
+Rationale: UI development needs predictable attention, fatigue, valence, arousal, emotion, top-probability, face-state, and data-quality previews without corrupting live inference or persisted study history.
 
 Consequences or trade-offs: Simulation can preview immediate diagnostic UI but does not create observations, formal metric samples, session statistics, completed history, repository writes, model output, camera state, Monitoring state, or checkpoint writes. Simulation and debug overrides reset when Debug Mode is turned off or the page refreshes.
+
+## Debug Diagnostics Use A Memory-Only Snapshot
+
+Decision: The Debug Panel reads a memory-only diagnostic snapshot updated at about one-second cadence from the existing live camera/model/session pipeline.
+
+Rationale: Developers need to understand why attention, fatigue, affect, gesture, aggregation, and performance values are valid, stale, idle, or gated without adding a parallel estimator or writing diagnostic details into persistence.
+
+Consequences or trade-offs: The snapshot can display intermediate values such as face coverage, pose and stability scores, EAR baseline progress, PERCLOS, blink-rate comparison, top three emotion probabilities, MediaPipe latency, and affect latency. It does not change formulas, enter formal samples, update session statistics, write IndexedDB records, persist full emotion probability arrays, or expose logits.
 
 ## Diagnostic Logs Are Sanitized And Memory-Only
 
@@ -117,3 +125,11 @@ Decision: The developer diagnostics event log is bounded to approximately 100 re
 Rationale: Developers need a compact view of camera, model, session, sample, and checkpoint events without persisting sensitive runtime details.
 
 Consequences or trade-offs: The log intentionally excludes images, media streams, landmarks, face coordinates, raw observations, logits, full probability arrays, tokens, and stack traces. It is lost on refresh and is not written to IndexedDB or any cloud service.
+
+## Sensitive Debug Tools Require Explicit Action
+
+Decision: Face-crop preview and raw landmark CSV export live inside a collapsed Advanced / Sensitive Data section in Debug Mode.
+
+Rationale: Crops and landmark coordinates are sensitive biometric-derived developer artifacts even when they remain local and memory-only.
+
+Consequences or trade-offs: The preview is off by default, clears when Debug Mode closes, and the CSV export requires confirmation. These tools do not add crop images, landmarks, raw observations, logits, or full probability arrays to event logs, formal samples, session history, or IndexedDB.

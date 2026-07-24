@@ -19,7 +19,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Dashboard SVG gauges, line chart, radar chart, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
-- Debug Mode exposes a developer diagnostics drawer with read-only pipeline status, live metric inspection, memory-only simulated display metrics, and a sanitized bounded event log.
+- Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
 
 ## In Progress
 
@@ -47,7 +47,8 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Interrupted active sessions can lose up to roughly one checkpoint interval. Recovery is local-only and depends on browser IndexedDB availability.
 - Recovered or camera-disabled sessions remain paused until the user grants camera access successfully. Webcam and Monitoring are not restarted automatically.
 - Debug Simulation values are memory-only display previews; they do not enter formal samples, statistics, completed history, or IndexedDB.
-- CSV exports contain landmark coordinates and should be handled as sensitive data.
+- Debug diagnostic snapshots distinguish valid, idle, stale, baseline-collecting, insufficient-coverage, insufficient-observation, and model-unavailable states; they do not enter formal samples, statistics, completed history, or IndexedDB.
+- CSV exports contain landmark coordinates and should be handled as sensitive data. The Debug Panel keeps raw landmark export and face-crop preview behind collapsed sensitive controls, with crop preview off by default and CSV export requiring confirmation.
 - Some source strings display mojibake characters.
 
 ### Next.js PostCSS dependency advisory

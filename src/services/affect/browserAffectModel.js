@@ -77,6 +77,13 @@ export const parseAffectOutput = (rawOutput) => {
     emotion: EMOTION_LABELS[predictedEmotionIndex],
     emotionLogits,
     emotionProbabilities,
+    topEmotionProbabilities: emotionProbabilities
+      .map((probability, index) => ({
+        emotion: EMOTION_LABELS[index],
+        probability,
+      }))
+      .sort((left, right) => right.probability - left.probability)
+      .slice(0, 3),
     topEmotionProbability: emotionProbabilities[predictedEmotionIndex],
     valence: rawOutput[VALENCE_INDEX],
     arousal: rawOutput[AROUSAL_INDEX],
