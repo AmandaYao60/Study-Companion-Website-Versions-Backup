@@ -38,7 +38,7 @@ export default function ProductDashboard() {
           <Link href="/app" className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-xs font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20">
             Return to Study Space
           </Link>
-          <button type="button" onClick={() => void handleClear()} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-2 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-800 hover:text-white">
+          <button type="button" onClick={() => void handleClear()} className="rounded-xl border border-white/10 bg-rose-900/20 px-4 py-2 text-xs font-semibold text-rose-300 transition-all hover:bg-rose-800 hover:text-white">
             Clear Local Data
           </button>
         </div>

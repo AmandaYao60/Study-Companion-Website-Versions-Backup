@@ -155,14 +155,14 @@ function ExpressionDistributionChart({ distribution }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3 md:grid md:h-full md:grid-rows-[repeat(8,minmax(0,1fr))] md:gap-2 md:space-y-0">
       {distribution.items.map((item) => {
         const percent = Math.round(item.percentage * 100);
         const intervalLabel = `${item.count} interval${item.count === 1 ? "" : "s"}`;
         return (
-          <div key={item.label} className="grid grid-cols-[5.5rem_minmax(0,1fr)_7.5rem] items-center gap-3 text-xs">
+          <div key={item.label} className="grid min-h-12 grid-cols-[5.5rem_minmax(0,1fr)_7.5rem] items-center gap-3 rounded-lg px-2 py-2 text-xs md:min-h-0">
             <span className="truncate font-semibold text-slate-300">{item.label}</span>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+            <div className="h-4 overflow-hidden rounded-full bg-white/[0.02]">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-300"
                 style={{ width: `${percent}%` }}
@@ -208,14 +208,12 @@ function EmotionalEngagementDialog({ open, onClose, trajectory, meanPoint, distr
         role="dialog"
         aria-modal="true"
         aria-labelledby="emotional-engagement-dialog-title"
-        className="grid h-[92dvh] max-h-[92dvh] w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)_minmax(130px,0.32fr)] gap-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 text-white shadow-2xl sm:p-5"
+        className="grid h-[92dvh] max-h-[92dvh] w-full max-w-7xl grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 text-white shadow-2xl sm:p-5"
       >
         <header className="flex items-start justify-between gap-4 border-b border-white/10 pb-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">Expanded Analysis</p>
-            <h2 id="emotional-engagement-dialog-title" className="mt-1 text-lg font-black tracking-tight">
-              Emotional Engagement
-            </h2>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 id="emotional-engagement-dialog-title" className="text-[18px] font-bold uppercase tracking-[0.24em]"> Emotional Engagement: </h2>
+            <p className="text-[18px] font-bold uppercase tracking-[0.24em] text-emerald-300"> Expanded Analysis </p>
           </div>
           <button
             ref={closeRef}
@@ -227,22 +225,39 @@ function EmotionalEngagementDialog({ open, onClose, trajectory, meanPoint, distr
           </button>
         </header>
 
-        <section className="min-h-0">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Valence-Arousal Trajectory</h3>
-          <div className="relative mt-2 flex h-[calc(100%-1.75rem)] min-h-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-slate-950/60">
-            <div className="aspect-[13/9] h-full max-h-full max-w-full">
-              <ValenceArousalPlot trajectory={trajectory} meanPoint={meanPoint} interactive label="Expanded valence arousal trajectory chart" />
+        <div className="grid min-h-0 items-stretch gap-4 md:grid-cols-[minmax(0,1.25fr)_minmax(380px,0.95fr)]">
+          <section className="flex h-full min-h-0 flex-col"> 
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-slate-950/60 p-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white"> Valence-Arousal Trajectory </h3>
+              <p className="mt-1 text-[11px] text-slate-500"> Place the mouse cursor on any green point to view the detailed data </p>
+              <div className="mt-2 flex min-h-0 flex-1 items-center justify-center">
+                <div className="aspect-[13/7] h-full max-h-full max-w-full">
+                  <ValenceArousalPlot trajectory={trajectory} meanPoint={meanPoint} interactive label="Expanded valence arousal trajectory chart"/>
+                </div>
+              </div> 
             </div>
-          </div>
-        </section>
-
-        <section className="min-h-0 rounded-xl border border-white/10 bg-slate-900/35 p-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-white">Expression Interval Distribution</h3>
-          <p className="mt-1 text-[11px] text-slate-500">Proportion of valid affect intervals classified as each expression.</p>
-          <div className="mt-3 max-h-[calc(100%-2.5rem)] overflow-hidden">
-            <ExpressionDistributionChart distribution={distribution} />
-          </div>
-        </section>
+            
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px] font-semibold text-slate-500">
+              <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-sky-400" />Start</span>
+              <span><span className="mr-1 inline-block h-2 w-2 rotate-45 bg-amber-300" />Current/final</span>
+              <span><span className="mr-1 inline-block h-2 w-2 bg-pink-400" />Mean</span>
+            </div>
+            <p className="mt-3 text-[14px] leading-relaxed text-slate-500">
+              VA coordinates are continuous. Discrete expressions come only from the stored classifier output for each interval.
+            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-slate-500">
+              The circumplex model maps affect across two dimensions: valence describes how pleasant or unpleasant a state is, while arousal describes its level of activation or energy.
+            </p>
+            
+          </section>
+          <section className="flex h-full min-h-0 flex-col rounded-xl border border-white/10 bg-slate-900/35 p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white"> Expression Interval Distribution </h3>
+            <p className="mt-1 text-[11px] text-slate-500"> Proportion of valid affect intervals classified as each expression. </p>
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 md:overflow-hidden">
+              <ExpressionDistributionChart distribution={distribution} />
+            </div>
+          </section>
+        </div>
       </section>
     </div>,
     document.body,
@@ -268,25 +283,25 @@ export default function EmotionalEngagementChart({
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-white">Emotional Engagement</h2>
-          <p className="mt-1 text-xs text-slate-500">Continuous valence-arousal trajectory across the study session</p>
+          <p className="mt-1 text-xs text-slate-500">Continuous valence-arousal trajectory </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canExpand && (
-            <button
-              type="button"
-              onClick={() => setIsExpanded(true)}
-              className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[10px] font-semibold text-emerald-200 transition-all hover:bg-emerald-400/20"
-            >
-              Expand Analysis
-            </button>
-          )}
-          <span className="rounded-full border border-white/10 bg-slate-900 px-2 py-1 text-[10px] font-semibold text-slate-400">
+        <div className="shrink-0">
+          <span className="inline-block whitespace-nowrap rounded-full border border-white/10 bg-slate-900 px-2 py-1 text-center text-[10px] font-semibold text-slate-400">
             {chartModeLabel(resolvedViewState, mode)}
           </span>
         </div>
       </div>
 
       <div className="relative mt-5 flex min-h-[360px] flex-1 overflow-hidden rounded-xl border border-white/10 bg-slate-950/60">
+        {canExpand && (
+          <button
+            type="button"
+            onClick={() => setIsExpanded(true)}
+            className="absolute right-3 top-3 z-10 whitespace-nowrap rounded-full border border-emerald-400/30 bg-slate-950/80 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 shadow-lg backdrop-blur-md transition-all hover:border-emerald-400/50 hover:bg-emerald-400/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+          >
+            Expand Analysis
+          </button>
+        )}
         <ValenceArousalPlot trajectory={trajectory} meanPoint={meanPoint} interactive={false} />
       </div>
 
