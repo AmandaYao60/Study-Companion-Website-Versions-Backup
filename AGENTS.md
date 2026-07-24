@@ -12,13 +12,24 @@ Before making changes, future coding agents must:
 - Inspect the current source files that are relevant to the requested change.
 - Check `git diff` before editing when `git` is available.
 - Treat the current working tree as the only source of truth.
+- Treat the local repository and current branch as the source of truth; do not clone another copy.
+- Do not pull, fetch, reset, restore, clean, stash, switch branches, or push unless the user explicitly requests it.
+- Preserve unrelated user changes and untracked files.
 - Avoid relying on previous AI conversations, earlier generated reviews, or remembered file versions.
 - Make the smallest necessary change.
 - Avoid unrelated refactoring.
+- Do not change dependencies or lockfiles unless the task genuinely requires it.
+- Do not introduce a new test framework without approval.
 - Preserve the current `CameraFeed.js` state behavior unless the user explicitly asks to change it.
+- Run relevant existing tests for the changed area when available.
 - Run `npm run lint`.
 - Run `npm run build`.
+- Run `git diff --check`.
 - Report every changed file.
+- Report only validation that actually ran.
+- Stage intended files explicitly; never use `git add .` or `git add -A`.
+- When the user requests a commit, create the requested local commit and do not push.
+- Final reports should summarize changes and validation; do not paste the complete `git diff`.
 - Avoid committing unless the user explicitly requests a commit.
 - Do not run `npm audit fix --force`. It currently proposes downgrading
   Next.js from 16.x to 9.3.3.

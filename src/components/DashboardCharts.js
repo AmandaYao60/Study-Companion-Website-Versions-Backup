@@ -111,7 +111,12 @@ export default function DashboardCharts() {
 
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
         <BehavioralEngagementChart samples={sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
-        <EmotionalEngagementChart samples={sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />
+        <EmotionalEngagementChart
+          samples={sourceSamples}
+          mode={source.kind === "active" ? "live" : "historical"}
+          viewState={source.kind === "active" ? "active" : source.kind === "completed" ? "end" : "historical"}
+          allowExpandedAnalysis={source.kind === "active" || source.kind === "completed"}
+        />
       </div>
 
       <MetricStreamTable rows={source.kind === "active" ? activeSessionLiveMetrics : sourceSamples} mode={source.kind === "active" ? "live" : "historical"} />

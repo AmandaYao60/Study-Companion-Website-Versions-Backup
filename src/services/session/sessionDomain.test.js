@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  CIRCUMPLEX_REFERENCE_LABELS,
   DATA_QUALITY,
   DEFAULT_METRIC_TREND_THRESHOLDS,
   EMOTION_LABELS,
@@ -17,9 +16,9 @@ import {
   createMemorySessionRepository,
   createStudySession,
   generateSessionSummary,
-  hasCompleteCircumplexReferenceSet,
   selectDashboardMetricCards,
   selectDominantEmotion,
+  selectExpressionIntervalDistribution,
   sortSessionsByNewest,
   validateSessionRepositoryContract,
 } from "./index.js";
@@ -217,8 +216,34 @@ test("completed sessions and newest sorting support future history browsing", ()
   assert.equal(sortSessionsByNewest([oldSession, completed])[0].id, "new");
 });
 
-test("circumplex configuration contains all eight expected labels", () => {
-  assert.equal(CIRCUMPLEX_REFERENCE_LABELS.length, 8);
-  assert.deepEqual([...CIRCUMPLEX_REFERENCE_LABELS].sort(), [...EMOTION_LABELS].sort());
-  assert.equal(hasCompleteCircumplexReferenceSet(), true);
+test("expression interval distribution counts only valid classified affect intervals", () => {
+  const distribution = selectExpressionIntervalDistribution([
+    { id: "valid-1", intervalStartedAt: "2026-01-01T00:00:00.000Z", valence: 0.2, arousal: 0.3, emotion: "Happiness", emotionConfidence: 0.2 },
+    { id: "valid-2", intervalStartedAt: "2026-01-01T00:00:05.000Z", valence: -0.2, arousal: 0.1, emotion: "Sadness", emotionConfidence: 0.9 },
+    { id: "valid-3", intervalStartedAt: "2026-01-01T00:00:10.000Z", valence: 0.1, arousal: 0.2, emotion: "Happiness", emotionConfidence: 0.1 },
+    { id: "missing-affect", intervalStartedAt: "2026-01-01T00:00:15.000Z", valence: null, arousal: 0.1, emotion: "Neutral", emotionConfidence: 0.8 },
+    { id: "missing-emotion", intervalStartedAt: "2026-01-01T00:00:20.000Z", valence: 0.1, arousal: 0.1, emotion: null, emotionConfidence: 0.8 },
+    { id: "unknown-emotion", intervalStartedAt: "2026-01-01T00:00:25.000Z", valence: 0.1, arousal: 0.1, emotion: "NotAClass", emotionConfidence: 0.8 },
+  ]);
+
+  const happiness = distribution.items.find((item) => item.label === "Happiness");
+  const sadness = distribution.items.find((item) => item.label === "Sadness");
+
+  assert.equal(distribution.total, 3);
+  assert.equal(happiness.count, 2);
+  assert.equal(happiness.percentage, 2 / 3);
+  assert.equal(sadness.count, 1);
+  assert.equal(sadness.percentage, 1 / 3);
+  assert.deepEqual(distribution.items.map((item) => item.label), EMOTION_LABELS);
+});
+
+test("expression interval distribution reports honest empty state data", () => {
+  const distribution = selectExpressionIntervalDistribution([
+    { id: "invalid-1", valence: null, arousal: null, emotion: "Neutral" },
+    { id: "invalid-2", valence: 0.1, arousal: 0.2, emotion: null },
+  ]);
+
+  assert.equal(distribution.total, 0);
+  assert.equal(distribution.items.length, EMOTION_LABELS.length);
+  assert.ok(distribution.items.every((item) => item.count === 0 && item.percentage === 0));
 });

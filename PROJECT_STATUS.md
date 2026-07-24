@@ -20,6 +20,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
 - Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
+- Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active and latest completed sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
 
 ## In Progress
 
@@ -48,6 +49,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Recovered or camera-disabled sessions remain paused until the user grants camera access successfully. Webcam and Monitoring are not restarted automatically.
 - Debug Simulation values are memory-only display previews; they do not enter formal samples, statistics, completed history, or IndexedDB.
 - Debug diagnostic snapshots distinguish valid, idle, stale, baseline-collecting, insufficient-coverage, insufficient-observation, and model-unavailable states; they do not enter formal samples, statistics, completed history, or IndexedDB.
+- Expression distributions count only stored top-1 classifier labels from valid affect intervals. They do not infer expressions from VA coordinates or persist full probability vectors.
 - CSV exports contain landmark coordinates and should be handled as sensitive data. The Debug Panel keeps raw landmark export and face-crop preview behind collapsed sensitive controls, with crop preview off by default and CSV export requiring confirmation.
 - Some source strings display mojibake characters.
 

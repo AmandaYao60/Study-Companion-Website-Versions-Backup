@@ -1,4 +1,4 @@
-import { DEFAULT_METRIC_TREND_THRESHOLDS, SESSION_STATUS } from "./sessionConstants.js";
+import { DEFAULT_METRIC_TREND_THRESHOLDS, EMOTION_LABELS, SESSION_STATUS } from "./sessionConstants.js";
 import { calculateMetricStatistics, calculateSessionStatistics } from "./sessionStatistics.js";
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -62,6 +62,31 @@ export const selectEmotionalTrajectory = (samples = []) => sortSamplesChronologi
     emotionConfidence: isFiniteNumber(sample.emotionConfidence) ? sample.emotionConfidence : null,
     dataQuality: sample.dataQuality,
   }));
+
+/** Count valid classified affect intervals by stored top-1 expression. @param {Array<Object>} samples */
+export const selectExpressionIntervalDistribution = (samples = []) => {
+  const counts = new Map(EMOTION_LABELS.map((label) => [label, 0]));
+  let total = 0;
+
+  sortSamplesChronologically(samples).forEach((sample) => {
+    if (!isFiniteNumber(sample.valence) || !isFiniteNumber(sample.arousal)) return;
+    if (!sample.emotion || !counts.has(sample.emotion)) return;
+    counts.set(sample.emotion, counts.get(sample.emotion) + 1);
+    total += 1;
+  });
+
+  return {
+    total,
+    items: EMOTION_LABELS.map((label) => {
+      const count = counts.get(label) || 0;
+      return {
+        label,
+        count,
+        percentage: total > 0 ? count / total : 0,
+      };
+    }),
+  };
+};
 
 /** @param {Array<Object>} samples */
 export const selectMetricAverages = (samples = []) => ({

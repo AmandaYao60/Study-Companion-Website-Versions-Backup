@@ -133,3 +133,11 @@ Decision: Face-crop preview and raw landmark CSV export live inside a collapsed 
 Rationale: Crops and landmark coordinates are sensitive biometric-derived developer artifacts even when they remain local and memory-only.
 
 Consequences or trade-offs: The preview is off by default, clears when Debug Mode closes, and the CSV export requires confirmation. These tools do not add crop images, landmarks, raw observations, logits, or full probability arrays to event logs, formal samples, session history, or IndexedDB.
+
+## VA Charts Do Not Render Discrete Expression Regions
+
+Decision: Emotional Engagement charts render a continuous valence-arousal trajectory without hardcoded discrete-emotion ellipses or regions.
+
+Rationale: Valence-arousal coordinates are continuous affect outputs and should not imply that discrete facial expressions can be derived from chart position.
+
+Consequences or trade-offs: Collapsed active/end-session cards and historical reports are static VA overviews. Active and latest completed sessions can open an expanded analysis dialog with point tooltips and an expression-interval distribution based only on stored top-1 classifier labels from valid affect intervals. Historical report modals have no expand action, tooltip, or distribution. No full probability vectors, logits, chart-only records, schema changes, or IndexedDB changes were added.

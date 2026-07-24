@@ -84,7 +84,8 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 `src/components/DashboardCharts.js` renders dashboard visuals with inline SVG:
 
 - Metric cards for attention, fatigue, valence, and affect arousal.
-- Behavioral and emotional trend charts based on active live metrics or completed session samples.
+- Behavioral and emotional trend charts based on active live metrics or completed session samples. Emotional Engagement uses a continuous valence-arousal plot without discrete emotion regions.
+- An expanded Emotional Engagement analysis dialog for active sessions and the latest completed session. The dialog shows the enlarged VA trajectory plus an expression-interval distribution computed from stored top-1 classifier labels.
 - Session summary, metric stream, and completed-history detail views.
 
 ## AppContext Responsibilities
@@ -168,7 +169,7 @@ Stored session records use `attention` as the canonical behavioral metric name. 
 
 The session persistence boundary excludes camera images, face crops, face landmarks, hand landmarks, ONNX tensors, model logits, full emotion probability arrays, raw MediaPipe matrices, debug logs, full telemetry rows, and raw biometric coordinate exports. Persisted session data contains completed study-session summaries, formal interval metric samples with derived fields such as attention, fatigue, valence, arousal, emotion, emotion confidence, data quality, and coverage metadata, and the minimum active-session timing fields needed for local interruption recovery.
 
-Schema, pipeline, aggregation, and summary algorithm versions are stored with session records so historical sessions remain interpretable after algorithms change. Future re-analysis should be explicit rather than silently overwriting old summaries. `circumplexConfig.js` contains illustrative emotion reference regions for later charting; they are not diagnostic boundaries, and the model's categorical emotion must come from EmotiEffLib rather than being inferred solely from valence-arousal coordinates.
+Schema, pipeline, aggregation, and summary algorithm versions are stored with session records so historical sessions remain interpretable after algorithms change. Future re-analysis should be explicit rather than silently overwriting old summaries. VA coordinates are continuous affect values; the model's categorical expression must come from EmotiEffLib top-1 classifier output rather than being inferred from valence-arousal coordinates.
 
 ## Persistence
 
@@ -195,4 +196,12 @@ displayMetrics = simulationEnabled ? simulatedMetrics : liveMetrics
 `liveMetrics` are derived from current AppContext state and session sample timestamps. `simulatedMetrics` are normalized memory-only values for previewing future UI consumers. The current Dashboard, completed history, session statistics, repository writes, checkpoint timing, emotion model, attention estimator, and fatigue estimator continue to use authoritative live data only.
 
 The diagnostic event log is bounded to approximately 100 entries, coalesces immediate duplicates, sanitizes copied text, and remains in memory. It must not contain camera frames, face crops, landmarks, raw observations, model logits, full probability arrays, tokens, stack traces, or persisted user data. Diagnostic snapshots, simulation values, crop previews, and sensitive export buffers are excluded from formal samples, statistics, checkpoints, completed history, and IndexedDB.
+
+## Emotional Engagement Charts
+
+The Emotional Engagement VA chart shows only the continuous valence-arousal coordinate space, axes, trajectory points, start/current-final markers, and mean marker. It no longer renders hardcoded discrete-emotion regions because those regions could imply that expressions are inferred from VA coordinates.
+
+Collapsed active and end-session Emotional Engagement cards are non-interactive overviews: no point hover, no tooltip, and no expression distribution. Active and latest completed sessions can open the expanded analysis dialog. Inside that dialog only, point hover shows interval time, valence, arousal, stored top expression, stored top probability when present, and data quality. The probability is the interval's top softmax probability, not calibrated confidence.
+
+The expression distribution is available only in the expanded active/end-session dialog. It counts each valid classified affect interval once by its stored top-1 expression, excludes invalid, missing, or unclassified affect intervals from the denominator, and does not weight bars by `emotionConfidence` or reconstruct full probability vectors. Historical report modals keep a static VA trajectory and show no expand action, point tooltip, or expression distribution. No schema or full probability-vector persistence was added.
 

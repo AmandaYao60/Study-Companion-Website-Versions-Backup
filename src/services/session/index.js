@@ -4,7 +4,6 @@ export * from "./metricAggregation.js";
 export * from "./sessionStatistics.js";
 export * from "./sessionSummary.js";
 export * from "./sessionSelectors.js";
-export * from "./circumplexConfig.js";
 export * from "./repositories/sessionRepository.js";
 export * from "./repositories/memorySessionRepository.js";
 export * from "./repositories/indexedDbSessionRepository.js";
