@@ -7,6 +7,7 @@ import CameraFeed from "../CameraFeed";
 import SessionSetupForm from "./SessionSetupForm";
 import ActiveSessionCard from "./ActiveSessionCard";
 import EndSessionDialog from "./EndSessionDialog";
+import PostSessionReflectionDialog from "./PostSessionReflectionDialog";
 
 const formatStatusValue = (value) => {
   if (!value) return "Idle";
@@ -56,8 +57,10 @@ export default function StudySpace() {
     addLog,
   } = useAppState();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isReflectionOpen, setIsReflectionOpen] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
+  const [isCompletingReflection, setIsCompletingReflection] = useState(false);
 
   const hasActivatedSession = activeSession && activeSession.status !== "prepared";
   const isSessionActive = activeSession?.status === "active";
@@ -93,14 +96,31 @@ export default function StudySpace() {
   const handleEnd = async () => {
     setIsEnding(true);
     try {
-      const completed = await finishSession();
+      if (activeSession?.status === "active" || isMonitoring) {
+        await pauseSession({ silent: true });
+      }
       setIsDialogOpen(false);
+      setIsReflectionOpen(true);
+    } catch (error) {
+      console.error("Failed to pause before reflection:", error);
+      addLog("Could not pause the study session before reflection. Please try again.", "error");
+    } finally {
+      setIsEnding(false);
+    }
+  };
+
+  const handleSaveReflection = async (postSessionCheckOut) => {
+    if (isCompletingReflection) return;
+    setIsCompletingReflection(true);
+    try {
+      const completed = await finishSession({ postSessionCheckOut });
+      setIsReflectionOpen(false);
       router.push(completed ? "/app/dashboard" : "/app");
     } catch (error) {
       console.error("Failed to finish study session:", error);
       addLog("Could not finish and save the study session. Please try again.", "error");
     } finally {
-      setIsEnding(false);
+      setIsCompletingReflection(false);
     }
   };
 
@@ -119,11 +139,19 @@ export default function StudySpace() {
     }
   };
 
+  if (!activeSession) {
+    return (
+      <div className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-3xl items-center px-4 py-8 sm:px-6 lg:px-8">
+        <SessionSetupForm />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(320px,0.38fr)_minmax(0,0.62fr)] lg:items-start">
         <aside className="space-y-6 lg:sticky lg:top-36">
-          {activeSession ? <ActiveSessionCard /> : <SessionSetupForm />}
+          <ActiveSessionCard />
           <ModelStatusPanel
             isCameraAllowed={isCameraAllowed}
             isAiLoaded={isAiLoaded}
@@ -171,6 +199,13 @@ export default function StudySpace() {
         </main>
       </div>
       <EndSessionDialog open={isDialogOpen} isEnding={isEnding} onClose={() => setIsDialogOpen(false)} onConfirm={() => void handleEnd()} onDiscard={() => void handleDiscard()} />
+      <PostSessionReflectionDialog
+        open={isReflectionOpen}
+        session={activeSession}
+        isSaving={isCompletingReflection}
+        onCancel={() => setIsReflectionOpen(false)}
+        onSave={(postSessionCheckOut) => void handleSaveReflection(postSessionCheckOut)}
+      />
     </div>
   );
 }

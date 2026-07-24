@@ -1304,7 +1304,17 @@ export const AppProvider = ({ children }) => {
     setDebugDiagnosticSnapshot(createDefaultDiagnosticSnapshot());
   }, [resetAffectState]);
 
-  const prepareSession = useCallback(async ({ taskDescription = "", targetDurationMs = null, preSessionCheckIn = null } = {}) => {
+  const prepareSession = useCallback(async ({
+    taskName = "",
+    taskDescription = "",
+    targetDurationMs = null,
+    subject = null,
+    customSubject = null,
+    taskType = null,
+    customTaskType = null,
+    sessionGoal = null,
+    preSessionCheckIn = null,
+  } = {}) => {
     const existing = activeSessionRef.current;
     if (existing) {
       return existing;
@@ -1322,8 +1332,14 @@ export const AppProvider = ({ children }) => {
     setHasDetectedHand(false);
 
     const session = await sessionRuntimeRef.current.prepareSession({
+      taskName,
       taskDescription,
       targetDurationMs,
+      subject,
+      customSubject,
+      taskType,
+      customTaskType,
+      sessionGoal,
       preSessionCheckIn,
     });
 
@@ -1482,13 +1498,13 @@ export const AppProvider = ({ children }) => {
     return active;
   }, [addLog, clearCameraStream, resetTransientInferenceState, syncSessionState]);
 
-  const finishSession = useCallback(async () => {
+  const finishSession = useCallback(async ({ postSessionCheckOut = null } = {}) => {
     if (!activeSessionRef.current) return null;
 
     const elapsedMs = getSessionElapsedMs();
     setIsMonitoring(false);
 
-    const completed = await sessionRuntimeRef.current.finishSession(elapsedMs);
+    const completed = await sessionRuntimeRef.current.finishSession(elapsedMs, { postSessionCheckOut });
     clearCameraStream();
     resetTransientInferenceState();
     resetSessionClock();

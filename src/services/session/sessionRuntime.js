@@ -197,9 +197,16 @@ export const createSessionRuntime = (options = {}) => {
 
       const startedAt = input.startedAt || now();
       const session = createStudySession({
+        taskName: input.taskName || input.taskDescription || "",
         taskDescription: input.taskDescription || "",
         targetDurationMs: input.targetDurationMs ?? null,
+        subject: input.subject ?? null,
+        customSubject: input.customSubject ?? null,
+        taskType: input.taskType ?? null,
+        customTaskType: input.customTaskType ?? null,
+        sessionGoal: input.sessionGoal ?? null,
         preSessionCheckIn: input.preSessionCheckIn ?? null,
+        postSessionCheckOut: input.postSessionCheckOut ?? null,
         startedAt,
         createdAt: startedAt,
         updatedAt: startedAt,
@@ -342,7 +349,7 @@ export const createSessionRuntime = (options = {}) => {
       return flushPendingObservations(options);
     },
 
-    async finishSession(actualDurationMs = 0) {
+    async finishSession(actualDurationMs = 0, completionInput = {}) {
       if (!activeSession) return null;
       await timingWritePromise.catch(() => null);
       await flushPendingObservations({ force: true });
@@ -354,6 +361,7 @@ export const createSessionRuntime = (options = {}) => {
         actualDurationMs,
         accumulatedStudyMs: actualDurationMs,
         recoveryPending: false,
+        postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
       };
       const samples = await repository.getMetricSamples(activeSession.id);
       const statistics = calculateSessionStatistics(samples, sessionForStats);
@@ -366,6 +374,7 @@ export const createSessionRuntime = (options = {}) => {
         summary,
         sampleCount: samples.length,
         dataCoverage: statistics.dataCoverage,
+        postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
       });
 
       const saved = await repository.completeSession(activeSession.id, completed);

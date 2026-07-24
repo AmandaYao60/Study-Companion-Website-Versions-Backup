@@ -9,7 +9,7 @@ import { selectDashboardSessionSource } from "../../services/session/index.js";
 export default function ProductDashboard() {
   const { activeSession, completedSessions, resetMetrics } = useAppState();
   const source = useMemo(() => selectDashboardSessionSource({ activeSession, completedSessions }), [activeSession, completedSessions]);
-  const badgeLabel = source.kind === "active" ? "Live Session" : source.kind === "completed" ? "Session Complete" : "No Session Data";
+  const badgeLabel = source.kind === "completed" ? "Latest Session Analysis" : "No Completed Sessions";
 
   const handleClear = async () => {
     if (!window.confirm("Clear all local session data? This cannot be undone.")) return;
@@ -30,7 +30,7 @@ export default function ProductDashboard() {
             <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">{badgeLabel}</span>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            {source.kind === "active" ? "This session is still in progress. Opening Dashboard does not pause monitoring." : "Review completed study sessions stored locally in this browser."}
+            Review completed study sessions stored locally in this browser.
           </p>
         </div>
 

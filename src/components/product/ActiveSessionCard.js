@@ -6,12 +6,17 @@ import { useAppState } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTask } from "../dashboard/dashboardFormatters";
 import SessionProgress from "../session/SessionProgress";
+import { formatSubjectLabel, formatTaskTypeLabel } from "../../services/session/index.js";
 
-const formatCheckIn = (checkIn) => {
-  if (!checkIn) return null;
+const formatRating = (value) => Number.isInteger(value) ? `${value}/5` : null;
+const formatCheckIn = (session) => {
+  const checkIn = session?.preSessionCheckIn;
+  if (!session && !checkIn) return null;
   const details = [];
-  if (checkIn.energy) details.push(`Energy: ${checkIn.energy}`);
-  if (checkIn.mood) details.push(`Mood: ${checkIn.mood}`);
+  if (session.subject) details.push(`Subject: ${session.subject === "other" ? session.customSubject || "Other" : formatSubjectLabel(session.subject)}`);
+  if (session.taskType) details.push(`Task type: ${session.taskType === "other" ? session.customTaskType || "Other" : formatTaskTypeLabel(session.taskType)}`);
+  if (formatRating(checkIn?.energy)) details.push(`Initial energy: ${formatRating(checkIn.energy)}`);
+  if (formatRating(checkIn?.mood)) details.push(`Initial mood: ${formatRating(checkIn.mood)}`);
   return details.length > 0 ? details.join(" / ") : null;
 };
 
@@ -35,7 +40,7 @@ export default function ActiveSessionCard() {
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";
   const canEnterFocus = (activeSession.status === "active" || activeSession.status === "paused") && isCameraAllowed;
   const canViewAnalytics = !isPrepared;
-  const checkInSummary = formatCheckIn(activeSession.preSessionCheckIn);
+  const checkInSummary = formatCheckIn(activeSession);
   const attentionMetric = resolvedDebugMetrics.attention;
   const fatigueMetric = resolvedDebugMetrics.fatigue;
   const hasDebugOverride = attentionMetric.overrideActive || fatigueMetric.overrideActive;

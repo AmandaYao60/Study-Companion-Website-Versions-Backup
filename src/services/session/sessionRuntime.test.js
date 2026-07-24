@@ -234,3 +234,54 @@ test("recovered sessions continue sample numbering and discard cascades samples"
   assert.equal(await recoveredRuntime.getSessionById(prepared.id), null);
   assert.deepEqual(await recoveredRuntime.getMetricSamples(prepared.id), []);
 });
+
+test("runtime persists setup context and post-session reflection on completion", async () => {
+  setNow("2026-01-06T00:00:00.000Z");
+  const runtime = createSessionRuntime({
+    now,
+    idFactory: () => "runtime-session-reflection",
+    sampleIntervalMs: 1000,
+  });
+
+  const prepared = await runtime.prepareSession({
+    taskName: "SAT Reading Practice",
+    taskDescription: "SAT Reading Practice",
+    targetDurationMs: 25 * 60000,
+    subject: "test_preparation",
+    taskType: "reading",
+    sessionGoal: "Finish one passage.",
+    preSessionCheckIn: {
+      expectedDifficulty: 3,
+      taskConfidence: 4,
+      mood: 2,
+      energy: 4,
+      taskValue: 5,
+      recordedAt: "2026-01-06T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(prepared.status, SESSION_STATUS.PREPARED);
+  assert.equal(prepared.subject, "test_preparation");
+  assert.equal(prepared.preSessionCheckIn.energy, 4);
+
+  await runtime.activatePreparedSession();
+  const completed = await runtime.finishSession(1500, {
+    postSessionCheckOut: {
+      sessionEnergy: 3,
+      sessionMood: 4,
+      perceivedAttention: 5,
+      strategiesUsed: ["elaboration", "organization"],
+      primaryStrategy: "elaboration",
+      primaryStrategyEffectiveness: 4,
+      primaryLearningActivity: "generated_new_understanding",
+      learningReflection: "  I improved main-idea timing. ",
+      recordedAt: "2026-01-06T00:02:00.000Z",
+    },
+  });
+
+  assert.equal(completed.id, prepared.id);
+  assert.equal(completed.status, SESSION_STATUS.COMPLETED);
+  assert.equal(completed.postSessionCheckOut.sessionEnergy, 3);
+  assert.equal(completed.postSessionCheckOut.primaryStrategy, "elaboration");
+  assert.equal(completed.postSessionCheckOut.learningReflection, "I improved main-idea timing.");
+});

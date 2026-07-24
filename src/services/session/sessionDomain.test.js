@@ -16,10 +16,14 @@ import {
   createMemorySessionRepository,
   createStudySession,
   generateSessionSummary,
+  normalizePostSessionCheckOut,
+  normalizeStudySession,
   selectDashboardMetricCards,
+  selectDashboardSessionSource,
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
   sortSessionsByNewest,
+  validateStudySession,
   validateSessionRepositoryContract,
 } from "./index.js";
 
@@ -214,6 +218,112 @@ test("completed sessions and newest sorting support future history browsing", ()
 
   assert.equal(completed.status, SESSION_STATUS.COMPLETED);
   assert.equal(sortSessionsByNewest([oldSession, completed])[0].id, "new");
+});
+
+test("new sessions receive questionnaire defaults without fabricated answers", () => {
+  const session = createStudySession({
+    id: "self-report-defaults",
+    taskDescription: "Read chapter 8",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+  }, { now: () => baseTime });
+
+  assert.equal(session.taskName, "Read chapter 8");
+  assert.equal(session.preSessionCheckIn.expectedDifficulty, null);
+  assert.equal(session.preSessionCheckIn.mood, null);
+  assert.deepEqual(session.postSessionCheckOut.strategiesUsed, []);
+  assert.equal(session.postSessionCheckOut.sessionEnergy, null);
+  assert.equal(session.questionnaireSchemaVersion, 1);
+});
+
+test("older sessions normalize with missing self-report fields left blank", () => {
+  const normalized = normalizeStudySession({
+    id: "older-session",
+    taskDescription: "Legacy session",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    status: SESSION_STATUS.COMPLETED,
+    endedAt: baseTime,
+    actualDurationMs: 1000,
+    monitoredDurationMs: 1000,
+    dataCoverage: 0,
+  });
+
+  assert.equal(normalized.taskName, "Legacy session");
+  assert.equal(normalized.preSessionCheckIn.taskConfidence, null);
+  assert.equal(normalized.postSessionCheckOut.primaryLearningActivity, null);
+  assert.deepEqual(normalized.postSessionCheckOut.strategiesUsed, []);
+});
+
+test("invalid self-report values fail safely instead of becoming neutral defaults", () => {
+  const session = normalizeStudySession({
+    id: "invalid-self-report",
+    taskDescription: "Invalid values",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    preSessionCheckIn: {
+      expectedDifficulty: 99,
+      mood: 3,
+    },
+    postSessionCheckOut: {
+      strategiesUsed: ["none_or_unsure", "rehearsal"],
+      primaryStrategy: "rehearsal",
+      primaryStrategyEffectiveness: 4,
+      primaryLearningActivity: "bad-value",
+    },
+  });
+
+  assert.equal(session.preSessionCheckIn.expectedDifficulty, null);
+  assert.equal(session.preSessionCheckIn.mood, 3);
+  assert.deepEqual(session.postSessionCheckOut.strategiesUsed, ["none_or_unsure"]);
+  assert.equal(session.postSessionCheckOut.primaryStrategy, null);
+  assert.equal(session.postSessionCheckOut.primaryStrategyEffectiveness, null);
+  assert.equal(session.postSessionCheckOut.primaryLearningActivity, null);
+  assert.equal(validateStudySession(session).valid, true);
+});
+
+test("post-session reflection normalization preserves partial answers", () => {
+  const reflection = normalizePostSessionCheckOut({
+    sessionEnergy: 4,
+    perceivedAttention: 5,
+    strategiesUsed: ["rehearsal", "organization"],
+    primaryStrategy: "organization",
+    primaryStrategyEffectiveness: 4,
+    learningReflection: "  Finished chapter notes.  ",
+    nextSessionAdjustment: "   ",
+    recordedAt: baseTime,
+  });
+
+  assert.equal(reflection.sessionEnergy, 4);
+  assert.equal(reflection.sessionMood, null);
+  assert.deepEqual(reflection.strategiesUsed, ["rehearsal", "organization"]);
+  assert.equal(reflection.primaryStrategy, "organization");
+  assert.equal(reflection.learningReflection, "Finished chapter notes.");
+  assert.equal(reflection.nextSessionAdjustment, null);
+});
+
+test("dashboard historical source ignores active sessions and selects latest completed", () => {
+  const active = createStudySession({ id: "active", taskDescription: "Active", startedAt: baseTime, createdAt: baseTime, updatedAt: baseTime }, { now: () => baseTime });
+  const completed = createCompletedStudySession(createStudySession({
+    id: "completed",
+    taskDescription: "Completed",
+    startedAt: "2026-01-02T00:00:00.000Z",
+    createdAt: baseTime,
+    updatedAt: "2026-01-02T00:30:00.000Z",
+  }, { now: () => baseTime }), {
+    endedAt: "2026-01-02T00:30:00.000Z",
+    statistics: calculateSessionStatistics([], { id: "completed" }),
+    summary: generateSessionSummary({ statistics: calculateSessionStatistics([], { id: "completed" }), now: () => baseTime }),
+    sampleCount: 0,
+    dataCoverage: 0,
+  });
+
+  const source = selectDashboardSessionSource({ activeSession: active, completedSessions: [completed] });
+  assert.equal(source.kind, "completed");
+  assert.equal(source.session.id, "completed");
 });
 
 test("expression interval distribution counts only valid classified affect intervals", () => {

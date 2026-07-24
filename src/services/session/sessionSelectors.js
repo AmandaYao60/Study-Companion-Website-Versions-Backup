@@ -1,5 +1,11 @@
 import { DEFAULT_METRIC_TREND_THRESHOLDS, EMOTION_LABELS, SESSION_STATUS } from "./sessionConstants.js";
 import { calculateMetricStatistics, calculateSessionStatistics } from "./sessionStatistics.js";
+import {
+  formatLearningActivityLabel,
+  formatStrategyLabel,
+  formatSubjectLabel,
+  formatTaskTypeLabel,
+} from "./sessionSelfReport.js";
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 const timestampMs = (value) => {
@@ -39,6 +45,10 @@ export const selectSessionListRow = (session = {}) => ({
   targetDurationMs: session.targetDurationMs ?? null,
   actualDurationMs: session.actualDurationMs ?? null,
   dataCoverage: session.dataCoverage ?? null,
+  subject: session.subject ?? null,
+  customSubject: session.customSubject ?? null,
+  taskType: session.taskType ?? null,
+  customTaskType: session.customTaskType ?? null,
 });
 
 /** @param {Array<Object>} samples */
@@ -114,18 +124,37 @@ const metricDefinitions = Object.freeze([
 
 const getStatistics = (session, samples) => session?.statistics || calculateSessionStatistics(samples, session || {});
 
-/** Select the dashboard source in priority order: active session, latest completed session, empty state. @param {Object} input */
+/** Select the historical dashboard source in priority order: latest completed session, empty state. @param {Object} input */
 export const selectDashboardSessionSource = ({ activeSession = null, completedSessions = [] } = {}) => {
-  if (activeSession) {
-    return { kind: "active", label: "Live Session", session: activeSession };
-  }
-
   const latestCompleted = selectLatestCompletedSession(completedSessions);
   if (latestCompleted) {
     return { kind: "completed", label: "Session Complete", session: latestCompleted };
   }
 
-  return { kind: "empty", label: "No Session Data", session: null };
+  return { kind: "empty", label: activeSession ? "No Completed Sessions" : "No Session Data", session: null };
+};
+
+export const selectSessionContext = (session = null) => {
+  if (!session) return [];
+  return [
+    ["Task Name", session.taskName || session.taskDescription || null],
+    ["Target Duration", session.targetDurationMs ?? null],
+    ["Actual Duration", session.actualDurationMs ?? session.accumulatedStudyMs ?? null],
+    ["Subject", session.subject === "other" ? session.customSubject : formatSubjectLabel(session.subject)],
+    ["Task Type", session.taskType === "other" ? session.customTaskType : formatTaskTypeLabel(session.taskType)],
+    ["Session Goal", session.sessionGoal ?? null],
+  ];
+};
+
+export const selectPreSessionCheckIn = (session = null) => session?.preSessionCheckIn || null;
+export const selectPostSessionCheckOut = (session = null) => session?.postSessionCheckOut || null;
+export const selectReportedICAPMode = (session = null) => {
+  const activity = session?.postSessionCheckOut?.primaryLearningActivity || null;
+  return activity ? formatLearningActivityLabel(activity) : null;
+};
+export const selectFormattedStrategies = (session = null) => {
+  const strategies = session?.postSessionCheckOut?.strategiesUsed || [];
+  return strategies.map(formatStrategyLabel);
 };
 
 /** Return dashboard metric card models without exposing repository or statistics details to components. @param {Object} input */

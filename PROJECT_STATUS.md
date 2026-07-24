@@ -19,6 +19,8 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Dashboard SVG gauges, line chart, radar chart, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
+- Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
+- Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
 - Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
 - Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active and latest completed sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
 
@@ -52,6 +54,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Expression distributions count only stored top-1 classifier labels from valid affect intervals. They do not infer expressions from VA coordinates or persist full probability vectors.
 - CSV exports contain landmark coordinates and should be handled as sensitive data. The Debug Panel keeps raw landmark export and face-crop preview behind collapsed sensitive controls, with crop preview off by default and CSV export requiring confirmation.
 - Some source strings display mojibake characters.
+- Session check-in and reflection are theory-informed self-report fields only. They are not validated psychological tests, clinical assessments, diagnostic instruments, or learning scores.
 
 ### Next.js PostCSS dependency advisory
 

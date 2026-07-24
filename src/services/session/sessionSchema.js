@@ -7,9 +7,18 @@ import {
   SESSION_STATUS,
   SESSION_SUMMARY_ALGORITHM_VERSION,
 } from "./sessionConstants.js";
+import {
+  QUESTIONNAIRE_SCHEMA_VERSION,
+  SUBJECT_OPTIONS,
+  TASK_TYPE_OPTIONS,
+  normalizePostSessionCheckOut,
+  normalizePreSessionCheckIn,
+  validateSelfReportFields,
+} from "./sessionSelfReport.js";
 
-/** @typedef {{energy:string|null,mood:string|null}} PreSessionCheckIn */
-/** @typedef {{id:string,userId:string|null,taskDescription:string,targetDurationMs:number|null,preSessionCheckIn:PreSessionCheckIn,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
+/** @typedef {{expectedDifficulty:number|null,taskConfidence:number|null,mood:number|null,energy:number|null,taskValue:number|null,recordedAt:string|null}} PreSessionCheckIn */
+/** @typedef {{sessionEnergy:number|null,sessionMood:number|null,perceivedFatigue:number|null,perceivedAttention:number|null,perceivedDifficulty:number|null,goalAttainment:number|null,strategiesUsed:Array<string>,primaryStrategy:string|null,primaryStrategyEffectiveness:number|null,primaryLearningActivity:string|null,learningReflection:string|null,nextSessionAdjustment:string|null,recordedAt:string|null}} PostSessionCheckOut */
+/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
 /** @typedef {{recordedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,faceDetected:boolean,affectValid:boolean,dataValid:boolean}} MetricObservation */
 /** @typedef {{id:string,sessionId:string,recordedAt:string,intervalStartedAt:string,intervalEndedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,validObservationCount:number,expectedObservationCount:number,affectObservationCount:number,dataCoverage:number,dataQuality:string,aggregationVersion:string}} MetricSample */
 /** @typedef {{mean:number|null,min:number|null,max:number|null,standardDeviation:number|null,startMean:number|null,endMean:number|null,change:number|null,trend:string,validCount:number}} MetricStatistics */
@@ -21,8 +30,8 @@ import {
 const VALID_STATUSES = new Set(Object.values(SESSION_STATUS));
 const VALID_DATA_QUALITIES = new Set(Object.values(DATA_QUALITY));
 const VALID_EMOTIONS = new Set(EMOTION_LABELS);
-const VALID_ENERGY_LEVELS = new Set(["low", "moderate", "high"]);
-const VALID_MOOD_LEVELS = new Set(["negative", "neutral", "positive"]);
+const VALID_SUBJECTS = new Set(SUBJECT_OPTIONS);
+const VALID_TASK_TYPES = new Set(TASK_TYPE_OPTIONS);
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
@@ -36,11 +45,11 @@ const defaultIdFactory = (prefix = "session") => {
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const text = (value, fallback = "") => (value === null || value === undefined ? fallback : String(value));
 const nullableText = (value) => (value === null || value === undefined || value === "" ? null : String(value));
-const normalizePreSessionCheckIn = (value = null) => {
-  const energy = value && VALID_ENERGY_LEVELS.has(value.energy) ? value.energy : null;
-  const mood = value && VALID_MOOD_LEVELS.has(value.mood) ? value.mood : null;
-  return { energy, mood };
+const optionalShortText = (value, maxLength = 300) => {
+  const normalized = nullableText(value);
+  return normalized === null ? null : normalized.trim().slice(0, maxLength) || null;
 };
+const nullableOption = (value, allowed) => (allowed.has(value) ? value : null);
 const iso = (value, fallback = null) => {
   if (value === null || value === undefined || value === "") return fallback;
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : fallback;
@@ -63,9 +72,19 @@ export const createStudySession = (input = {}, options = {}) => {
   const session = {
     id: text(input.id || (options.idFactory || defaultIdFactory)("session")),
     userId: nullableText(input.userId),
-    taskDescription: text(input.taskDescription, ""),
+    taskName: optionalShortText(input.taskName ?? input.taskDescription, 80) || "",
+    taskDescription: optionalShortText(input.taskDescription ?? input.taskName, 80) || "",
     targetDurationMs: ms(input.targetDurationMs, null),
+    subject: nullableOption(input.subject, VALID_SUBJECTS),
+    customSubject: input.subject === "other" ? optionalShortText(input.customSubject, 80) : null,
+    taskType: nullableOption(input.taskType, VALID_TASK_TYPES),
+    customTaskType: input.taskType === "other" ? optionalShortText(input.customTaskType, 80) : null,
+    sessionGoal: optionalShortText(input.sessionGoal, 300),
     preSessionCheckIn: normalizePreSessionCheckIn(input.preSessionCheckIn),
+    postSessionCheckOut: normalizePostSessionCheckOut(input.postSessionCheckOut),
+    questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
+      ? input.questionnaireSchemaVersion
+      : QUESTIONNAIRE_SCHEMA_VERSION,
     startedAt: iso(input.startedAt, currentTime),
     endedAt: iso(input.endedAt, null),
     createdAt: iso(input.createdAt, currentTime),
@@ -89,9 +108,19 @@ export const normalizeStudySession = (input = {}) => {
   const base = {
     id: text(input.id, ""),
     userId: nullableText(input.userId),
-    taskDescription: text(input.taskDescription, ""),
+    taskName: optionalShortText(input.taskName ?? input.taskDescription, 80) || "",
+    taskDescription: optionalShortText(input.taskDescription ?? input.taskName, 80) || "",
     targetDurationMs: ms(input.targetDurationMs, null),
+    subject: nullableOption(input.subject, VALID_SUBJECTS),
+    customSubject: input.subject === "other" ? optionalShortText(input.customSubject, 80) : null,
+    taskType: nullableOption(input.taskType, VALID_TASK_TYPES),
+    customTaskType: input.taskType === "other" ? optionalShortText(input.customTaskType, 80) : null,
+    sessionGoal: optionalShortText(input.sessionGoal, 300),
     preSessionCheckIn: normalizePreSessionCheckIn(input.preSessionCheckIn),
+    postSessionCheckOut: normalizePostSessionCheckOut(input.postSessionCheckOut),
+    questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
+      ? input.questionnaireSchemaVersion
+      : QUESTIONNAIRE_SCHEMA_VERSION,
     startedAt: iso(input.startedAt, null),
     endedAt: iso(input.endedAt, null),
     createdAt: iso(input.createdAt, null),
@@ -127,11 +156,15 @@ export const validateStudySession = (session) => {
   if (!isObject(session)) return result(["Session must be an object."]);
   if (!nonEmpty(session.id)) errors.push("Session id is required.");
   if (session.userId !== null && session.userId !== undefined && typeof session.userId !== "string") errors.push("userId must be a string or null.");
+  if (typeof session.taskName !== "string") errors.push("taskName must be a string.");
   if (typeof session.taskDescription !== "string") errors.push("taskDescription must be a string.");
   if (session.targetDurationMs !== null && !isFiniteNumber(session.targetDurationMs)) errors.push("targetDurationMs must be a number or null.");
+  if (session.subject !== null && !VALID_SUBJECTS.has(session.subject)) errors.push("subject is invalid.");
+  if (session.taskType !== null && !VALID_TASK_TYPES.has(session.taskType)) errors.push("taskType is invalid.");
   if (!isObject(session.preSessionCheckIn)) errors.push("preSessionCheckIn must be an object.");
-  if (session.preSessionCheckIn && session.preSessionCheckIn.energy !== null && !VALID_ENERGY_LEVELS.has(session.preSessionCheckIn.energy)) errors.push("preSessionCheckIn.energy is invalid.");
-  if (session.preSessionCheckIn && session.preSessionCheckIn.mood !== null && !VALID_MOOD_LEVELS.has(session.preSessionCheckIn.mood)) errors.push("preSessionCheckIn.mood is invalid.");
+  if (!isObject(session.postSessionCheckOut)) errors.push("postSessionCheckOut must be an object.");
+  if (!Number.isInteger(session.questionnaireSchemaVersion) || session.questionnaireSchemaVersion < 1) errors.push("questionnaireSchemaVersion must be a positive integer.");
+  validateSelfReportFields(session, errors);
   if (!validIso(session.startedAt)) errors.push("startedAt must be an ISO 8601 timestamp.");
   if (session.endedAt !== null && !validIso(session.endedAt)) errors.push("endedAt must be an ISO 8601 timestamp or null.");
   if (!validIso(session.createdAt)) errors.push("createdAt must be an ISO 8601 timestamp.");
@@ -232,6 +265,7 @@ export const createCompletedStudySession = (session, completion = {}) => {
     dataCoverage: completion.dataCoverage,
     recoveryPending: false,
     lastCheckpointAt: iso(completion.lastCheckpointAt, normalized.lastCheckpointAt),
+    postSessionCheckOut: completion.postSessionCheckOut ?? normalized.postSessionCheckOut,
     updatedAt: endedAt,
   });
   const validation = validateStudySession(completed);

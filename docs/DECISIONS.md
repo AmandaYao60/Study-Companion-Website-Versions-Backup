@@ -141,3 +141,11 @@ Decision: Emotional Engagement charts render a continuous valence-arousal trajec
 Rationale: Valence-arousal coordinates are continuous affect outputs and should not imply that discrete facial expressions can be derived from chart position.
 
 Consequences or trade-offs: Collapsed active/end-session cards and historical reports are static VA overviews. Active and latest completed sessions can open an expanded analysis dialog with point tooltips and an expression-interval distribution based only on stored top-1 classifier labels from valid affect intervals. Historical report modals have no expand action, tooltip, or distribution. No full probability vectors, logits, chart-only records, schema changes, or IndexedDB changes were added.
+
+## Session Check-In And Reflection Extend The Session Record
+
+Decision: Required setup, optional pre-session check-in, and optional post-session reflection are normalized into the existing study-session domain record instead of a parallel questionnaire store.
+
+Rationale: The current repository already persists session summaries separately from formal metric samples. Keeping task context and concise self-report on the session record lets Dashboard history show the selected session consistently without adding a new state machine or storage backend.
+
+Consequences or trade-offs: The session schema version is bumped, while the IndexedDB database structure remains unchanged. Older sessions normalize missing self-report fields to `null` and `[]` at the service boundary. The self-report is described as a theory-informed check-in/reflection, not a validated AEQ, MSLQ, ICAP, psychological, clinical, or diagnostic assessment.
