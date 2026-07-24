@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   selectEmotionalMeanPoint,
   selectEmotionalTrajectory,
@@ -157,8 +158,9 @@ function ExpressionDistributionChart({ distribution }) {
     <div className="space-y-2">
       {distribution.items.map((item) => {
         const percent = Math.round(item.percentage * 100);
+        const intervalLabel = `${item.count} interval${item.count === 1 ? "" : "s"}`;
         return (
-          <div key={item.label} className="grid grid-cols-[5.5rem_minmax(0,1fr)_4.5rem] items-center gap-3 text-xs">
+          <div key={item.label} className="grid grid-cols-[5.5rem_minmax(0,1fr)_7.5rem] items-center gap-3 text-xs">
             <span className="truncate font-semibold text-slate-300">{item.label}</span>
             <div className="h-3 overflow-hidden rounded-full bg-slate-800">
               <div
@@ -166,7 +168,7 @@ function ExpressionDistributionChart({ distribution }) {
                 style={{ width: `${percent}%` }}
               />
             </div>
-            <span className="text-right font-mono text-slate-300">{percent}% · {item.count}</span>
+            <span className="text-right font-mono text-slate-300">{percent}% · {intervalLabel}</span>
           </div>
         );
       })}
@@ -198,13 +200,15 @@ function EmotionalEngagementDialog({ open, onClose, trajectory, meanPoint, distr
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm" role="presentation">
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm" role="presentation">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="emotional-engagement-dialog-title"
-        className="grid h-[92vh] w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)_minmax(130px,0.32fr)] gap-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 text-white shadow-2xl sm:p-5"
+        className="grid h-[92dvh] max-h-[92dvh] w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)_minmax(130px,0.32fr)] gap-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 text-white shadow-2xl sm:p-5"
       >
         <header className="flex items-start justify-between gap-4 border-b border-white/10 pb-3">
           <div>
@@ -240,7 +244,8 @@ function EmotionalEngagementDialog({ open, onClose, trajectory, meanPoint, distr
           </div>
         </section>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -254,8 +259,8 @@ export default function EmotionalEngagementChart({
   const trajectory = useMemo(() => selectEmotionalTrajectory(samples), [samples]);
   const meanPoint = useMemo(() => selectEmotionalMeanPoint(samples), [samples]);
   const distribution = useMemo(() => selectExpressionIntervalDistribution(samples), [samples]);
+  const closeExpandedDialog = useCallback(() => setIsExpanded(false), []);
   const resolvedViewState = viewState || (mode === "live" ? "active" : "historical");
-  const hasTrajectory = trajectory.length > 0;
   const canExpand = allowExpandedAnalysis && (resolvedViewState === "active" || resolvedViewState === "end");
 
   return (
@@ -269,9 +274,8 @@ export default function EmotionalEngagementChart({
           {canExpand && (
             <button
               type="button"
-              disabled={!hasTrajectory}
               onClick={() => setIsExpanded(true)}
-              className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[10px] font-semibold text-emerald-200 transition-all hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[10px] font-semibold text-emerald-200 transition-all hover:bg-emerald-400/20"
             >
               Expand Analysis
             </button>
@@ -297,7 +301,7 @@ export default function EmotionalEngagementChart({
 
       <EmotionalEngagementDialog
         open={isExpanded && canExpand}
-        onClose={() => setIsExpanded(false)}
+        onClose={closeExpandedDialog}
         trajectory={trajectory}
         meanPoint={meanPoint}
         distribution={distribution}

@@ -16,7 +16,14 @@ test("emotional engagement chart no longer renders hardcoded VA emotion regions"
 test("emotional engagement chart keeps distribution and point tooltips inside expanded analysis", () => {
   assert.match(source, /function EmotionalEngagementDialog/);
   assert.match(source, /function ExpressionDistributionChart/);
+  assert.match(source, /createPortal/);
+  assert.match(source, /document\.body/);
+  assert.match(source, /h-\[92dvh\]/);
+  assert.match(source, /z-\[1000\]/);
   assert.match(source, /interactive=\{false\}/);
+  assert.match(source, /useCallback/);
   assert.match(source, /Top probability/);
+  assert.match(source, /intervalLabel/);
   assert.equal(source.includes("Confidence:"), false);
+  assert.equal(source.includes("disabled={!hasTrajectory}"), false);
 });
