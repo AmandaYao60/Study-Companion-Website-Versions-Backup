@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAppState } from "../../context/AppContext";
+import { useSession } from "../../context/AppContext";
 
 const targetOptions = [
   { label: "25 min", value: 25 },
@@ -143,7 +143,7 @@ function SkipCheckInDialog({ open, onClose, onConfirm }) {
 
 export default function SessionSetupForm() {
   const router = useRouter();
-  const { prepareSession, activeSession } = useAppState();
+  const { prepareSession, activeSession } = useSession();
   const [stage, setStage] = useState("welcome");
   const [optionalIndex, setOptionalIndex] = useState(0);
   const [draft, setDraft] = useState(initialDraft);

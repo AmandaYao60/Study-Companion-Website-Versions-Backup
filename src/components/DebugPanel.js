@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useAppState } from "../context/AppContext";
+import { useDebug, useMonitoring, useSession } from "../context/AppContext";
 import { DATA_QUALITY, EMOTION_LABELS } from "../services/session/sessionConstants";
 import {
   DEBUG_SIMULATION_MODE,
@@ -180,24 +180,6 @@ function SliderControl({ label, value, min, max, step, formatter, disabled, onCh
 export default function DebugPanel() {
   const {
     isDebugMode,
-    isMonitoring,
-    isCameraAllowed,
-    cameraStatus,
-    showCameraDialog,
-    isAiLoaded,
-    aiLoadingProgress,
-    aiError,
-    faceLandmarkerStatus,
-    gestureRecognizerStatus,
-    affectModelStatus,
-    hasDetectedFace,
-    runtimeStatus,
-    activeSession,
-    activeSessionSamples,
-    sessionClock,
-    getSessionElapsedMs,
-    sessionRepositoryKind,
-    checkpointStatus,
     debugLiveMetrics,
     debugDisplayMetrics,
     debugSimulation,
@@ -210,6 +192,26 @@ export default function DebugPanel() {
     setSensitiveDebugPreviewEnabled,
     resolvedDebugMetrics,
     clearAllDebugMetricOverrides,
+    telemetryTable,
+    rawLandmarksHistory,
+    exportTelemetryCSV,
+    eventLog,
+    addLog,
+    clearEventLog,
+  } = useDebug();
+  const {
+    isMonitoring,
+    isCameraAllowed,
+    cameraStatus,
+    showCameraDialog,
+    isAiLoaded,
+    aiLoadingProgress,
+    aiError,
+    faceLandmarkerStatus,
+    gestureRecognizerStatus,
+    affectModelStatus,
+    hasDetectedFace,
+    runtimeStatus,
     blinkRate,
     eyeOpenness,
     headPose,
@@ -217,13 +219,15 @@ export default function DebugPanel() {
     fps,
     inferenceFps,
     setInferenceFps,
-    telemetryTable,
-    rawLandmarksHistory,
-    exportTelemetryCSV,
-    eventLog,
-    addLog,
-    clearEventLog,
-  } = useAppState();
+  } = useMonitoring();
+  const {
+    activeSession,
+    activeSessionSamples,
+    sessionClock,
+    getSessionElapsedMs,
+    sessionRepositoryKind,
+    checkpointStatus,
+  } = useSession();
 
   const [isOpenRequested, setIsOpenRequested] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");

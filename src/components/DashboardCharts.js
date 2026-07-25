@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useAppState } from "../context/AppContext";
+import { useMonitoring, useSession } from "../context/AppContext";
 import {
   selectDashboardMetricCards,
   selectDashboardSessionSource,
@@ -22,13 +22,15 @@ export default function DashboardCharts() {
   const {
     activeSession,
     activeSessionSamples,
-    attention,
-    fatigue,
-    affectState,
     completedSessions,
     getSessionById,
     getMetricSamples,
-  } = useAppState();
+  } = useSession();
+  const {
+    attention,
+    fatigue,
+    affectState,
+  } = useMonitoring();
 
   const [completedSourceSession, setCompletedSourceSession] = useState(null);
   const [completedSourceSamples, setCompletedSourceSamples] = useState([]);

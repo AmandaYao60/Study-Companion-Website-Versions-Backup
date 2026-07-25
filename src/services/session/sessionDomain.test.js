@@ -2,27 +2,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  BREAK_STATUS,
   DATA_QUALITY,
   DEFAULT_METRIC_TREND_THRESHOLDS,
   EMOTION_LABELS,
   INDEXED_DB_SESSION_DATABASE,
+  INTERRUPTION_REASON,
   SESSION_STATUS,
   aggregateMetricObservations,
   calculateMetricStatistics,
   calculateSessionStatistics,
+  calculatePlannedBreakPositions,
+  cancelBreak,
+  completeBreak,
   classifyDataQuality,
   createCompletedStudySession,
   createIndexedDbSessionRepository,
   createMemorySessionRepository,
   createStudySession,
   generateSessionSummary,
+  getNextScheduledBreak,
+  normalizeBreakEvents,
+  normalizeInterruptions,
   normalizePostSessionCheckOut,
+  normalizeSessionPlan,
   normalizeStudySession,
   selectDashboardMetricCards,
   selectDashboardSessionSource,
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
+  skipBreak,
   sortSessionsByNewest,
+  startPlannedBreak,
   validateStudySession,
   validateSessionRepositoryContract,
 } from "./index.js";
@@ -304,6 +315,93 @@ test("post-session reflection normalization preserves partial answers", () => {
   assert.equal(reflection.primaryStrategy, "organization");
   assert.equal(reflection.learningReflection, "Finished chapter notes.");
   assert.equal(reflection.nextSessionAdjustment, null);
+});
+
+test("session plan normalizes legacy sessions and derives planned break count in milliseconds", () => {
+  const legacy = normalizeStudySession({
+    id: "legacy-no-breaks",
+    taskDescription: "Legacy",
+    targetDurationMs: 50 * 60000,
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+  });
+
+  assert.deepEqual(legacy.sessionPlan, {
+    targetDurationMs: 50 * 60000,
+    focusDurationMs: null,
+    breakDurationMs: 0,
+    plannedBreakCount: 0,
+  });
+  assert.deepEqual(legacy.breakEvents, []);
+  assert.deepEqual(legacy.interruptions, []);
+  assert.equal(validateStudySession(legacy).valid, true);
+
+  const plan = normalizeSessionPlan({
+    targetDurationMs: 50 * 60000,
+    focusDurationMs: 25 * 60000,
+    breakDurationMs: 5 * 60000,
+  });
+  assert.equal(plan.plannedBreakCount, 1);
+  assert.deepEqual(calculatePlannedBreakPositions(plan), [25 * 60000]);
+});
+
+test("break lifecycle transitions prevent duplicate and overlapping active breaks", () => {
+  const session = createStudySession({
+    id: "break-session",
+    taskDescription: "Break planning",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    breakEvents: normalizeBreakEvents([
+      { id: "break-1", plannedStartElapsedMs: 25 * 60000 },
+      { id: "break-2", plannedStartElapsedMs: 50 * 60000 },
+    ]),
+  }, { now: () => baseTime });
+
+  const nextBreak = getNextScheduledBreak(session, 0);
+  assert.equal(nextBreak.id, "break-1");
+
+  const withActiveBreak = startPlannedBreak(session, "break-1", {
+    actualStartElapsedMs: 25 * 60000,
+    actualStartAt: "2026-01-01T00:25:00.000Z",
+  });
+  assert.equal(withActiveBreak.breakEvents[0].status, BREAK_STATUS.ACTIVE);
+  assert.equal(startPlannedBreak(withActiveBreak, "break-1").breakEvents[0].status, BREAK_STATUS.ACTIVE);
+  assert.throws(() => startPlannedBreak(withActiveBreak, "break-2"), /already active/i);
+
+  const completed = completeBreak(withActiveBreak, "break-1", {
+    actualEndElapsedMs: 30 * 60000,
+    actualEndAt: "2026-01-01T00:30:00.000Z",
+  });
+  assert.equal(completed.breakEvents[0].status, BREAK_STATUS.COMPLETED);
+  assert.equal(skipBreak(completed, "break-2").breakEvents[1].status, BREAK_STATUS.SKIPPED);
+  assert.throws(() => cancelBreak(completed, "break-1"), /completed/i);
+});
+
+test("planned breaks remain distinct from manual pauses and interruptions", () => {
+  const interruptions = normalizeInterruptions([
+    { id: "pause-1", startElapsedMs: 1000, endElapsedMs: 2000, reason: INTERRUPTION_REASON.MANUAL_PAUSE },
+    { id: "bad-reason", start: 3000, end: 4000, reason: "unknown" },
+  ]);
+
+  assert.equal(interruptions[0].reason, INTERRUPTION_REASON.MANUAL_PAUSE);
+  assert.equal(interruptions[1].reason, INTERRUPTION_REASON.MANUAL_PAUSE);
+
+  const session = normalizeStudySession({
+    id: "breaks-not-pauses",
+    taskDescription: "Separate records",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    breakEvents: [{ id: "planned", status: BREAK_STATUS.SCHEDULED, plannedStartElapsedMs: 5000 }],
+    interruptions,
+  });
+
+  assert.equal(session.breakEvents.length, 1);
+  assert.equal(session.interruptions.length, 2);
+  assert.equal(session.breakEvents[0].status, BREAK_STATUS.SCHEDULED);
+  assert.equal(session.interruptions[0].reason, INTERRUPTION_REASON.MANUAL_PAUSE);
 });
 
 test("dashboard source prioritizes current sessions before latest completed history", () => {

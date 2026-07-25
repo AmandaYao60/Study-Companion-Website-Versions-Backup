@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useAppState } from "../../context/AppContext";
+import { useDebug } from "../../context/AppContext";
 
 const ADMIN_ROUTES = ["/app/settings", "/app/account"];
 
@@ -46,7 +46,7 @@ const buildAdminHref = (targetPath, currentPathname) => {
 export default function ProductNavbar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { isDebugMode, setIsDebugMode } = useAppState();
+  const { isDebugMode, setIsDebugMode } = useDebug();
   const isDeveloperDebugAvailable = process.env.NODE_ENV !== "production";
   const isSettings = pathname.startsWith("/app/settings");
   const isAccount = pathname.startsWith("/app/account");

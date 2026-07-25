@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import CameraFeed from "../CameraFeed";
-import { useAppState } from "../../context/AppContext";
+import { useDebug, useMonitoring, useSession } from "../../context/AppContext";
 import useDraggablePanel from "../../hooks/useDraggablePanel";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import SessionProgress from "../session/SessionProgress";
@@ -26,13 +26,17 @@ const getStudyStatusText = (attention, fatigue) => {
 
 export default function FocusMonitorWindow({ stageRef, onHide }) {
   const {
-    resolvedDebugMetrics,
     activeSession,
-    isMonitoring,
     pauseSession,
     resumeSession,
+  } = useSession();
+  const {
+    isMonitoring,
+  } = useMonitoring();
+  const {
+    resolvedDebugMetrics,
     addLog,
-  } = useAppState();
+  } = useDebug();
   const { elapsedMs } = useSmoothSessionTimer(200);
   const [isToggling, setIsToggling] = useState(false);
   const {

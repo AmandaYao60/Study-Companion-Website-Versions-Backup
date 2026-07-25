@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useAppState } from "../../context/AppContext";
+import { useDebug, useSession } from "../../context/AppContext";
 import { formatElapsedTime } from "../../hooks/useSmoothSessionTimer";
 
 const formatCheckpointTime = (value) => {
@@ -23,8 +23,10 @@ export default function SessionRecoveryDialog() {
     returnToRecoveredSession,
     finishSession,
     discardSession,
+  } = useSession();
+  const {
     addLog,
-  } = useAppState();
+  } = useDebug();
   const resumeRef = useRef(null);
   const [action, setAction] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");

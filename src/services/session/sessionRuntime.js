@@ -12,6 +12,7 @@ import {
 } from "./sessionSchema.js";
 import { calculateSessionStatistics } from "./sessionStatistics.js";
 import { generateSessionSummary } from "./sessionSummary.js";
+import { normalizeSessionPlan } from "./sessionBreaks.js";
 import { createMemorySessionRepository } from "./repositories/memorySessionRepository.js";
 
 const clone = (value) => {
@@ -207,6 +208,9 @@ export const createSessionRuntime = (options = {}) => {
         sessionGoal: input.sessionGoal ?? null,
         preSessionCheckIn: input.preSessionCheckIn ?? null,
         postSessionCheckOut: input.postSessionCheckOut ?? null,
+        sessionPlan: input.sessionPlan ?? null,
+        breakEvents: input.breakEvents ?? [],
+        interruptions: input.interruptions ?? [],
         startedAt,
         createdAt: startedAt,
         updatedAt: startedAt,
@@ -325,6 +329,7 @@ export const createSessionRuntime = (options = {}) => {
       if (!activeSession) return null;
       activeSession = await repository.updateSession(activeSession.id, {
         targetDurationMs,
+        sessionPlan: normalizeSessionPlan(activeSession.sessionPlan, { targetDurationMs }),
         updatedAt: now(),
       });
       return clone(activeSession);

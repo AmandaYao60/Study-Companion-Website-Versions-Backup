@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
-import { useAppState } from "../context/AppContext";
+import { useDebug, useMonitoring, useSession } from "../context/AppContext";
 import CameraPermissionDialog from "./CameraPermissionDialog";
 
 const FACE_CONTOUR = {
@@ -45,15 +45,19 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     isCameraAllowed,
     stopCamera,
     setShowCameraDialog,
-    isDebugMode,
-    isSensitiveDebugPreviewEnabled,
     cameraStream,
     isAiLoaded,
     hasDetectedFace,
     monitoringDetectionsRef,
     runtimeFaceCropCanvasRef,
+  } = useMonitoring();
+  const {
+    isDebugMode,
+    isSensitiveDebugPreviewEnabled,
+  } = useDebug();
+  const {
     activeSession,
-  } = useAppState();
+  } = useSession();
 
   const isFocusPanel = presentation === "focus-panel";
   const hasSession = Boolean(activeSession);

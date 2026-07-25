@@ -1,6 +1,6 @@
 # AI Pipeline
 
-This document describes the current AI and telemetry pipeline as implemented in `src/context/AppContext.js`, `src/components/monitoring/MonitoringRuntimeHost.js`, and `src/components/CameraFeed.js`.
+This document describes the current AI and telemetry pipeline as implemented through `useMonitoring()`/`useDebug()` in `src/context/AppContext.js`, `src/components/monitoring/MonitoringRuntimeHost.js`, and `src/components/CameraFeed.js`.
 
 ## Model Loading
 
@@ -147,7 +147,7 @@ These values are used as observed CV signals. Looking-away heuristics then compa
 
 ## Telemetry Storage and Export
 
-For processed frames while Debug Mode is active, `AppContext.js` can store a bounded telemetry table row with:
+For processed frames while Debug Mode is active, the Debug provider can store a bounded telemetry table row with:
 
 - Time.
 - Eye openness.

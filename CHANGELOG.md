@@ -33,6 +33,8 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Dashboard charts now use formal five-second `MetricSample` records instead of duplicate live-history rows.
 - Pausing an active session now force-flushes useful pending observations into a final partial sample.
 - Debug telemetry and raw-landmark capture are bounded, memory-only, and gated behind Debug Mode sensitive controls.
+- Replaced the monolithic app-state consumer hook with focused Session, Monitoring, and Debug hooks.
+- Added backward-compatible session-plan, planned-break, and interruption data contracts plus pure break lifecycle helpers.
 
 ### Known Issues
 

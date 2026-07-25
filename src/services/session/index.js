@@ -1,6 +1,7 @@
 export * from "./sessionConstants.js";
 export * from "./sessionSchema.js";
 export * from "./sessionSelfReport.js";
+export * from "./sessionBreaks.js";
 export * from "./metricAggregation.js";
 export * from "./sessionStatistics.js";
 export * from "./sessionSummary.js";

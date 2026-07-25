@@ -157,3 +157,19 @@ Decision: Required setup, optional pre-session check-in, and optional post-sessi
 Rationale: The current repository already persists session summaries separately from formal metric samples. Keeping task context and concise self-report on the session record lets Dashboard history show the selected session consistently without adding a new state machine or storage backend.
 
 Consequences or trade-offs: The session schema version is bumped, while the IndexedDB database structure remains unchanged. Older sessions normalize missing self-report fields to `null` and `[]` at the service boundary. The self-report is described as a theory-informed check-in/reflection, not a validated AEQ, MSLQ, ICAP, psychological, clinical, or diagnostic assessment.
+
+## App State Uses Focused Provider Boundaries
+
+Decision: The app exposes focused Session, Monitoring, and Debug hooks instead of a monolithic app-state consumer hook.
+
+Rationale: Session lifecycle and persistence, camera/model monitoring, and developer diagnostics have different update frequencies, privacy boundaries, and consumers. Splitting the public context surface reduces broad rerender pressure and clarifies authoritative ownership without creating a second monitoring runtime.
+
+Consequences or trade-offs: The top-level provider still coordinates cross-boundary actions such as camera-gated resume and clear-local-data. `MonitoringRuntimeHost` remains the only inference loop. Components must import the narrow hook that matches their responsibility.
+
+## Timed Breaks Start As Pure Session-Domain Contracts
+
+Decision: `sessionPlan`, `breakEvents`, and `interruptions` are normalized on session records, and break lifecycle transitions live in pure session-service helpers.
+
+Rationale: The timed-break UI needs a durable contract before timers, navigation, music, or break controls are introduced. Planned breaks must remain distinct from manual pauses and unexpected interruptions.
+
+Consequences or trade-offs: The session schema version is bumped, but the IndexedDB structural version is unchanged because records remain flexible objects in the existing `study_sessions` store. Existing sessions normalize to a safe no-break default. Hidden-tab continuous monitoring and full break UX remain future work.

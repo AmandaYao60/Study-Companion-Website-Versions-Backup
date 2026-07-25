@@ -20,6 +20,8 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
 - Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
+- App state is exposed through focused Session, Monitoring, and Debug contexts rather than a single monolithic consumer hook.
+- The session domain normalizes optional `sessionPlan`, `breakEvents`, and `interruptions` fields for the future timed-break milestone.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
 - Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
@@ -41,6 +43,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Replace PDF export placeholder with a real report export path.
 - Fix mojibake UI strings in source files in a separate source-code task.
 - Add tests for metric heuristics and critical UI state transitions.
+- Implement the timed-break user experience on top of the existing pure break-domain transitions.
 
 ## Known Issues
 
@@ -57,6 +60,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - CSV exports contain landmark coordinates and should be handled as sensitive data. The Debug Panel keeps raw landmark export and face-crop preview behind collapsed sensitive controls, with crop preview off by default and CSV export requiring confirmation.
 - Some source strings display mojibake characters.
 - Session check-in and reflection are theory-informed self-report fields only. They are not validated psychological tests, clinical assessments, diagnostic instruments, or learning scores.
+- Hidden-tab continuous monitoring is not guaranteed; `page-hidden` interruptions are a data-contract placeholder, not an active recording feature.
 
 ### Next.js PostCSS dependency advisory
 

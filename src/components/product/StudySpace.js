@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAppState } from "../../context/AppContext";
+import { useDebug, useMonitoring, useSession } from "../../context/AppContext";
 import CameraFeed from "../CameraFeed";
 import SessionSetupForm from "./SessionSetupForm";
 import ActiveSessionCard from "./ActiveSessionCard";
@@ -45,17 +45,21 @@ export default function StudySpace() {
   const router = useRouter();
   const {
     activeSession,
-    isMonitoring,
-    isCameraAllowed,
-    isAiLoaded,
-    affectModelStatus,
     pauseSession,
     resumeSession,
     finishSession,
     discardSession,
+  } = useSession();
+  const {
+    isMonitoring,
+    isCameraAllowed,
+    isAiLoaded,
+    affectModelStatus,
     stopCamera,
+  } = useMonitoring();
+  const {
     addLog,
-  } = useAppState();
+  } = useDebug();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReflectionOpen, setIsReflectionOpen] = useState(false);
   const [isEnding, setIsEnding] = useState(false);

@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { useAppState } from "../../context/AppContext";
+import { useMonitoring, useSession } from "../../context/AppContext";
 import CameraPermissionDialog from "../CameraPermissionDialog";
 import FocusMonitorWindow from "./FocusMonitorWindow";
 import FocusSessionBar from "./FocusSessionBar";
 import FocusStagePlaceholder from "./FocusStagePlaceholder";
 
 export default function FocusSpace() {
-  const { activeSession, isCameraAllowed } = useAppState();
+  const { activeSession } = useSession();
+  const { isCameraAllowed } = useMonitoring();
   const stageRef = useRef(null);
   const [isMonitorHidden, setIsMonitorHidden] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);

@@ -23,7 +23,9 @@ import {
   mergeAffectDiagnostic,
 } from "../services/debug/debugDiagnostics.js";
 
-const AppContext = createContext();
+const SessionContext = createContext(null);
+const MonitoringContext = createContext(null);
+const DebugContext = createContext(null);
 const EYE_LANDMARKS = {
   left: [33, 160, 158, 133, 153, 144],
   right: [362, 385, 387, 263, 373, 380],
@@ -110,10 +112,26 @@ const getRecentObservations = (observations, timestamp, windowMs) =>
 const roundForDebug = (value, digits = 3) =>
   Number.isFinite(value) ? Number(value.toFixed(digits)) : null;
 
-export const useAppState = () => {
-  const context = useContext(AppContext);
+export const useSession = () => {
+  const context = useContext(SessionContext);
   if (!context) {
-    throw new Error("useAppState must be used within an AppProvider");
+    throw new Error("useSession must be used within an AppProvider");
+  }
+  return context;
+};
+
+export const useMonitoring = () => {
+  const context = useContext(MonitoringContext);
+  if (!context) {
+    throw new Error("useMonitoring must be used within an AppProvider");
+  }
+  return context;
+};
+
+export const useDebug = () => {
+  const context = useContext(DebugContext);
+  if (!context) {
+    throw new Error("useDebug must be used within an AppProvider");
   }
   return context;
 };
@@ -1241,7 +1259,7 @@ export const AppProvider = ({ children }) => {
     }
   }, [isMonitoring, inferenceFps, addLog, recordSessionObservation]);
 
-  const exportTelemetryCSV = () => {
+  const exportTelemetryCSV = useCallback(() => {
     if (rawLandmarksHistory.length === 0) {
       alert("No raw landmarks captured yet. Enable Debug Mode, open Advanced / Sensitive Data, and show the temporary face crop before exporting.");
       return;
@@ -1268,7 +1286,7 @@ export const AppProvider = ({ children }) => {
     link.click();
     document.body.removeChild(link);
     addLog("Exported raw landmark table to CSV.", "success");
-  };
+  }, [addLog, rawLandmarksHistory]);
 
   const clearCameraStream = useCallback(() => {
     if (streamRef.current) {
@@ -1656,7 +1674,7 @@ export const AppProvider = ({ children }) => {
     }
   }, [addLog]);
 
-  const toggleMonitoring = async () => {
+  const toggleMonitoring = useCallback(async () => {
     if (monitoringRef.current) {
       return pauseSession();
     }
@@ -1682,9 +1700,9 @@ export const AppProvider = ({ children }) => {
     }
 
     return null;
-  };
+  }, [activatePreparedSession, addLog, pauseSession, resetEstimatorSession, resumeSession, startSessionClock]);
   // Reset metrics and clear local session data
-  const resetMetrics = async () => {
+  const resetMetrics = useCallback(async () => {
     setIsMonitoring(false);
     clearCameraStream();
     resetTransientInferenceState();
@@ -1718,105 +1736,201 @@ export const AppProvider = ({ children }) => {
     await sessionRuntimeRef.current.clear();
     syncSessionState();
     addLog("Metrics and session data reset to baseline.", "info");
-  };
+  }, [
+    addLog,
+    clearAllDebugMetricOverrides,
+    clearCameraStream,
+    resetAffectState,
+    resetDebugSimulation,
+    resetEstimatorSession,
+    resetSessionClock,
+    resetTransientInferenceState,
+    syncSessionState,
+  ]);
+  const sessionValue = useMemo(() => ({
+    sessionClock,
+    getSessionElapsedMs,
+    activeSession,
+    completedSessions,
+    activeSessionSamples,
+    sessionRepositoryKind,
+    checkpointStatus,
+    prepareSession,
+    activatePreparedSession,
+    startSession,
+    pauseSession,
+    resumeSession,
+    returnToRecoveredSession,
+    finishSession,
+    discardSession,
+    updateSessionTask,
+    updateTargetDuration,
+    getSessionById,
+    getMetricSamples,
+    resetMetrics,
+    isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
+      recoveryPromptDismissedSessionId !== activeSession.id,
+  }), [
+    activeSession,
+    activeSessionSamples,
+    activatePreparedSession,
+    checkpointStatus,
+    completedSessions,
+    discardSession,
+    finishSession,
+    getMetricSamples,
+    getSessionById,
+    getSessionElapsedMs,
+    pauseSession,
+    prepareSession,
+    recoveryPromptDismissedSessionId,
+    resetMetrics,
+    resumeSession,
+    returnToRecoveredSession,
+    sessionClock,
+    sessionRepositoryKind,
+    startSession,
+    updateSessionTask,
+    updateTargetDuration,
+  ]);
+
+  const monitoringValue = useMemo(() => ({
+    isMonitoring,
+    setIsMonitoring,
+    isCameraAllowed,
+    setIsCameraAllowed,
+    cameraStatus,
+    showCameraDialog,
+    setShowCameraDialog,
+    cameraStream,
+    startCamera,
+    stopCamera,
+    toggleMonitoring,
+    attention,
+    fatigue,
+    affectState,
+    updateAffectMetrics,
+    resetAffectState,
+    affectModelStatus,
+    setAffectModelStatus,
+    blinkRate,
+    setBlinkRate,
+    yawnCount,
+    setYawnCount,
+    headPose,
+    setHeadPose,
+    currentGesture,
+    setCurrentGesture,
+    fps,
+    latency,
+    isAiLoaded,
+    aiLoadingProgress,
+    aiError,
+    inferenceFps,
+    setInferenceFps,
+    faceLandmarkerStatus,
+    gestureRecognizerStatus,
+    eyeOpenness,
+    setEyeOpenness,
+    hasDetectedFace,
+    setHasDetectedFace,
+    hasDetectedHand,
+    runtimeStatus,
+    setRuntimeStatus,
+    monitoringDetectionsRef,
+    runtimeFaceCropCanvasRef,
+    faceLandmarkerRef,
+    gestureRecognizerRef,
+    updateAiMetrics,
+  }), [
+    affectModelStatus,
+    affectState,
+    aiError,
+    aiLoadingProgress,
+    attention,
+    blinkRate,
+    cameraStatus,
+    cameraStream,
+    currentGesture,
+    eyeOpenness,
+    faceLandmarkerStatus,
+    fatigue,
+    fps,
+    gestureRecognizerStatus,
+    hasDetectedFace,
+    hasDetectedHand,
+    headPose,
+    inferenceFps,
+    isAiLoaded,
+    isCameraAllowed,
+    isMonitoring,
+    latency,
+    resetAffectState,
+    runtimeStatus,
+    showCameraDialog,
+    startCamera,
+    stopCamera,
+    toggleMonitoring,
+    updateAffectMetrics,
+    updateAiMetrics,
+    yawnCount,
+  ]);
+
+  const debugValue = useMemo(() => ({
+    isDebugMode,
+    setIsDebugMode,
+    resolvedDebugMetrics,
+    setDebugMetricOverride,
+    clearDebugMetricOverride,
+    clearAllDebugMetricOverrides,
+    debugLiveMetrics,
+    debugDisplayMetrics,
+    debugSimulation,
+    debugDiagnosticSnapshot,
+    setDebugSimulationEnabled,
+    setDebugSimulationMetric,
+    applyDebugSimulationPreset: applyDebugSimulationPresetById,
+    resetDebugSimulation,
+    isSensitiveDebugPreviewEnabled,
+    setSensitiveDebugPreviewEnabled,
+    eventLog,
+    addLog,
+    clearEventLog,
+    telemetryTable,
+    rawLandmarksHistory,
+    exportTelemetryCSV,
+  }), [
+    addLog,
+    applyDebugSimulationPresetById,
+    clearAllDebugMetricOverrides,
+    clearDebugMetricOverride,
+    clearEventLog,
+    debugDiagnosticSnapshot,
+    debugDisplayMetrics,
+    debugLiveMetrics,
+    debugSimulation,
+    eventLog,
+    exportTelemetryCSV,
+    isDebugMode,
+    isSensitiveDebugPreviewEnabled,
+    rawLandmarksHistory,
+    resetDebugSimulation,
+    resolvedDebugMetrics,
+    setDebugMetricOverride,
+    setDebugSimulationEnabled,
+    setDebugSimulationMetric,
+    setIsDebugMode,
+    setSensitiveDebugPreviewEnabled,
+    telemetryTable,
+  ]);
+
   return (
-    <AppContext.Provider
-      value={{
-        isDebugMode,
-        setIsDebugMode,
-        isMonitoring,
-        setIsMonitoring,
-        isCameraAllowed,
-        setIsCameraAllowed,
-        cameraStatus,
-        showCameraDialog,
-        setShowCameraDialog,
-        cameraStream,
-        startCamera,
-        stopCamera,
-        toggleMonitoring,
-        resetMetrics,
-        sessionClock,
-        getSessionElapsedMs,
-        activeSession,
-        completedSessions,
-        activeSessionSamples,
-        sessionRepositoryKind,
-        checkpointStatus,
-        prepareSession,
-        activatePreparedSession,
-        startSession,
-        pauseSession,
-        resumeSession,
-        returnToRecoveredSession,
-        finishSession,
-        discardSession,
-        updateSessionTask,
-        updateTargetDuration,
-        getSessionById,
-        getMetricSamples,
-        attention,
-        fatigue,
-        resolvedDebugMetrics,
-        setDebugMetricOverride,
-        clearDebugMetricOverride,
-        clearAllDebugMetricOverrides,
-        debugLiveMetrics,
-        debugDisplayMetrics,
-        debugSimulation,
-        debugDiagnosticSnapshot,
-        setDebugSimulationEnabled,
-        setDebugSimulationMetric,
-        applyDebugSimulationPreset: applyDebugSimulationPresetById,
-        resetDebugSimulation,
-        isSensitiveDebugPreviewEnabled,
-        setSensitiveDebugPreviewEnabled,
-        affectState,
-        updateAffectMetrics,
-        resetAffectState,
-        affectModelStatus,
-        setAffectModelStatus,
-        blinkRate,
-        setBlinkRate,
-        yawnCount,
-        setYawnCount,
-        headPose,
-        setHeadPose,
-        currentGesture,
-        setCurrentGesture,
-        fps,
-        latency,
-        eventLog,
-        addLog,
-        clearEventLog,
-        isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
-          recoveryPromptDismissedSessionId !== activeSession.id,
-        
-        // AI Web-SDK additions
-        isAiLoaded,
-        aiLoadingProgress,
-        aiError,
-        inferenceFps,
-        setInferenceFps,
-        faceLandmarkerStatus,
-        gestureRecognizerStatus,
-        telemetryTable,
-        rawLandmarksHistory,
-        eyeOpenness,
-        setEyeOpenness,
-        hasDetectedFace,
-        setHasDetectedFace,
-        runtimeStatus,
-        setRuntimeStatus,
-        monitoringDetectionsRef,
-        runtimeFaceCropCanvasRef,
-        faceLandmarkerRef,
-        gestureRecognizerRef,
-        updateAiMetrics,
-        exportTelemetryCSV
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+    <SessionContext.Provider value={sessionValue}>
+      <MonitoringContext.Provider value={monitoringValue}>
+        <DebugContext.Provider value={debugValue}>
+          {children}
+        </DebugContext.Provider>
+      </MonitoringContext.Provider>
+    </SessionContext.Provider>
   );
 };

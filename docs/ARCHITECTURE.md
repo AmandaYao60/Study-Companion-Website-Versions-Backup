@@ -93,38 +93,29 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 
 ## AppContext Responsibilities
 
-`src/context/AppContext.js` is the central client-side state provider. It owns:
+`src/context/AppContext.js` is now a composition boundary. It exposes focused hooks:
 
-- Global UI mode: Debug Mode.
-- Monitoring, camera, and shared session-clock state.
-- MediaPipe model loading state and model refs.
-- Inferred behavioral metrics: attention and fatigue.
-- Browser affect state: valence, affect arousal, discrete emotion, and top softmax probability stored as `emotionConfidence`.
-- CV telemetry: blink rate, yawn count, head pose, current gesture, measured processing FPS, and MediaPipe inference latency.
-- Developer diagnostics state: read-only live debug metrics, memory-only diagnostic snapshots, memory-only simulated display metrics, camera/model statuses, checkpoint write status, sensitive preview visibility, and a bounded sanitized event log.
-- Formal active-session samples for charts.
-- Debug-only telemetry table and opt-in sensitive raw landmark history.
-- Camera start/stop lifecycle.
-- Monitoring toggle lifecycle.
-- Metric reset.
-- CSV export.
-- Real MediaPipe-derived telemetry processing through `updateAiMetrics()`.
-- Simulation fallback when monitoring is active but real tracking is unavailable.
+- `useSession()`: session setup, lifecycle, recovery, repository access, session clock, active formal samples, completed sessions, checkpoint state, clear-local-data, and future session/break contracts.
+- `useMonitoring()`: camera and monitoring status, MediaPipe model refs/status, browser affect state, authoritative live attention/fatigue/valence/arousal values, runtime detections, bounded estimator refs, and `updateAiMetrics()`.
+- `useDebug()`: Debug Mode, memory-only simulation and overrides, diagnostic snapshots, bounded telemetry, sensitive landmark capture/export, and sanitized event log.
+
+The top-level `AppProvider` still coordinates cross-boundary actions such as camera-gated session activation and clear-local-data, but consumers no longer import a monolithic app-state object. Presentational components should choose the narrow hook matching their responsibility. `MonitoringRuntimeHost` remains the single monitoring runtime; providers do not create a second inference loop.
 
 ## High-Level Data Flow
 
 ```text
 User enables camera
-  -> AppContext.startCamera()
+  -> useMonitoring().startCamera()
   -> CameraFeed binds stream to video
-  -> AppContext loads MediaPipe models
-  -> CameraFeed samples video frames
+  -> AppProvider loads MediaPipe models once
+  -> MonitoringRuntimeHost samples video frames
   -> FaceLandmarker / GestureRecognizer run in browser
-  -> CameraFeed updates detection refs and face-detected UI state
-  -> AppContext.updateAiMetrics() updates telemetry and metrics
+  -> MonitoringRuntimeHost updates detection refs and face-detected UI state
+  -> useMonitoring().updateAiMetrics() updates bounded refs and live metrics
   -> Monitor page or Focus Space displays advice/current state
   -> DebugPanel can inspect live state or preview memory-only simulated display metrics
-  -> DashboardCharts visualizes current and historical metrics
+  -> Session runtime persists formal MetricSample records
+  -> DashboardCharts visualizes current and historical formal samples
 ```
 
 ## Canvas Versus React Overlay Responsibilities
@@ -183,6 +174,8 @@ Study sessions now include task context and a theory-informed session check-in/r
 Unanswered scalar self-report fields are stored as `null`; unanswered multi-select fields are stored as `[]`. Missing values are not converted to zero, neutral, or rating `3`, and self-report values are not inferred from model outputs. Older persisted sessions normalize at the session service boundary to the same null/empty-array shape without mutating stored records during ordinary reads.
 
 The reported primary learning activity values are `received_information`, `worked_with_material`, `generated_new_understanding`, `built_understanding_with_others`, and `mixed_or_unsure`. Learning strategy values are `rehearsal`, `elaboration`, `organization`, `critical_thinking`, `metacognitive_self_regulation`, and optional `none_or_unsure`. These concise fields are not validated AEQ, MSLQ, ICAP, psychological-test, clinical, or diagnostic scores.
+
+Session records also normalize optional `sessionPlan`, `breakEvents`, and `interruptions` fields for the future timed-break milestone. Durations use milliseconds. Planned breaks remain separate from manual pauses and interruptions, and the current app does not yet implement hidden-tab continuous monitoring or the full timed-break UI. See `docs/DATA_MODEL.md` for the canonical field shape.
 
 ## Persistence
 

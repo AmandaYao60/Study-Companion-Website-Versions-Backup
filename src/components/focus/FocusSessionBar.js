@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useAppState } from "../../context/AppContext";
+import { useMonitoring, useSession } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTargetDuration, formatTask } from "../dashboard/dashboardFormatters";
 
@@ -12,7 +12,8 @@ export default function FocusSessionBar({
   onShowMonitor,
   onToggleFullscreen,
 }) {
-  const { activeSession, isMonitoring } = useAppState();
+  const { activeSession } = useSession();
+  const { isMonitoring } = useMonitoring();
   const { formatted } = useSmoothSessionTimer(250);
 
   if (!activeSession) return null;

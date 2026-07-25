@@ -62,6 +62,7 @@ Formal session history is stored locally in IndexedDB on the same browser and or
 - [Project status](PROJECT_STATUS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [AI pipeline](docs/AI_PIPELINE.md)
+- [Data model](docs/DATA_MODEL.md)
 - [Decisions](docs/DECISIONS.md)
 - [Changelog](CHANGELOG.md)
 - [Historical metrics data-flow audit](docs/archive/METRICS_DATA_FLOW_AUDIT_2026-07-24.md)

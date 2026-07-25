@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef } from "react";
-import { useAppState } from "../../context/AppContext";
+import { useDebug, useMonitoring } from "../../context/AppContext";
 import { getAffectSession, predictAffectFromCanvas } from "../../services/affect/browserAffectModel";
 
 const AFFECT_INPUT_SIZE = 224;
@@ -77,7 +77,6 @@ export default function MonitoringRuntimeHost() {
     cameraStream,
     isAiLoaded,
     inferenceFps,
-    isDebugMode,
     faceLandmarkerRef,
     gestureRecognizerRef,
     updateAiMetrics,
@@ -88,7 +87,8 @@ export default function MonitoringRuntimeHost() {
     setRuntimeStatus,
     monitoringDetectionsRef,
     runtimeFaceCropCanvasRef,
-  } = useAppState();
+  } = useMonitoring();
+  const { isDebugMode } = useDebug();
 
   const videoRef = useRef(null);
   const inferenceAnimationRef = useRef(null);

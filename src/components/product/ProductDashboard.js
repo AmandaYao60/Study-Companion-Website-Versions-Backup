@@ -2,12 +2,12 @@
 
 import React, { useMemo } from "react";
 import Link from "next/link";
-import { useAppState } from "../../context/AppContext";
+import { useSession } from "../../context/AppContext";
 import DashboardCharts from "../DashboardCharts";
 import { selectDashboardSessionSource } from "../../services/session/index.js";
 
 export default function ProductDashboard() {
-  const { activeSession, completedSessions, resetMetrics } = useAppState();
+  const { activeSession, completedSessions, resetMetrics } = useSession();
   const source = useMemo(() => selectDashboardSessionSource({ activeSession, completedSessions }), [activeSession, completedSessions]);
   const dashboardCopy = {
     active: "Viewing the live current study session. Charts use committed five-second samples.",

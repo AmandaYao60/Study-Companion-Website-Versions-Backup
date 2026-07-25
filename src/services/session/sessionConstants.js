@@ -1,4 +1,4 @@
-export const SESSION_SCHEMA_VERSION = "session-schema-v3";
+export const SESSION_SCHEMA_VERSION = "session-schema-v4";
 export const SESSION_SUMMARY_ALGORITHM_VERSION = "session-summary-v1";
 export const METRIC_AGGREGATION_VERSION = "metric-aggregation-v1";
 export const DEFAULT_PIPELINE_VERSION = "browser-ai-pipeline-v1";
@@ -12,6 +12,20 @@ export const SESSION_STATUS = Object.freeze({
   PAUSED: "paused",
   COMPLETED: "completed",
   DISCARDED: "discarded",
+});
+
+export const BREAK_STATUS = Object.freeze({
+  SCHEDULED: "scheduled",
+  ACTIVE: "active",
+  COMPLETED: "completed",
+  SKIPPED: "skipped",
+  CANCELLED: "cancelled",
+});
+
+export const INTERRUPTION_REASON = Object.freeze({
+  MANUAL_PAUSE: "manual-pause",
+  PAGE_HIDDEN: "page-hidden",
+  CAMERA_LOST: "camera-lost",
 });
 
 export const DATA_QUALITY = Object.freeze({

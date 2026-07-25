@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAppState } from "../context/AppContext";
+import { useSession } from "../context/AppContext";
 
 export const formatElapsedTime = (elapsedMs) => {
   const totalSeconds = Math.floor(Math.max(elapsedMs, 0) / 1000);
@@ -17,7 +17,7 @@ export const formatElapsedTime = (elapsedMs) => {
 };
 
 export default function useSmoothSessionTimer(refreshMs = 200) {
-  const { sessionClock, getSessionElapsedMs } = useAppState();
+  const { sessionClock, getSessionElapsedMs } = useSession();
   const [elapsedMs, setElapsedMs] = useState(() => getSessionElapsedMs());
 
   useEffect(() => {

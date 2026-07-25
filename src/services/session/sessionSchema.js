@@ -15,10 +15,18 @@ import {
   normalizePreSessionCheckIn,
   validateSelfReportFields,
 } from "./sessionSelfReport.js";
+import {
+  normalizeBreakEvents,
+  normalizeInterruptions,
+  normalizeSessionPlan,
+} from "./sessionBreaks.js";
 
 /** @typedef {{expectedDifficulty:number|null,taskConfidence:number|null,mood:number|null,energy:number|null,taskValue:number|null,recordedAt:string|null}} PreSessionCheckIn */
 /** @typedef {{sessionEnergy:number|null,sessionMood:number|null,perceivedFatigue:number|null,perceivedAttention:number|null,perceivedDifficulty:number|null,goalAttainment:number|null,strategiesUsed:Array<string>,primaryStrategy:string|null,primaryStrategyEffectiveness:number|null,primaryLearningActivity:string|null,learningReflection:string|null,nextSessionAdjustment:string|null,recordedAt:string|null}} PostSessionCheckOut */
-/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
+/** @typedef {{targetDurationMs:number|null,focusDurationMs:number|null,breakDurationMs:number,plannedBreakCount:number}} SessionPlan */
+/** @typedef {{id:string,plannedStartElapsedMs:number|null,plannedStartAt:string|null,actualStartElapsedMs:number|null,actualStartAt:string|null,actualEndElapsedMs:number|null,actualEndAt:string|null,status:string}} BreakEvent */
+/** @typedef {{id:string,startElapsedMs:number|null,startAt:string|null,endElapsedMs:number|null,endAt:string|null,reason:string}} Interruption */
+/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,sessionPlan:SessionPlan,breakEvents:Array<BreakEvent>,interruptions:Array<Interruption>,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
 /** @typedef {{recordedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,faceDetected:boolean,affectValid:boolean,dataValid:boolean}} MetricObservation */
 /** @typedef {{id:string,sessionId:string,recordedAt:string,intervalStartedAt:string,intervalEndedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,validObservationCount:number,expectedObservationCount:number,affectObservationCount:number,dataCoverage:number,dataQuality:string,aggregationVersion:string}} MetricSample */
 /** @typedef {{mean:number|null,min:number|null,max:number|null,standardDeviation:number|null,startMean:number|null,endMean:number|null,change:number|null,trend:string,validCount:number}} MetricStatistics */
@@ -70,6 +78,7 @@ const validateVersion = (name, value, errors) => {
 export const createStudySession = (input = {}, options = {}) => {
   const currentTime = iso((options.now || nowIso)(), nowIso());
   const session = {
+    ...input,
     id: text(input.id || (options.idFactory || defaultIdFactory)("session")),
     userId: nullableText(input.userId),
     taskName: optionalShortText(input.taskName ?? input.taskDescription, 80) || "",
@@ -85,6 +94,11 @@ export const createStudySession = (input = {}, options = {}) => {
     questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
       ? input.questionnaireSchemaVersion
       : QUESTIONNAIRE_SCHEMA_VERSION,
+    sessionPlan: normalizeSessionPlan(input.sessionPlan, {
+      targetDurationMs: input.targetDurationMs,
+    }),
+    breakEvents: normalizeBreakEvents(input.breakEvents),
+    interruptions: normalizeInterruptions(input.interruptions),
     startedAt: iso(input.startedAt, currentTime),
     endedAt: iso(input.endedAt, null),
     createdAt: iso(input.createdAt, currentTime),
@@ -106,6 +120,7 @@ export const createStudySession = (input = {}, options = {}) => {
 /** Normalize a persisted or in-memory study session shape without generating missing required IDs. @param {Object} input @returns {ActiveStudySession|CompletedStudySession} */
 export const normalizeStudySession = (input = {}) => {
   const base = {
+    ...input,
     id: text(input.id, ""),
     userId: nullableText(input.userId),
     taskName: optionalShortText(input.taskName ?? input.taskDescription, 80) || "",
@@ -121,6 +136,11 @@ export const normalizeStudySession = (input = {}) => {
     questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
       ? input.questionnaireSchemaVersion
       : QUESTIONNAIRE_SCHEMA_VERSION,
+    sessionPlan: normalizeSessionPlan(input.sessionPlan, {
+      targetDurationMs: input.targetDurationMs,
+    }),
+    breakEvents: normalizeBreakEvents(input.breakEvents),
+    interruptions: normalizeInterruptions(input.interruptions),
     startedAt: iso(input.startedAt, null),
     endedAt: iso(input.endedAt, null),
     createdAt: iso(input.createdAt, null),
@@ -164,6 +184,15 @@ export const validateStudySession = (session) => {
   if (!isObject(session.preSessionCheckIn)) errors.push("preSessionCheckIn must be an object.");
   if (!isObject(session.postSessionCheckOut)) errors.push("postSessionCheckOut must be an object.");
   if (!Number.isInteger(session.questionnaireSchemaVersion) || session.questionnaireSchemaVersion < 1) errors.push("questionnaireSchemaVersion must be a positive integer.");
+  if (!isObject(session.sessionPlan)) errors.push("sessionPlan must be an object.");
+  if (session.sessionPlan) {
+    if (session.sessionPlan.targetDurationMs !== null && !isFiniteNumber(session.sessionPlan.targetDurationMs)) errors.push("sessionPlan.targetDurationMs must be a number or null.");
+    if (session.sessionPlan.focusDurationMs !== null && !isFiniteNumber(session.sessionPlan.focusDurationMs)) errors.push("sessionPlan.focusDurationMs must be a number or null.");
+    if (!isFiniteNumber(session.sessionPlan.breakDurationMs) || session.sessionPlan.breakDurationMs < 0) errors.push("sessionPlan.breakDurationMs must be non-negative.");
+    if (!Number.isInteger(session.sessionPlan.plannedBreakCount) || session.sessionPlan.plannedBreakCount < 0) errors.push("sessionPlan.plannedBreakCount must be a non-negative integer.");
+  }
+  if (!Array.isArray(session.breakEvents)) errors.push("breakEvents must be an array.");
+  if (!Array.isArray(session.interruptions)) errors.push("interruptions must be an array.");
   validateSelfReportFields(session, errors);
   if (!validIso(session.startedAt)) errors.push("startedAt must be an ISO 8601 timestamp.");
   if (session.endedAt !== null && !validIso(session.endedAt)) errors.push("endedAt must be an ISO 8601 timestamp or null.");

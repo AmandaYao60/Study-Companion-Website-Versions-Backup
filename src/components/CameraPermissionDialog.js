@@ -1,18 +1,20 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { useAppState } from "../context/AppContext";
+import { useMonitoring, useSession } from "../context/AppContext";
 
 export default function CameraPermissionDialog() {
   const {
     showCameraDialog,
     setShowCameraDialog,
     startCamera,
-    activatePreparedSession,
     stopCamera,
-    activeSession,
     isMonitoring,
-  } = useAppState();
+  } = useMonitoring();
+  const {
+    activatePreparedSession,
+    activeSession,
+  } = useSession();
   const [isInitializing, setIsInitializing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const requestInFlightRef = useRef(false);

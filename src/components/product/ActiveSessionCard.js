@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { useAppState } from "../../context/AppContext";
+import { useDebug, useMonitoring, useSession } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTask } from "../dashboard/dashboardFormatters";
 import SessionProgress from "../session/SessionProgress";
@@ -31,7 +31,9 @@ const getFriendlyStudyStatus = ({ activeSession, isMonitoring, attention, fatigu
 };
 
 export default function ActiveSessionCard() {
-  const { activeSession, isMonitoring, isCameraAllowed, resolvedDebugMetrics } = useAppState();
+  const { activeSession } = useSession();
+  const { isMonitoring, isCameraAllowed } = useMonitoring();
+  const { resolvedDebugMetrics } = useDebug();
   const { elapsedMs } = useSmoothSessionTimer(250);
 
   if (!activeSession) return null;
