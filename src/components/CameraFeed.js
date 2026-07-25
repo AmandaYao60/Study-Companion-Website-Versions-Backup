@@ -57,6 +57,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   } = useDebug();
   const {
     activeSession,
+    timedBreak,
   } = useSession();
 
   const isFocusPanel = presentation === "focus-panel";
@@ -65,6 +66,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   const isPreparedSession = sessionStatus === "prepared";
   const isActiveWithoutMonitoring = sessionStatus === "active" && !isMonitoring;
   const isPausedSession = sessionStatus === "paused" || (hasSession && !isMonitoring);
+  const isBreakMode = timedBreak?.isBreakMode === true;
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -419,7 +421,19 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
 
         {(!isCameraAllowed || !isMonitoring) && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 p-6 text-center">
-            {!hasSession ? (
+            {isBreakMode ? (
+              <>
+                <div className="mb-3 rounded-full border border-emerald-400/10 bg-emerald-400/10 p-4">
+                  <svg className="h-8 w-8 text-emerald-300/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a8.97 8.97 0 008.354-5.646z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-slate-200">Enjoy your break time</h3>
+                <p className="mt-1 max-w-xs text-xs text-slate-500">
+                  Camera and monitoring are stopped until you continue studying.
+                </p>
+              </>
+            ) : !hasSession ? (
               <>
                 <div className="mb-3 rounded-full border border-white/5 bg-slate-900 p-4">
                   <svg className="h-8 w-8 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

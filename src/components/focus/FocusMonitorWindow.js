@@ -29,6 +29,8 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
     activeSession,
     pauseSession,
     resumeSession,
+    timedBreak,
+    timedBreakActions,
   } = useSession();
   const {
     isMonitoring,
@@ -53,11 +55,15 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
   const statusText = isMonitoring
     ? getStudyStatusText(attentionMetric.displayedValue, fatigueMetric.displayedValue)
     : "Monitoring is paused. Resume when you are ready to continue.";
+  const isBreakMode = timedBreak.isBreakMode;
+  const breakElapsedMs = Math.max(0, (timedBreak.activeSegmentDurationMs || timedBreak.baseDurationMs || 0) - timedBreak.remainingMs);
 
   const handlePauseResume = async () => {
     setIsToggling(true);
     try {
-      if (isMonitoring) {
+      if (isBreakMode) {
+        timedBreakActions.requestEndBreakEarly();
+      } else if (isMonitoring) {
         await pauseSession();
       } else {
         await resumeSession();
@@ -95,7 +101,11 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
       </div>
 
       <div className="border-b border-white/10 px-3 py-3">
-        <SessionProgress elapsedMs={elapsedMs} targetDurationMs={activeSession?.targetDurationMs} />
+        <SessionProgress
+          elapsedMs={isBreakMode ? breakElapsedMs : elapsedMs}
+          targetDurationMs={isBreakMode ? (timedBreak.activeSegmentDurationMs || timedBreak.baseDurationMs) : activeSession?.targetDurationMs}
+          barClassName={isBreakMode ? "bg-emerald-300" : "bg-cyan-400"}
+        />
       </div>
 
       <div className="space-y-3 p-3">
@@ -108,14 +118,14 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
 
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.06] p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-cyan-300">Study Status</p>
-            {hasDebugOverride && (
+          <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-cyan-300">Study Status</p>
+            {hasDebugOverride && !isBreakMode && (
               <span className="rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-200">
                 DEBUG OVERRIDE
               </span>
             )}
           </div>
-          <p className="mt-1 text-sm leading-relaxed text-slate-100">{statusText}</p>
+          <p className="mt-1 text-sm leading-relaxed text-slate-100">{isBreakMode ? "Relaxing" : statusText}</p>
         </div>
 
         <button
@@ -129,16 +139,18 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
               : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
           }`}
         >
-          {isMonitoring ? "Pause Session" : isToggling ? "Resuming..." : "Resume Session"}
+          {isBreakMode ? "End Break Early" : isMonitoring ? "Pause Session" : isToggling ? "Resuming..." : "Resume Session"}
         </button>
 
-        <Link
-          href="/app"
-          data-no-drag="true"
-          className="flex w-full items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20"
-        >
-          Return to Study Space
-        </Link>
+        {!isBreakMode && (
+          <Link
+            href="/app"
+            data-no-drag="true"
+            className="flex w-full items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20"
+          >
+            Return to Study Space
+          </Link>
+        )}
       </div>
     </div>
   );

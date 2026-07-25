@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useMonitoring, useSession } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTargetDuration, formatTask } from "../dashboard/dashboardFormatters";
@@ -12,13 +12,28 @@ export default function FocusSessionBar({
   onShowMonitor,
   onToggleFullscreen,
 }) {
-  const { activeSession } = useSession();
+  const { activeSession, pauseSession, resumeSession, sessionAudio, timedBreak, timedBreakActions } = useSession();
   const { isMonitoring } = useMonitoring();
   const { formatted } = useSmoothSessionTimer(250);
+  const [isToggling, setIsToggling] = useState(false);
 
   if (!activeSession) return null;
 
-  const statusLabel = isMonitoring ? "Active" : "Paused";
+  const statusLabel = timedBreak.isBreakMode ? "Relaxing" : isMonitoring ? "Active" : "Paused";
+  const handleSessionToggle = async () => {
+    setIsToggling(true);
+    try {
+      if (timedBreak.isBreakMode) {
+        timedBreakActions.requestEndBreakEarly();
+      } else if (isMonitoring) {
+        await pauseSession();
+      } else {
+        await resumeSession();
+      }
+    } finally {
+      setIsToggling(false);
+    }
+  };
 
   return (
     <aside className={`absolute left-3 right-3 top-3 z-40 rounded-2xl border border-white/10 px-3 py-2 shadow-2xl backdrop-blur-xl sm:left-5 sm:right-5 ${isFullscreen ? "bg-slate-950/35" : "bg-slate-950/82"}`}>
@@ -32,6 +47,44 @@ export default function FocusSessionBar({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleSessionToggle()}
+            disabled={isToggling}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:cursor-wait disabled:opacity-70 ${
+              timedBreak.isBreakMode || isMonitoring
+                ? "border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
+            }`}
+          >
+            {timedBreak.isBreakMode ? "End Break Early" : isMonitoring ? "Pause Session" : "Resume Session"}
+          </button>
+          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={() => sessionAudio.setMuted(!sessionAudio.muted)}
+              aria-label={sessionAudio.muted ? "Unmute session audio" : "Mute session audio"}
+              className="rounded-lg px-2 py-1 text-xs font-black text-cyan-100 transition-all hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-cyan-300"
+            >
+              {sessionAudio.muted ? "Muted" : "Audio"}
+            </button>
+            <label className="sr-only" htmlFor="focus-session-volume">Session audio volume</label>
+            <input
+              id="focus-session-volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={sessionAudio.volume}
+              onChange={(event) => sessionAudio.setVolume(Number(event.target.value))}
+              className="h-1 w-20 accent-cyan-300"
+            />
+            {sessionAudio.blocked && (
+              <button type="button" onClick={sessionAudio.enableAudio} className="rounded-lg bg-cyan-400 px-2 py-1 text-[10px] font-bold text-slate-950">
+                Enable
+              </button>
+            )}
+          </div>
           {isFullscreen ? (
             <button type="button" onClick={onToggleFullscreen} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-white/15">
               Exit Fullscreen

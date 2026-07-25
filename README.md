@@ -53,9 +53,9 @@ Open `http://localhost:3000` after starting the development server.
 
 ## Privacy Approach
 
-Camera frames are processed locally in the browser. MediaPipe face/gesture inference and EmotiEffLib ONNX affect inference run on the client through browser APIs and `onnxruntime-web`; face images are not uploaded to a backend service and are not stored by the application. The Focus Space floating monitor hides real camera pixels while keeping the same live landmark canvas and inference pipeline active. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
+Camera frames are processed locally in the browser. MediaPipe face/gesture inference and EmotiEffLib ONNX affect inference run on the client through browser APIs and `onnxruntime-web`; face images are not uploaded to a backend service and are not stored by the application. The Focus Space floating monitor hides real camera pixels while keeping the same live landmark canvas and inference pipeline active during focused study. During an active planned break, webcam tracks and monitoring/inference are stopped until Continue Study or successful recovery. CSV export can include face and hand landmark coordinates, so exported files should still be treated as sensitive biometric-derived data.
 
-Formal session history is stored locally in IndexedDB on the same browser and origin. The stored data is limited to study-session records, five-second `MetricSample` records, and active-session timing checkpoints for refresh recovery. Raw video, images, face crops, raw landmarks, raw observations, logits, and full emotion probability vectors are not persisted. Debug telemetry and raw-landmark capture are memory-only, bounded, and available only through explicit Debug Mode sensitive controls.
+Formal session history is stored locally in IndexedDB on the same browser and origin. The stored data is limited to study-session records, planned-break event fields, five-second `MetricSample` records, and active-session timing checkpoints for refresh recovery. Raw video, images, face crops, raw landmarks, raw observations, logits, full emotion probability vectors, audio objects, and timer handles are not persisted. Debug telemetry and raw-landmark capture are memory-only, bounded, and available only through explicit Debug Mode sensitive controls.
 
 ## Documentation
 
@@ -73,6 +73,7 @@ Formal session history is stored locally in IndexedDB on the same browser and or
 - Metrics are heuristic and should not be treated as clinical or psychological diagnosis.
 - Completed history and recoverable active sessions are local-only; clearing site data, private browsing, or storage restrictions can remove or prevent persistence.
 - Abrupt interruption can lose up to roughly one active-session checkpoint interval.
+- Hidden-tab continuous monitoring and guaranteed background break alarms are not implemented; timed-break state is recovered from persisted timestamps when the app runs again.
 - PDF report export is currently a placeholder alert.
 - The final Focus Space particle environment and task system are not implemented yet.
 - Some UI strings in source files still contain mojibake from prior encoding issues.

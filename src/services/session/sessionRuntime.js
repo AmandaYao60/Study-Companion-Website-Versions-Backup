@@ -12,7 +12,7 @@ import {
 } from "./sessionSchema.js";
 import { calculateSessionStatistics } from "./sessionStatistics.js";
 import { generateSessionSummary } from "./sessionSummary.js";
-import { normalizeSessionPlan } from "./sessionBreaks.js";
+import { normalizeBreakEvents, normalizeSessionPlan } from "./sessionBreaks.js";
 import { createMemorySessionRepository } from "./repositories/memorySessionRepository.js";
 
 const clone = (value) => {
@@ -331,6 +331,29 @@ export const createSessionRuntime = (options = {}) => {
         targetDurationMs,
         sessionPlan: normalizeSessionPlan(activeSession.sessionPlan, { targetDurationMs }),
         updatedAt: now(),
+      });
+      return clone(activeSession);
+    },
+
+    async updateSessionPlan(sessionPlan = null) {
+      if (!activeSession) return null;
+      activeSession = await repository.updateSession(activeSession.id, {
+        sessionPlan: normalizeSessionPlan(sessionPlan, { targetDurationMs: activeSession.targetDurationMs }),
+        updatedAt: now(),
+      });
+      return clone(activeSession);
+    },
+
+    async updateBreakEvents(breakEvents = [], input = {}) {
+      if (!activeSession) return null;
+      const updatedAt = input.updatedAt || now();
+      activeSession = await repository.updateSession(activeSession.id, {
+        breakEvents: normalizeBreakEvents(breakEvents),
+        ...(Number.isFinite(input.accumulatedStudyMs) ? { accumulatedStudyMs: input.accumulatedStudyMs } : {}),
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.recoveryPending !== undefined ? { recoveryPending: input.recoveryPending === true } : {}),
+        ...(input.lastCheckpointAt !== undefined ? { lastCheckpointAt: input.lastCheckpointAt } : {}),
+        updatedAt,
       });
       return clone(activeSession);
     },

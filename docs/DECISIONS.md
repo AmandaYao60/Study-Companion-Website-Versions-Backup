@@ -166,10 +166,10 @@ Rationale: Session lifecycle and persistence, camera/model monitoring, and devel
 
 Consequences or trade-offs: The top-level provider still coordinates cross-boundary actions such as camera-gated resume and clear-local-data. `MonitoringRuntimeHost` remains the only inference loop. Components must import the narrow hook that matches their responsibility.
 
-## Timed Breaks Start As Pure Session-Domain Contracts
+## Timed Breaks Use The Session Provider Controller
 
-Decision: `sessionPlan`, `breakEvents`, and `interruptions` are normalized on session records, and break lifecycle transitions live in pure session-service helpers.
+Decision: `AppProvider` owns the regular-break scheduler, break phase, persisted break-event transitions, camera/inference shutdown, and shared session audio. `sessionPlan`, `breakEvents`, and `interruptions` remain normalized in the session-domain service layer.
 
-Rationale: The timed-break UI needs a durable contract before timers, navigation, music, or break controls are introduced. Planned breaks must remain distinct from manual pauses and unexpected interruptions.
+Rationale: Break scheduling depends on effective focused-study time and must coordinate Session Setup, Focus Space, the floating monitor, camera recovery, formal sampling, and local audio without creating another provider refactor or second monitoring runtime.
 
-Consequences or trade-offs: The session schema version is bumped, but the IndexedDB structural version is unchanged because records remain flexible objects in the existing `study_sessions` store. Existing sessions normalize to a safe no-break default. Hidden-tab continuous monitoring and full break UX remain future work.
+Consequences or trade-offs: The IndexedDB structural version is unchanged because `study_sessions` stores flexible records. Existing sessions normalize to a safe no-break default. Hidden-tab continuous alarms are not guaranteed; persisted timestamps are used to restore the safest coherent break state when the app runs again. Planned breaks remain separate from manual pauses and interruptions, and no camera frames, landmarks, debug telemetry, audio objects, or timer handles are persisted.

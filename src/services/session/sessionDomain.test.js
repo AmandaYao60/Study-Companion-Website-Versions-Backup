@@ -14,6 +14,7 @@ import {
   calculateSessionStatistics,
   calculatePlannedBreakPositions,
   cancelBreak,
+  coerceBreakDurationForFocus,
   completeBreak,
   classifyDataQuality,
   createCompletedStudySession,
@@ -22,6 +23,8 @@ import {
   createStudySession,
   generateSessionSummary,
   getNextScheduledBreak,
+  isValidBreakDuration,
+  isValidBreakFocusDuration,
   normalizeBreakEvents,
   normalizeInterruptions,
   normalizePostSessionCheckOut,
@@ -32,6 +35,7 @@ import {
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
   skipBreak,
+  startBreakExtension,
   sortSessionsByNewest,
   startPlannedBreak,
   validateStudySession,
@@ -346,6 +350,61 @@ test("session plan normalizes legacy sessions and derives planned break count in
   assert.deepEqual(calculatePlannedBreakPositions(plan), [25 * 60000]);
 });
 
+test("regular break plan validation uses five-minute bounded focus and break durations", () => {
+  assert.equal(isValidBreakFocusDuration(20 * 60000), false);
+  assert.equal(isValidBreakFocusDuration(95 * 60000), false);
+  assert.equal(isValidBreakFocusDuration(26 * 60000), false);
+  assert.equal(isValidBreakFocusDuration(25 * 60000), true);
+  assert.equal(isValidBreakFocusDuration(90 * 60000), true);
+
+  assert.equal(isValidBreakDuration(4 * 60000, 30 * 60000), false);
+  assert.equal(isValidBreakDuration(20 * 60000, 60 * 60000), false);
+  assert.equal(isValidBreakDuration(7 * 60000, 45 * 60000), false);
+  assert.equal(isValidBreakDuration(10 * 60000, 25 * 60000), false);
+  assert.equal(isValidBreakDuration(10 * 60000, 30 * 60000), true);
+  assert.equal(isValidBreakDuration(15 * 60000, 45 * 60000), true);
+
+  assert.equal(coerceBreakDurationForFocus(15 * 60000, 30 * 60000), 10 * 60000);
+  assert.equal(coerceBreakDurationForFocus(10 * 60000, 25 * 60000), 5 * 60000);
+});
+
+test("regular break plan normalization keeps disabled and invalid plans safe", () => {
+  const disabled = normalizeSessionPlan({
+    targetDurationMs: 90 * 60000,
+    focusDurationMs: null,
+    breakDurationMs: 0,
+  });
+  assert.deepEqual(disabled, {
+    targetDurationMs: 90 * 60000,
+    focusDurationMs: null,
+    breakDurationMs: 0,
+    plannedBreakCount: 0,
+  });
+
+  const corrected = normalizeSessionPlan({
+    targetDurationMs: 90 * 60000,
+    focusDurationMs: 26 * 60000,
+    breakDurationMs: 15 * 60000,
+  });
+  assert.equal(corrected.focusDurationMs, 25 * 60000);
+  assert.equal(corrected.breakDurationMs, 5 * 60000);
+  assert.equal(corrected.plannedBreakCount, 3);
+
+  const exactEnd = normalizeSessionPlan({
+    targetDurationMs: 50 * 60000,
+    focusDurationMs: 25 * 60000,
+    breakDurationMs: 5 * 60000,
+  });
+  assert.deepEqual(calculatePlannedBreakPositions(exactEnd), [25 * 60000]);
+
+  const tooShort = normalizeSessionPlan({
+    targetDurationMs: 20 * 60000,
+    focusDurationMs: 25 * 60000,
+    breakDurationMs: 5 * 60000,
+  });
+  assert.deepEqual(calculatePlannedBreakPositions(tooShort), []);
+});
+
 test("break lifecycle transitions prevent duplicate and overlapping active breaks", () => {
   const session = createStudySession({
     id: "break-session",
@@ -377,6 +436,43 @@ test("break lifecycle transitions prevent duplicate and overlapping active break
   assert.equal(completed.breakEvents[0].status, BREAK_STATUS.COMPLETED);
   assert.equal(skipBreak(completed, "break-2").breakEvents[1].status, BREAK_STATUS.SKIPPED);
   assert.throws(() => cancelBreak(completed, "break-1"), /completed/i);
+});
+
+test("break extensions are counted and capped at three", () => {
+  const session = createStudySession({
+    id: "break-extension-session",
+    taskDescription: "Break extensions",
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    breakEvents: normalizeBreakEvents([
+      {
+        id: "break-1",
+        plannedStartElapsedMs: 25 * 60000,
+        status: BREAK_STATUS.ACTIVE,
+        actualStartElapsedMs: 25 * 60000,
+        actualStartAt: "2026-01-01T00:25:00.000Z",
+        baseDurationMs: 5 * 60000,
+      },
+    ]),
+  }, { now: () => baseTime });
+
+  const one = startBreakExtension(session, "break-1", {
+    activeSegmentStartedAt: "2026-01-01T00:30:00.000Z",
+  });
+  const two = startBreakExtension(one, "break-1", {
+    activeSegmentStartedAt: "2026-01-01T00:33:00.000Z",
+  });
+  const three = startBreakExtension(two, "break-1", {
+    activeSegmentStartedAt: "2026-01-01T00:36:00.000Z",
+  });
+
+  assert.equal(three.breakEvents[0].extensionCount, 3);
+  assert.equal(three.breakEvents[0].totalExtensionDurationMs, 9 * 60000);
+  assert.throws(
+    () => startBreakExtension(three, "break-1", { activeSegmentStartedAt: "2026-01-01T00:39:00.000Z" }),
+    /extension limit/i
+  );
 });
 
 test("planned breaks remain distinct from manual pauses and interruptions", () => {

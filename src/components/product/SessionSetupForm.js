@@ -1,8 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "../../context/AppContext";
+import {
+  calculatePlannedBreakPositions,
+  coerceBreakDurationForFocus,
+  getAllowedBreakDurations,
+  getAllowedFocusDurations,
+  normalizeSessionPlan,
+} from "../../services/session/index.js";
 
 const targetOptions = [
   { label: "25 min", value: 25 },
@@ -86,6 +93,9 @@ const initialDraft = {
     energy: null,
     taskValue: null,
   },
+  planRegularBreaks: false,
+  focusMinutes: 25,
+  breakMinutes: 5,
 };
 
 const minutesToMs = (minutes) => {
@@ -101,6 +111,15 @@ const greetingForNow = () => {
 };
 
 const ratingLabel = (question, value) => `${value}. ${question.anchors.find((anchor) => anchor.startsWith(`${value} =`)) || ""}`;
+const msToMinutes = (milliseconds) => Math.round(milliseconds / 60000);
+const focusMinuteOptions = getAllowedFocusDurations().map(msToMinutes);
+
+const formatBreakPositions = (positions) => {
+  const minutes = positions.map(msToMinutes);
+  if (minutes.length === 0) return "No planned break will be scheduled for this target duration.";
+  if (minutes.length === 1) return `Break after ${minutes[0]} min of focused study`;
+  return `Breaks after ${minutes.slice(0, -1).join(", ")}, and ${minutes.at(-1)} min of focused study`;
+};
 
 function SkipCheckInDialog({ open, onClose, onConfirm }) {
   const cancelRef = useRef(null);
@@ -158,6 +177,21 @@ export default function SessionSetupForm() {
   const selectedTargetMs = draft.targetChoice === "custom"
     ? minutesToMs(draft.customMinutes)
     : minutesToMs(draft.targetChoice);
+  const selectedFocusMs = minutesToMs(draft.focusMinutes);
+  const selectedBreakMs = minutesToMs(draft.breakMinutes);
+  const allowedBreakMinutes = getAllowedBreakDurations(selectedFocusMs).map(msToMinutes);
+  const normalizedBreakPlan = normalizeSessionPlan(
+    draft.planRegularBreaks
+      ? {
+        targetDurationMs: selectedTargetMs,
+        focusDurationMs: selectedFocusMs,
+        breakDurationMs: selectedBreakMs,
+      }
+      : { targetDurationMs: selectedTargetMs },
+    { targetDurationMs: selectedTargetMs }
+  );
+  const plannedBreakPositions = calculatePlannedBreakPositions(normalizedBreakPlan);
+  const plannedBreakMinutes = msToMinutes(normalizedBreakPlan.breakDurationMs * normalizedBreakPlan.plannedBreakCount);
   const currentOptionalStep = optionalSteps[optionalIndex];
   const setupValid = draft.taskName.trim().length > 0 && draft.taskName.trim().length <= 80 && selectedTargetMs !== null;
 
@@ -173,6 +207,12 @@ export default function SessionSetupForm() {
         [key]: value,
       },
     }));
+  };
+
+  const updateFocusMinutes = (focusMinutes) => {
+    const focusDurationMs = minutesToMs(focusMinutes);
+    const safeBreakMinutes = msToMinutes(coerceBreakDurationForFocus(selectedBreakMs, focusDurationMs));
+    updateDraft({ focusMinutes, breakMinutes: safeBreakMinutes });
   };
 
   const goToNextOptional = () => {
@@ -200,6 +240,7 @@ export default function SessionSetupForm() {
     if (!draft.taskName.trim()) return "Task Name is required.";
     if (draft.taskName.trim().length > 80) return "Task Name should be about 80 characters or less.";
     if (selectedTargetMs === null) return "Choose a positive Target Duration of 300 minutes or less.";
+    if (draft.planRegularBreaks && normalizedBreakPlan.breakDurationMs <= 0) return "Choose a valid Break Time for the selected Focus Time.";
     return "";
   };
 
@@ -220,6 +261,7 @@ export default function SessionSetupForm() {
       taskName: draft.taskName.trim(),
       taskDescription: draft.taskName.trim(),
       targetDurationMs: selectedTargetMs,
+      sessionPlan: normalizedBreakPlan,
       subject: draft.subject,
       customSubject: draft.subject === "other" ? draft.customSubject.trim() || null : null,
       taskType: draft.taskType,
@@ -314,6 +356,60 @@ export default function SessionSetupForm() {
                 className="mt-1 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
               />
             </label>
+          )}
+        </fieldset>
+
+        <fieldset className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <legend className="text-sm font-bold text-white">Plan regular breaks</legend>
+              <p className="mt-1 text-xs text-slate-500">Breaks use focused-study time and are optional.</p>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-200">
+              <span>{draft.planRegularBreaks ? "On" : "Off"}</span>
+              <input
+                type="checkbox"
+                checked={draft.planRegularBreaks}
+                onChange={(event) => updateDraft({ planRegularBreaks: event.target.checked })}
+                className="h-5 w-5 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-2 focus:ring-cyan-300"
+              />
+            </label>
+          </div>
+
+          {draft.planRegularBreaks && (
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-400">Focus time</span>
+                <select
+                  value={draft.focusMinutes}
+                  onChange={(event) => updateFocusMinutes(Number(event.target.value))}
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
+                >
+                  {focusMinuteOptions.map((minutes) => (
+                    <option key={minutes} value={minutes}>{minutes} minutes</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-400">Break time</span>
+                <select
+                  value={draft.breakMinutes}
+                  onChange={(event) => updateDraft({ breakMinutes: Number(event.target.value) })}
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
+                >
+                  {allowedBreakMinutes.map((minutes) => (
+                    <option key={minutes} value={minutes}>{minutes} minutes</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-[11px] text-slate-500">Break time cannot exceed one third of Focus time.</span>
+              </label>
+              <div className="sm:col-span-2 rounded-xl border border-cyan-400/15 bg-cyan-400/[0.06] p-3">
+                <p className="text-xs font-bold text-cyan-100">
+                  {selectedTargetMs ? `${msToMinutes(selectedTargetMs)} min study + ${plannedBreakMinutes} min planned breaks` : "Choose a target duration to preview breaks"}
+                </p>
+                <p className="mt-1 text-xs text-slate-300">{formatBreakPositions(plannedBreakPositions)}</p>
+              </div>
+            </div>
           )}
         </fieldset>
 
@@ -444,11 +540,12 @@ export default function SessionSetupForm() {
     );
   };
 
-  const readySummary = useMemo(() => [
+  const readySummary = [
     ["Task", draft.taskName.trim() || "Not provided"],
     ["Target duration", selectedTargetMs ? `${Math.round(selectedTargetMs / 60000)} minutes` : "Not provided"],
+    ["Regular breaks", draft.planRegularBreaks ? `${draft.focusMinutes} min focus / ${draft.breakMinutes} min break` : "Off"],
     ...(draft.sessionGoal.trim() ? [["Goal", draft.sessionGoal.trim()]] : []),
-  ], [draft.sessionGoal, draft.taskName, selectedTargetMs]);
+  ];
 
   if (stage === "welcome") {
     return (

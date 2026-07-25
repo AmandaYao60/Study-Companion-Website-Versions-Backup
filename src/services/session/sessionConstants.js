@@ -4,6 +4,16 @@ export const METRIC_AGGREGATION_VERSION = "metric-aggregation-v1";
 export const DEFAULT_PIPELINE_VERSION = "browser-ai-pipeline-v1";
 export const DEFAULT_SAMPLE_INTERVAL_MS = 5000;
 export const DEFAULT_MINIMUM_DATA_COVERAGE = 0.6;
+export const MIN_BREAK_FOCUS_DURATION_MS = 25 * 60000;
+export const MAX_BREAK_FOCUS_DURATION_MS = 90 * 60000;
+export const MIN_BREAK_DURATION_MS = 5 * 60000;
+export const MAX_BREAK_DURATION_MS = 15 * 60000;
+export const BREAK_DURATION_STEP_MS = 5 * 60000;
+export const PRE_BREAK_WARNING_MS = 3 * 60000;
+export const BREAK_EXTENSION_MS = 3 * 60000;
+export const BREAK_DECISION_WAIT_MS = 3 * 60000;
+export const BREAK_DECISION_ALARM_REPLAY_MS = 60 * 1000;
+export const MAX_BREAK_EXTENSION_COUNT = 3;
 
 export const SESSION_STATUS = Object.freeze({
   IDLE: "idle",

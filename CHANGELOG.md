@@ -20,6 +20,7 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Per-hand top-gesture extraction with highest-confidence primary gesture selection.
 - Sustained two-hand activity warning and weak attention-reduction heuristic.
 - Telemetry table and raw landmark CSV export.
+- Optional regular-break planning in Session Setup with focused-time scheduling, break warnings, Start/Skip decisions, Focus Space Break Mode, extension handling, and coordinated local audio.
 
 ### Changed
 
@@ -35,6 +36,7 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 - Debug telemetry and raw-landmark capture are bounded, memory-only, and gated behind Debug Mode sensitive controls.
 - Replaced the monolithic app-state consumer hook with focused Session, Monitoring, and Debug hooks.
 - Added backward-compatible session-plan, planned-break, and interruption data contracts plus pure break lifecycle helpers.
+- Timed breaks now use effective focused-study time, stop camera/inference only after the user starts a break, suppress formal samples during break phases, and persist break events separately from manual pauses.
 
 ### Known Issues
 

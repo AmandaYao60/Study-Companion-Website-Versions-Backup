@@ -2,7 +2,7 @@
 
 import React from "react";
 
-export default function FocusStagePlaceholder({ stageRef, children }) {
+export default function FocusStagePlaceholder({ stageRef, isBreakMode = false, children }) {
   return (
     <section
       ref={stageRef}
@@ -12,8 +12,9 @@ export default function FocusStagePlaceholder({ stageRef, children }) {
       <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(rgba(148,163,184,0.32)_1px,transparent_1px)] [background-size:34px_34px]" />
       <div className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
       <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
+      {isBreakMode && <div className="absolute inset-0 z-10 bg-slate-950/55 backdrop-brightness-50" aria-hidden="true" />}
 
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center">
+      <div className={`pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center ${isBreakMode ? "z-20 opacity-55" : ""}`}>
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.38em] text-cyan-300/80">
             Adaptive Particle Environment

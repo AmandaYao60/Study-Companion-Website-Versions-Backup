@@ -21,7 +21,8 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
 - Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
 - App state is exposed through focused Session, Monitoring, and Debug contexts rather than a single monolithic consumer hook.
-- The session domain normalizes optional `sessionPlan`, `breakEvents`, and `interruptions` fields for the future timed-break milestone.
+- The session domain normalizes optional `sessionPlan`, `breakEvents`, and `interruptions` fields for regular timed breaks.
+- Optional regular breaks can be planned in Session Setup, scheduled by effective focused-study time, shown in Focus Space Break Mode, extended up to three times, and persisted as break events separate from pauses.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
 - Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
@@ -43,7 +44,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Replace PDF export placeholder with a real report export path.
 - Fix mojibake UI strings in source files in a separate source-code task.
 - Add tests for metric heuristics and critical UI state transitions.
-- Implement the timed-break user experience on top of the existing pure break-domain transitions.
+- Browser-QA the timed-break experience with real camera permissions and autoplay policies.
 
 ## Known Issues
 
@@ -52,7 +53,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Raw telemetry and landmark capture are Debug-only, memory-only, bounded, and lost on page refresh unless explicitly exported.
 - Completed session history is local-only IndexedDB data; clearing browser site data, private/incognito browsing, or storage restrictions can remove or prevent durable history.
 - Interrupted active sessions can lose up to roughly one checkpoint interval. Recovery is local-only and depends on browser IndexedDB availability.
-- Recovered or camera-disabled sessions remain paused until the user grants camera access successfully. Webcam and Monitoring are not restarted automatically.
+- Recovered or camera-disabled sessions remain paused until the user grants camera access successfully. Continue Study after a planned break attempts to restart webcam and Monitoring automatically, then falls back to the existing paused/recovery flow if permission or camera startup fails.
 - Active and paused current sessions are the main Dashboard source. With no current session, the Dashboard uses the latest completed session; historical rows open a static report modal without replacing the main source.
 - Debug Simulation values are memory-only display previews; they do not enter formal samples, statistics, completed history, or IndexedDB.
 - Debug diagnostic snapshots distinguish valid, idle, stale, baseline-collecting, insufficient-coverage, insufficient-observation, and model-unavailable states; they do not enter formal samples, statistics, completed history, or IndexedDB.
@@ -60,7 +61,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - CSV exports contain landmark coordinates and should be handled as sensitive data. The Debug Panel keeps raw landmark export and face-crop preview behind collapsed sensitive controls, with crop preview off by default and CSV export requiring confirmation.
 - Some source strings display mojibake characters.
 - Session check-in and reflection are theory-informed self-report fields only. They are not validated psychological tests, clinical assessments, diagnostic instruments, or learning scores.
-- Hidden-tab continuous monitoring is not guaranteed; `page-hidden` interruptions are a data-contract placeholder, not an active recording feature.
+- Hidden-tab continuous monitoring and guaranteed background break alarms are not available; timed-break state is recomputed from timestamps when the app runs again.
 
 ### Next.js PostCSS dependency advisory
 

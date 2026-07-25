@@ -1,10 +1,22 @@
-import { BREAK_STATUS, INTERRUPTION_REASON } from "./sessionConstants.js";
+import {
+  BREAK_DURATION_STEP_MS,
+  BREAK_EXTENSION_MS,
+  BREAK_STATUS,
+  INTERRUPTION_REASON,
+  MAX_BREAK_DURATION_MS,
+  MAX_BREAK_EXTENSION_COUNT,
+  MAX_BREAK_FOCUS_DURATION_MS,
+  MIN_BREAK_DURATION_MS,
+  MIN_BREAK_FOCUS_DURATION_MS,
+} from "./sessionConstants.js";
 
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
 const durationMs = (value, fallback = null) => (isFiniteNumber(value) && value >= 0 ? Math.round(value) : fallback);
 const nullableText = (value) => (value === null || value === undefined || value === "" ? null : String(value));
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const isStepDuration = (value) => isFiniteNumber(value) && value % BREAK_DURATION_STEP_MS === 0;
 const iso = (value, fallback = null) => {
   if (value === null || value === undefined || value === "") return fallback;
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : fallback;
@@ -36,23 +48,98 @@ export const derivePlannedBreakCount = ({
   return Math.max(0, Math.floor((targetDurationMs - 1) / focusDurationMs));
 };
 
-export const normalizeSessionPlan = (input = {}, options = {}) => {
+export const getAllowedFocusDurations = () => {
+  const values = [];
+  for (let value = MIN_BREAK_FOCUS_DURATION_MS; value <= MAX_BREAK_FOCUS_DURATION_MS; value += BREAK_DURATION_STEP_MS) {
+    values.push(value);
+  }
+  return values;
+};
+
+export const getAllowedBreakDurations = (focusDurationMs = MIN_BREAK_FOCUS_DURATION_MS) => {
+  if (!isValidBreakFocusDuration(focusDurationMs)) return [MIN_BREAK_DURATION_MS];
+  const maximum = Math.min(MAX_BREAK_DURATION_MS, Math.floor(focusDurationMs / 3));
+  const values = [];
+  for (let value = MIN_BREAK_DURATION_MS; value <= maximum; value += BREAK_DURATION_STEP_MS) {
+    values.push(value);
+  }
+  return values;
+};
+
+export const isValidBreakFocusDuration = (focusDurationMs) => (
+  isStepDuration(focusDurationMs) &&
+  focusDurationMs >= MIN_BREAK_FOCUS_DURATION_MS &&
+  focusDurationMs <= MAX_BREAK_FOCUS_DURATION_MS
+);
+
+export const isValidBreakDuration = (breakDurationMs, focusDurationMs) => (
+  isStepDuration(breakDurationMs) &&
+  breakDurationMs >= MIN_BREAK_DURATION_MS &&
+  breakDurationMs <= MAX_BREAK_DURATION_MS &&
+  breakDurationMs <= focusDurationMs / 3
+);
+
+export const coerceBreakDurationForFocus = (breakDurationMs, focusDurationMs) => {
+  const allowed = getAllowedBreakDurations(focusDurationMs);
+  const requested = isFiniteNumber(breakDurationMs) ? Math.round(breakDurationMs) : MIN_BREAK_DURATION_MS;
+  const notAboveRequested = allowed.filter((value) => value <= requested);
+  return notAboveRequested.at(-1) ?? allowed[0] ?? MIN_BREAK_DURATION_MS;
+};
+
+export const normalizeBreakPlanInput = (input = {}, options = {}) => {
   const source = isObject(input) ? input : {};
   const targetDurationMs = durationMs(
     source.targetDurationMs ?? source.targetDuration ?? options.targetDurationMs,
     null
   );
-  const focusDurationMs = durationMs(source.focusDurationMs ?? source.focusDuration, null);
-  const breakDurationMs = durationMs(source.breakDurationMs ?? source.breakDuration, 0);
-  const derivedBreakCount = derivePlannedBreakCount({ targetDurationMs, focusDurationMs, breakDurationMs });
-  const plannedBreakCount = Number.isInteger(source.plannedBreakCount) && source.plannedBreakCount >= 0
-    ? source.plannedBreakCount
-    : derivedBreakCount;
+  const requestedFocusMs = durationMs(source.focusDurationMs ?? source.focusDuration, null);
+  const requestedBreakMs = durationMs(source.breakDurationMs ?? source.breakDuration, 0);
+  const enabled = source.enabled === true || (
+    requestedFocusMs !== null &&
+    requestedBreakMs > 0
+  );
+
+  if (!enabled) {
+    return {
+      targetDurationMs,
+      focusDurationMs: null,
+      breakDurationMs: 0,
+      plannedBreakCount: 0,
+    };
+  }
+
+  const focusDurationMs = isValidBreakFocusDuration(requestedFocusMs)
+    ? requestedFocusMs
+    : clamp(
+      Math.round((requestedFocusMs || MIN_BREAK_FOCUS_DURATION_MS) / BREAK_DURATION_STEP_MS) * BREAK_DURATION_STEP_MS,
+      MIN_BREAK_FOCUS_DURATION_MS,
+      MAX_BREAK_FOCUS_DURATION_MS
+    );
+  const breakDurationMs = isValidBreakDuration(requestedBreakMs, focusDurationMs)
+    ? requestedBreakMs
+    : coerceBreakDurationForFocus(requestedBreakMs, focusDurationMs);
+  const plannedBreakCount = derivePlannedBreakCount({ targetDurationMs, focusDurationMs, breakDurationMs });
 
   return {
     targetDurationMs,
     focusDurationMs,
     breakDurationMs,
+    plannedBreakCount,
+  };
+};
+
+export const normalizeSessionPlan = (input = {}, options = {}) => {
+  const source = isObject(input) ? input : {};
+  const normalized = normalizeBreakPlanInput(source, options);
+  const derivedBreakCount = derivePlannedBreakCount(normalized);
+  const plannedBreakCount = Number.isInteger(source.plannedBreakCount) && source.plannedBreakCount >= 0
+    ? Math.min(source.plannedBreakCount, derivedBreakCount)
+    : derivedBreakCount;
+
+  return {
+    targetDurationMs: normalized.targetDurationMs,
+    focusDurationMs: normalized.focusDurationMs,
+    breakDurationMs: normalized.breakDurationMs,
     plannedBreakCount,
   };
 };
@@ -86,6 +173,20 @@ export const normalizeBreakEvent = (input = {}, options = {}) => {
     actualStartAt: iso(source.actualStartAt, null),
     actualEndElapsedMs: durationMs(source.actualEndElapsedMs ?? source.actualEnd, null),
     actualEndAt: iso(source.actualEndAt, null),
+    warningShownAt: iso(source.warningShownAt, null),
+    readyAt: iso(source.readyAt, null),
+    baseDurationMs: durationMs(source.baseDurationMs, null),
+    activeSegmentStartedAt: iso(source.activeSegmentStartedAt, null),
+    activeSegmentDurationMs: durationMs(source.activeSegmentDurationMs, null),
+    decisionStartedAt: iso(source.decisionStartedAt, null),
+    decisionAlarmReplayedAt: iso(source.decisionAlarmReplayedAt, null),
+    extensionCount: Math.min(
+      MAX_BREAK_EXTENSION_COUNT,
+      Math.max(0, Math.floor(durationMs(source.extensionCount, 0)))
+    ),
+    totalExtensionDurationMs: durationMs(source.totalExtensionDurationMs, 0),
+    actualActiveBreakDurationMs: durationMs(source.actualActiveBreakDurationMs, 0),
+    skipped: source.skipped === true,
     status: statusValues.has(source.status) ? source.status : BREAK_STATUS.SCHEDULED,
   };
 };
@@ -161,6 +262,9 @@ export const startPlannedBreak = (session = {}, breakId, input = {}) => (
       status: BREAK_STATUS.ACTIVE,
       actualStartElapsedMs: durationMs(input.actualStartElapsedMs ?? input.actualStart, event.actualStartElapsedMs),
       actualStartAt: iso(input.actualStartAt, event.actualStartAt),
+      baseDurationMs: durationMs(input.baseDurationMs, event.baseDurationMs),
+      activeSegmentStartedAt: iso(input.activeSegmentStartedAt, event.activeSegmentStartedAt),
+      activeSegmentDurationMs: durationMs(input.activeSegmentDurationMs, event.activeSegmentDurationMs),
     };
   })
 );
@@ -175,6 +279,12 @@ export const completeBreak = (session = {}, breakId, input = {}) => (
       status: BREAK_STATUS.COMPLETED,
       actualEndElapsedMs: durationMs(input.actualEndElapsedMs ?? input.actualEnd, event.actualEndElapsedMs),
       actualEndAt: iso(input.actualEndAt, event.actualEndAt),
+      actualActiveBreakDurationMs: durationMs(input.actualActiveBreakDurationMs, event.actualActiveBreakDurationMs),
+      totalExtensionDurationMs: durationMs(input.totalExtensionDurationMs, event.totalExtensionDurationMs),
+      activeSegmentStartedAt: null,
+      activeSegmentDurationMs: null,
+      decisionStartedAt: null,
+      decisionAlarmReplayedAt: null,
     };
   })
 );
@@ -189,6 +299,9 @@ export const skipBreak = (session = {}, breakId, input = {}) => (
       status: BREAK_STATUS.SKIPPED,
       actualEndElapsedMs: durationMs(input.actualEndElapsedMs ?? input.actualEnd, event.actualEndElapsedMs),
       actualEndAt: iso(input.actualEndAt, event.actualEndAt),
+      skipped: true,
+      decisionStartedAt: null,
+      decisionAlarmReplayedAt: null,
     };
   })
 );
@@ -203,6 +316,65 @@ export const cancelBreak = (session = {}, breakId, input = {}) => (
       status: BREAK_STATUS.CANCELLED,
       actualEndElapsedMs: durationMs(input.actualEndElapsedMs ?? input.actualEnd, event.actualEndElapsedMs),
       actualEndAt: iso(input.actualEndAt, event.actualEndAt),
+      activeSegmentStartedAt: null,
+      activeSegmentDurationMs: null,
+      decisionStartedAt: null,
+      decisionAlarmReplayedAt: null,
+    };
+  })
+);
+
+export const markBreakWarningShown = (session = {}, breakId, input = {}) => (
+  updateBreakEvent(session, breakId, (event) => ({
+    ...event,
+    warningShownAt: iso(input.warningShownAt, event.warningShownAt),
+  }))
+);
+
+export const markBreakReady = (session = {}, breakId, input = {}) => (
+  updateBreakEvent(session, breakId, (event) => {
+    if (event.status !== BREAK_STATUS.SCHEDULED) return event;
+    return {
+      ...event,
+      readyAt: iso(input.readyAt, event.readyAt),
+      baseDurationMs: durationMs(input.baseDurationMs, event.baseDurationMs),
+    };
+  })
+);
+
+export const markBreakDecisionStarted = (session = {}, breakId, input = {}) => (
+  updateBreakEvent(session, breakId, (event) => {
+    if (event.status !== BREAK_STATUS.ACTIVE) return event;
+    return {
+      ...event,
+      activeSegmentStartedAt: null,
+      activeSegmentDurationMs: null,
+      decisionStartedAt: iso(input.decisionStartedAt, event.decisionStartedAt),
+      decisionAlarmReplayedAt: null,
+    };
+  })
+);
+
+export const markBreakDecisionAlarmReplayed = (session = {}, breakId, input = {}) => (
+  updateBreakEvent(session, breakId, (event) => ({
+    ...event,
+    decisionAlarmReplayedAt: iso(input.decisionAlarmReplayedAt, event.decisionAlarmReplayedAt),
+  }))
+);
+
+export const startBreakExtension = (session = {}, breakId, input = {}) => (
+  updateBreakEvent(session, breakId, (event) => {
+    if (event.status !== BREAK_STATUS.ACTIVE) throw new Error("Only an active planned break can be extended.");
+    if ((event.extensionCount || 0) >= MAX_BREAK_EXTENSION_COUNT) throw new Error("Break extension limit reached.");
+    const nextExtensionCount = Math.max(0, event.extensionCount || 0) + 1;
+    return {
+      ...event,
+      extensionCount: nextExtensionCount,
+      totalExtensionDurationMs: nextExtensionCount * BREAK_EXTENSION_MS,
+      activeSegmentStartedAt: iso(input.activeSegmentStartedAt, null),
+      activeSegmentDurationMs: durationMs(input.activeSegmentDurationMs, BREAK_EXTENSION_MS),
+      decisionStartedAt: null,
+      decisionAlarmReplayedAt: null,
     };
   })
 );

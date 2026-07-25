@@ -8,13 +8,18 @@ import FocusSessionBar from "./FocusSessionBar";
 import FocusStagePlaceholder from "./FocusStagePlaceholder";
 
 export default function FocusSpace() {
-  const { activeSession } = useSession();
+  const { activeSession, setFocusSpaceActive, timedBreak } = useSession();
   const { isCameraAllowed } = useMonitoring();
   const stageRef = useRef(null);
   const [isMonitorHidden, setIsMonitorHidden] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFullscreenSupported, setIsFullscreenSupported] = useState(false);
-  const canShowMonitor = (activeSession?.status === "active" || activeSession?.status === "paused") && isCameraAllowed;
+  const canShowMonitor = ((activeSession?.status === "active" || activeSession?.status === "paused") && isCameraAllowed) || timedBreak.isBreakMode;
+
+  useEffect(() => {
+    setFocusSpaceActive(true);
+    return () => setFocusSpaceActive(false);
+  }, [setFocusSpaceActive]);
 
   useEffect(() => {
     if (canShowMonitor) return undefined;
@@ -50,7 +55,7 @@ export default function FocusSpace() {
   };
 
   return (
-    <FocusStagePlaceholder stageRef={stageRef}>
+    <FocusStagePlaceholder stageRef={stageRef} isBreakMode={timedBreak.isBreakMode}>
       <FocusSessionBar
         isFullscreen={isFullscreen}
         isFullscreenSupported={isFullscreenSupported}

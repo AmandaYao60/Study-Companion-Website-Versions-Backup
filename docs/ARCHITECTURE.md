@@ -43,7 +43,7 @@ The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML s
 
 ### Navbar
 
-`src/components/Navbar.js` provides top-level navigation, a Debug Mode toggle, and monitoring status. It reads global state through `useAppState()`.
+`src/components/product/ProductNavbar.js` provides product navigation and a Debug Mode toggle. It reads Debug state through the focused `useDebug()` hook.
 
 ### CameraFeed
 
@@ -95,11 +95,19 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 
 `src/context/AppContext.js` is now a composition boundary. It exposes focused hooks:
 
-- `useSession()`: session setup, lifecycle, recovery, repository access, session clock, active formal samples, completed sessions, checkpoint state, clear-local-data, and future session/break contracts.
+- `useSession()`: session setup, lifecycle, recovery, repository access, session clock, active formal samples, completed sessions, checkpoint state, clear-local-data, timed-break controller state/actions, and session audio controls.
 - `useMonitoring()`: camera and monitoring status, MediaPipe model refs/status, browser affect state, authoritative live attention/fatigue/valence/arousal values, runtime detections, bounded estimator refs, and `updateAiMetrics()`.
 - `useDebug()`: Debug Mode, memory-only simulation and overrides, diagnostic snapshots, bounded telemetry, sensitive landmark capture/export, and sanitized event log.
 
-The top-level `AppProvider` still coordinates cross-boundary actions such as camera-gated session activation and clear-local-data, but consumers no longer import a monolithic app-state object. Presentational components should choose the narrow hook matching their responsibility. `MonitoringRuntimeHost` remains the single monitoring runtime; providers do not create a second inference loop.
+The top-level `AppProvider` still coordinates cross-boundary actions such as camera-gated session activation, timed-break transitions, and clear-local-data, but consumers no longer import a monolithic app-state object. Presentational components should choose the narrow hook matching their responsibility. `MonitoringRuntimeHost` remains the single monitoring runtime; providers do not create a second inference loop.
+
+## Timed Break Flow
+
+`AppProvider` owns the single timed-break scheduler/controller. Session Setup optionally creates a normalized `sessionPlan` and scheduled `breakEvents`; no other route starts break timers. Break scheduling uses effective focused-study elapsed time from the session clock, so manual pause time, break-ready decision time, active break time, extension time, completed-break decision time, and camera recovery time are excluded.
+
+The flow is active focus -> three-minute non-interactive warning -> break-ready Start/Skip modal -> active Focus Space Break Mode -> completion decision -> Continue Study or up to three three-minute extensions. If the user does not respond to a completion decision, the long alarm replays once after 60 seconds and an automatic three-minute extension starts after three minutes. After the third extension completes, the session moves to the existing paused-session recovery path instead of starting a fourth extension.
+
+Focus completion force-flushes useful pending formal observations, freezes the focused-study clock, stops study music, and plays `public/music/short-alarm.mp3` once. Camera and inference remain active until the user chooses Start Your Break Now. Starting a break closes webcam tracks, stops monitoring/inference, prevents formal samples, navigates to Focus Space, dims the stage, and loops `public/music/breaktime-music.mp3`. Active focus in Focus Space loops `public/music/studytime-music.mp3`; completion decisions play `public/music/long-alarm.mp3` once, with the one replay described above. The shared audio controls apply one session volume/mute setting to study music, break music, and alarms.
 
 ## High-Level Data Flow
 
@@ -175,7 +183,7 @@ Unanswered scalar self-report fields are stored as `null`; unanswered multi-sele
 
 The reported primary learning activity values are `received_information`, `worked_with_material`, `generated_new_understanding`, `built_understanding_with_others`, and `mixed_or_unsure`. Learning strategy values are `rehearsal`, `elaboration`, `organization`, `critical_thinking`, `metacognitive_self_regulation`, and optional `none_or_unsure`. These concise fields are not validated AEQ, MSLQ, ICAP, psychological-test, clinical, or diagnostic scores.
 
-Session records also normalize optional `sessionPlan`, `breakEvents`, and `interruptions` fields for the future timed-break milestone. Durations use milliseconds. Planned breaks remain separate from manual pauses and interruptions, and the current app does not yet implement hidden-tab continuous monitoring or the full timed-break UI. See `docs/DATA_MODEL.md` for the canonical field shape.
+Session records normalize optional `sessionPlan`, `breakEvents`, and `interruptions` fields for regular timed breaks. Durations use milliseconds. Planned breaks remain separate from manual pauses and interruptions, and hidden-tab continuous monitoring or guaranteed background alarms are not implemented. See `docs/DATA_MODEL.md` for the canonical field shape.
 
 ## Persistence
 
@@ -183,7 +191,7 @@ Completed study-session summaries and formal `MetricSample` records are stored l
 
 Raw video, images, face crops, canvas contents, face landmarks, hand landmarks, raw telemetry rows, raw landmark history, model logits, full emotion probability arrays, debug overrides, MediaPipe model objects, and camera streams are not stored in IndexedDB. Debug telemetry remains bounded in React memory while Debug Mode is active. Raw landmark history is additionally gated by the explicit sensitive preview/capture control unless the user exports a CSV.
 
-On startup, an unexpectedly interrupted active session is converted to a paused, recovery-pending session and shown over the normal Study Space in a modal. The recovered elapsed time comes only from the latest durable checkpoint; refresh time and time spent viewing the recovery modal are excluded. Returning from the recovery modal keeps the session paused. Resuming preserves the same session ID but requires the user to grant camera access successfully before the study clock, Monitoring, and data analysis restart.
+On startup, an unexpectedly interrupted active session is converted to a paused, recovery-pending session and shown over the normal Study Space in a modal. The recovered elapsed time comes only from the latest durable checkpoint; refresh time and time spent viewing the recovery modal are excluded. Timed-break records are normalized from persisted timestamps so warning, ready, active-break, extension, and completion-decision states can return coherently when the app is visible again, without replaying several missed alarms. Returning from the recovery modal keeps the session paused. Resuming or continuing after a break preserves the same session ID but requires camera access successfully before the study clock, Monitoring, and data analysis restart.
 
 Clearing browser site data removes local session history and any recoverable session. Private/incognito browsing modes or browser storage restrictions may prevent durable persistence. Abrupt termination can lose up to roughly one checkpoint interval. Recovery is local-only, preserves already committed `MetricSample` records, and does not restore camera streams, short-term baselines, pending observations, raw telemetry, landmarks, or model state.
 
