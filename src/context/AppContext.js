@@ -63,6 +63,120 @@ const BLINK_MIN_MS = 80;
 const BLINK_MAX_MS = 450;
 const BLINK_BASELINE_MIN_MS = 30000;
 const SESSION_START_BASELINE = { attention: 80, fatigue: 10 };
+const CAMERA_FIRST_FRAME_TIMEOUT_MS = 8000;
+
+const hasLiveVideoTrack = (stream) => Boolean(
+  stream?.getVideoTracks().some(
+    (track) => track.readyState === "live" && track.enabled
+  )
+);
+
+const waitForFirstCameraFrame = (
+  stream,
+  timeoutMs = CAMERA_FIRST_FRAME_TIMEOUT_MS
+) => new Promise((resolve, reject) => {
+  const video = document.createElement("video");
+
+  let settled = false;
+  let timeoutId = null;
+  let frameCallbackId = null;
+  let pollId = null;
+
+  const cleanup = () => {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+
+    if (pollId !== null) {
+      window.clearInterval(pollId);
+    }
+
+    if (
+      frameCallbackId !== null &&
+      typeof video.cancelVideoFrameCallback === "function"
+    ) {
+      video.cancelVideoFrameCallback(frameCallbackId);
+    }
+
+    video.pause();
+    video.srcObject = null;
+  };
+
+  const settle = (error = null) => {
+    if (settled) return;
+
+    settled = true;
+    cleanup();
+
+    if (error) {
+      reject(error);
+    } else {
+      resolve();
+    }
+  };
+
+  const ensureLiveTrack = () => {
+    if (hasLiveVideoTrack(stream)) {
+      return true;
+    }
+
+    settle(new Error("The camera video track is not live."));
+    return false;
+  };
+
+  const beginPlayback = async () => {
+    try {
+      if (!ensureLiveTrack()) return;
+
+      await video.play();
+
+      if (!ensureLiveTrack()) return;
+
+      if (typeof video.requestVideoFrameCallback === "function") {
+        frameCallbackId = video.requestVideoFrameCallback(() => {
+          settle();
+        });
+        return;
+      }
+
+      let previousTime = video.currentTime;
+
+      pollId = window.setInterval(() => {
+        if (!ensureLiveTrack()) return;
+
+        const currentTime = video.currentTime;
+        const hasCurrentFrame =
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth > 0 &&
+          video.videoHeight > 0;
+
+        if (hasCurrentFrame && currentTime > previousTime) {
+          settle();
+          return;
+        }
+
+        previousTime = currentTime;
+      }, 50);
+    } catch (error) {
+      settle(error);
+    }
+  };
+
+  video.muted = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+
+  timeoutId = window.setTimeout(() => {
+    settle(new Error("Camera started but did not produce a live video frame."));
+  }, timeoutMs);
+
+  if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    void beginPlayback();
+  } else {
+    video.addEventListener("loadedmetadata", beginPlayback, { once: true });
+  }
+});
 
 const clamp = (value, min, max) => {
   if (!Number.isFinite(value)) return min;
@@ -1339,34 +1453,70 @@ export const AppProvider = ({ children }) => {
   }, [resetAffectState]);
 
   const startCamera = useCallback(async () => {
+    let candidateStream = null;
+
     try {
-      if (streamRef.current) {
-        setIsCameraAllowed(true);
-        cameraAllowedRef.current = true;
-        setCameraStatus("ready");
-        return streamRef.current;
+      setCameraStatus("requesting");
+
+      const existingStream = streamRef.current;
+      const canReuseExistingStream =
+        cameraAllowedRef.current &&
+        hasLiveVideoTrack(existingStream);
+
+      if (canReuseExistingStream) {
+        candidateStream = existingStream;
+      } else {
+        if (existingStream) {
+          existingStream.getTracks().forEach((track) => track.stop());
+        }
+
+        streamRef.current = null;
+        setCameraStream(null);
+        setIsCameraAllowed(false);
+        cameraAllowedRef.current = false;
+
+        candidateStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: 640,
+            height: 480,
+            facingMode: "user",
+          },
+          audio: false,
+        });
       }
 
-      setCameraStatus("requesting");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-        audio: false
-      });
+      await waitForFirstCameraFrame(candidateStream);
 
-      setCameraStream(stream);
-      streamRef.current = stream;
+      streamRef.current = candidateStream;
+      setCameraStream(candidateStream);
       setIsCameraAllowed(true);
       cameraAllowedRef.current = true;
       setCameraStatus("ready");
-      addLog("Camera access granted. Live stream connected.", "success");
-      return stream;
-    } catch (err) {
-      console.error("Error accessing webcam:", err);
+
+      addLog(
+        "Camera access granted. Live video frames are available.",
+        "success"
+      );
+
+      return candidateStream;
+    } catch (error) {
+      if (candidateStream) {
+        candidateStream.getTracks().forEach((track) => track.stop());
+      }
+
+      if (streamRef.current === candidateStream) {
+        streamRef.current = null;
+      }
+
+      setCameraStream(null);
       setIsCameraAllowed(false);
       cameraAllowedRef.current = false;
       setCameraStatus("error");
-      addLog("Camera access denied or unavailable.", "error");
-      throw err;
+
+      console.error("Error starting webcam:", error);
+      addLog("Camera access failed or no live video frame was produced.", "error");
+
+      throw error;
     }
   }, [addLog]);
 

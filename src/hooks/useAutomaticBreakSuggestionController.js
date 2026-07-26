@@ -18,6 +18,7 @@ import {
   resolveExpiredAutomaticPrompt,
   selectNextAutomaticSuggestion,
   shouldShowManualAutomaticBreakEntry,
+  AUTOMATIC_DURATION_CHOOSER_ORIGIN,
 } from "../services/session/automaticBreakSuggestionState.js";
 
 const isAutomaticActiveSession = (session) => (
@@ -55,6 +56,7 @@ export default function useAutomaticBreakSuggestionController({
   } = audio;
   const { addLog } = logger;
   const actionPromiseRef = useRef(null);
+  const evaluationPromiseRef = useRef(null);
 
   const timingMode = isDebugTimingMode(activeSession?.sessionPlan) ? "debug" : "regular";
   const profile = useMemo(() => getAutomaticBreakTimingProfile(timingMode), [timingMode]);
@@ -75,6 +77,23 @@ export default function useAutomaticBreakSuggestionController({
       actionPromiseRef.current = null;
     });
     actionPromiseRef.current = promise;
+    return promise;
+  }, []);
+
+  const runEvaluationPersistence = useCallback((operation) => {
+    if (evaluationPromiseRef.current) {
+      return evaluationPromiseRef.current;
+    }
+
+    const promise = Promise.resolve()
+      .then(operation)
+      .finally(() => {
+        if (evaluationPromiseRef.current === promise) {
+          evaluationPromiseRef.current = null;
+        }
+      });
+
+    evaluationPromiseRef.current = promise;
     return promise;
   }, []);
 
@@ -165,6 +184,9 @@ export default function useAutomaticBreakSuggestionController({
         expiresAt: null,
         alarmAttemptedAt: prompt?.alarmAttemptedAt || null,
         phase: AUTOMATIC_SUGGESTION_PHASE.DURATION_CHOOSER,
+        durationChooserOrigin: prompt
+          ? AUTOMATIC_DURATION_CHOOSER_ORIGIN.SUGGESTION
+          : AUTOMATIC_DURATION_CHOOSER_ORIGIN.MANUAL_ENTRY,
       },
     };
     stopAudio("shortAlarm");
@@ -180,8 +202,8 @@ export default function useAutomaticBreakSuggestionController({
     });
     const prompt = currentState.activePrompt;
     if (!prompt || prompt.phase !== AUTOMATIC_SUGGESTION_PHASE.DURATION_CHOOSER) return null;
-    if (shouldShowManualAutomaticBreakEntry(currentState, { timingMode: active.sessionPlan?.timingMode })) {
-      return persistState({ ...currentState, activePrompt: null }, { updatedAt: nowIso() });
+    if (prompt.durationChooserOrigin === AUTOMATIC_DURATION_CHOOSER_ORIGIN.MANUAL_ENTRY) {
+      return persistState({...currentState, activePrompt: null,}, {updatedAt: nowIso(),});
     }
     const handledAt = nowIso();
     const nextState = markAutomaticThresholdHandled(currentState, {
@@ -265,6 +287,7 @@ export default function useAutomaticBreakSuggestionController({
     }
 
     const evaluate = () => {
+      if (evaluationPromiseRef.current || actionPromiseRef.current) return;
       const currentSession = activeSessionRef.current;
       if (
         !isAutomaticActiveSession(currentSession) ||
@@ -284,10 +307,15 @@ export default function useAutomaticBreakSuggestionController({
         elapsedMs,
         timingMode: currentTimingMode,
       });
+
       if (resolved !== currentState && !resolved.activePrompt && currentState.activePrompt) {
-        void persistState(resolved, { accumulatedStudyMs: elapsedMs, lastCheckpointAt: nowIso() });
+        void runEvaluationPersistence(() =>  persistState(resolved, {accumulatedStudyMs: elapsedMs, lastCheckpointAt: nowIso(),})
+        ).catch((error) => {
+          console.error("Failed to resolve expired break suggestion:", error);
+        });
         return;
       }
+
       if (currentState.activePrompt) return;
 
       const nextSuggestion = selectNextAutomaticSuggestion({
@@ -303,18 +331,23 @@ export default function useAutomaticBreakSuggestionController({
         now: openedAt,
         timingMode: currentTimingMode,
       });
-      void persistState(nextState, { accumulatedStudyMs: elapsedMs, lastCheckpointAt: openedAt })
-        .then(() => {
-          if (isWeakSuggestionLevel(nextSuggestion.level)) {
-            playSessionAudio("shortAlarm2", { loop: false, restart: true, volumeMultiplier: 0.5 });
-          } else {
-            playSessionAudio("shortAlarm", { loop: false, restart: true });
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to open automatic break suggestion:", error);
-          addLog("Could not open the break suggestion.", "error");
-        });
+      void runEvaluationPersistence(async () => {
+        await persistState(nextState, {accumulatedStudyMs: elapsedMs, lastCheckpointAt: openedAt,});
+        const latestSession = activeSessionRef.current;
+        const latestState = normalizeAutomaticBreakSuggestionState(latestSession?.automaticBreakSuggestionState, {timingMode: latestSession?.sessionPlan?.timingMode,});
+        const isStillSamePrompt =
+          latestState.activePrompt?.thresholdMs === nextSuggestion.thresholdMs &&
+          latestState.activePrompt?.openedAt === openedAt;
+        if (!isStillSamePrompt) return;
+        if (isWeakSuggestionLevel(nextSuggestion.level)) {
+          playSessionAudio("shortAlarm2", {loop: false, restart: true, volumeMultiplier: 0.5,});
+        } else {
+          playSessionAudio("shortAlarm", {loop: false, restart: true,});
+        }
+      }).catch((error) => {
+        console.error("Failed to open automatic break suggestion:", error);
+        addLog("Could not open the break suggestion.", "error");
+      });
     };
 
     evaluate();
@@ -330,6 +363,7 @@ export default function useAutomaticBreakSuggestionController({
     sessionClock.isRunning,
     timedBreakState.isBlocking,
     timedBreakState.isBreakMode,
+    runEvaluationPersistence,
   ]);
 
   const showManualStartBreak = useMemo(() => (

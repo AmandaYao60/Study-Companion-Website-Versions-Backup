@@ -92,6 +92,7 @@ export default function MonitoringRuntimeHost() {
 
   const videoRef = useRef(null);
   const inferenceAnimationRef = useRef(null);
+  const lastProcessedVideoTimeRef = useRef(-1);
   const lastAffectInferenceRef = useRef(0);
   const isAffectInferenceRunningRef = useRef(false);
   const affectRunTokenRef = useRef(0);
@@ -140,7 +141,7 @@ export default function MonitoringRuntimeHost() {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !cameraStream) return undefined;
-
+    lastProcessedVideoTimeRef.current = -1;
     video.srcObject = cameraStream;
     video.play().catch((error) => {
       if (error.name !== "AbortError") {
@@ -158,6 +159,7 @@ export default function MonitoringRuntimeHost() {
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     lastAffectInferenceRef.current = 0;
+    lastProcessedVideoTimeRef.current = -1;
     affectRunTokenRef.current += 1;
     isAffectInferenceRunningRef.current = false;
 
@@ -284,7 +286,10 @@ export default function MonitoringRuntimeHost() {
         video.videoHeight > 0;
       const modelsReady = Boolean(faceLandmarkerRef.current) && Boolean(gestureRecognizerRef.current);
 
-      if (!videoReady || !modelsReady || inferenceRunning) {
+      const videoTime = video?.currentTime;
+      const hasNewVideoFrame = Number.isFinite(videoTime) && videoTime > lastProcessedVideoTimeRef.current;
+
+      if (!videoReady || !modelsReady || inferenceRunning || !hasNewVideoFrame) {
         inferenceAnimationRef.current = requestAnimationFrame(sampleAndRunInference);
         return;
       }
@@ -294,6 +299,7 @@ export default function MonitoringRuntimeHost() {
 
       if (now - lastInferenceTime >= targetInterval) {
         lastInferenceTime = now;
+        lastProcessedVideoTimeRef.current = videoTime;
         inferenceRunning = true;
 
         try {

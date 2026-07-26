@@ -24,6 +24,7 @@ import {
   selectNextAutomaticSuggestion,
   shouldShowManualAutomaticBreakEntry,
   startAdHocBreak,
+  AUTOMATIC_DURATION_CHOOSER_ORIGIN,
 } from "./index.js";
 
 const minute = 60 * 1000;
@@ -237,4 +238,46 @@ test("suggested break-event source normalizes and remains recoverable", () => {
   const regular = normalizeBreakEvents([{ id: "legacy-planned", plannedStartElapsedMs: 25 * minute }]);
   assert.equal(regular[0].source, REGULAR_BREAK_EVENT_SOURCE);
   assert.equal(regular[0].suggestionThresholdMs, null);
+});
+
+test("duration chooser origin survives normalization", () => {
+  const suggestionChooser = normalizeAutomaticBreakSuggestionState({
+    cycleStartElapsedMs: 0,
+    handledThresholds: [],
+    activePrompt: {
+      thresholdMs: 60 * minute,
+      level: "weak-2",
+      openedAt: baseTime,
+      expiresAt: null,
+      alarmAttemptedAt: baseTime,
+      phase: AUTOMATIC_SUGGESTION_PHASE.DURATION_CHOOSER,
+      durationChooserOrigin:
+        AUTOMATIC_DURATION_CHOOSER_ORIGIN.SUGGESTION,
+    },
+  });
+
+  assert.equal(
+    suggestionChooser.activePrompt.durationChooserOrigin,
+    AUTOMATIC_DURATION_CHOOSER_ORIGIN.SUGGESTION
+  );
+
+  const manualChooser = normalizeAutomaticBreakSuggestionState({
+    cycleStartElapsedMs: 0,
+    handledThresholds: [],
+    activePrompt: {
+      thresholdMs: 45 * minute,
+      level: "weak-1",
+      openedAt: baseTime,
+      expiresAt: null,
+      alarmAttemptedAt: null,
+      phase: AUTOMATIC_SUGGESTION_PHASE.DURATION_CHOOSER,
+      durationChooserOrigin:
+        AUTOMATIC_DURATION_CHOOSER_ORIGIN.MANUAL_ENTRY,
+    },
+  });
+
+  assert.equal(
+    manualChooser.activePrompt.durationChooserOrigin,
+    AUTOMATIC_DURATION_CHOOSER_ORIGIN.MANUAL_ENTRY
+  );
 });

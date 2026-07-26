@@ -355,9 +355,6 @@ export default function useTimedBreakController({
 
     stopAudio("longAlarm");
     stopAudio("break");
-    if (isFocusSpaceActiveRef.current && !sessionAudioStateRef.current.muted) {
-      playSessionAudio("study", {loop: true, restart: true,});
-    }
 
     await persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: endedAt });
     try {
@@ -366,6 +363,9 @@ export default function useTimedBreakController({
       setIsMonitoring(true);
       monitoringRef.current = true;
       setState(createIdleBreakState());
+      if (isFocusSpaceActiveRef.current && !sessionAudioStateRef.current.muted) {
+        playSessionAudio("study", {loop: true, restart: true,});
+      }
       addLog("Study session resumed after break.", "success");
       return nextSession;
     } catch (error) {
@@ -419,9 +419,6 @@ export default function useTimedBreakController({
 
     stopAudio("longAlarm");
     stopAudio("break");
-    if (isFocusSpaceActiveRef.current && !sessionAudioStateRef.current.muted) {
-        playSessionAudio("study", {loop: true, restart: true,});
-    }
 
     await persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: endedAt });
     try {
@@ -430,6 +427,9 @@ export default function useTimedBreakController({
       setIsMonitoring(true);
       monitoringRef.current = true;
       setState(createIdleBreakState());
+      if (isFocusSpaceActiveRef.current && !sessionAudioStateRef.current.muted) {
+        playSessionAudio("study", {loop: true, restart: true,});
+      }
       addLog("Study session resumed after ending the break early.", "success");
       return nextSession;
     } catch {

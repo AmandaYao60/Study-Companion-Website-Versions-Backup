@@ -17,6 +17,11 @@ export const AUTOMATIC_SUGGESTION_PHASE = Object.freeze({
   DURATION_CHOOSER: "duration-chooser",
 });
 
+export const AUTOMATIC_DURATION_CHOOSER_ORIGIN = Object.freeze({
+  SUGGESTION: "suggestion",
+  MANUAL_ENTRY: "manual-entry",
+});
+
 export const AUTOMATIC_SUGGESTION_OUTCOME = Object.freeze({
   DEFERRED: "deferred",
   EXPIRED: "expired",
@@ -44,6 +49,7 @@ const LEVEL_BY_INDEX = Object.freeze([
 const OUTCOMES = new Set(Object.values(AUTOMATIC_SUGGESTION_OUTCOME));
 const PHASES = new Set(Object.values(AUTOMATIC_SUGGESTION_PHASE));
 const LEVELS = new Set(Object.values(AUTOMATIC_SUGGESTION_LEVEL));
+const DURATION_CHOOSER_ORIGINS = new Set(Object.values(AUTOMATIC_DURATION_CHOOSER_ORIGIN));
 
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -125,6 +131,15 @@ const normalizeActivePrompt = (input = {}, timingMode = TIMING_MODE_REGULAR) => 
   const thresholdMs = nullableMs(source.thresholdMs);
   const level = LEVELS.has(source.level) ? source.level : getAutomaticSuggestionLevel(thresholdMs, timingMode);
   const phase = PHASES.has(source.phase) ? source.phase : AUTOMATIC_SUGGESTION_PHASE.SUGGESTION;
+  const durationChooserOrigin = phase === AUTOMATIC_SUGGESTION_PHASE.DURATION_CHOOSER
+      ? (
+          DURATION_CHOOSER_ORIGINS.has(source.durationChooserOrigin)
+            ? source.durationChooserOrigin
+            : source.alarmAttemptedAt
+              ? AUTOMATIC_DURATION_CHOOSER_ORIGIN.SUGGESTION
+              : AUTOMATIC_DURATION_CHOOSER_ORIGIN.MANUAL_ENTRY
+        )
+      : null;
   if (!level || thresholdMs === null) return null;
   return {
     thresholdMs,
@@ -133,6 +148,7 @@ const normalizeActivePrompt = (input = {}, timingMode = TIMING_MODE_REGULAR) => 
     expiresAt: phase === AUTOMATIC_SUGGESTION_PHASE.SUGGESTION ? iso(source.expiresAt, null) : null,
     alarmAttemptedAt: iso(source.alarmAttemptedAt, null),
     phase,
+    durationChooserOrigin,
   };
 };
 
