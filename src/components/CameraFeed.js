@@ -38,6 +38,11 @@ const HAND_CONNECTIONS = [
 
 const AFFECT_INPUT_SIZE = 224;
 
+const formatStatusValue = (value) => {
+  if (!value) return "Idle";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
 export default function CameraFeed({ presentation = "monitor", showControls = true } = {}) {
   const {
     isMonitoring,
@@ -47,6 +52,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     setShowCameraDialog,
     cameraStream,
     isAiLoaded,
+    affectModelStatus,
     hasDetectedFace,
     monitoringDetectionsRef,
     runtimeFaceCropCanvasRef,
@@ -362,14 +368,28 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   return (
     <div className={containerClass}>
       {!isFocusPanel && (
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isMonitoring ? "animate-ping bg-cyan-400" : "bg-slate-500"}`} />
-              <span className={`relative inline-flex h-2 w-2 rounded-full ${isMonitoring ? "bg-cyan-500" : "bg-slate-600"}`} />
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-wider text-white">Camera Preview</p>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isMonitoring ? "animate-ping bg-cyan-400" : "bg-slate-500"}`} />
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${isMonitoring ? "bg-cyan-500" : "bg-slate-600"}`} />
+              </span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                {isMonitoring ? "Sensor Stream Active" : "Sensor Standby"}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] font-bold uppercase tracking-wider">
+            <span className={`rounded-full border px-2 py-1 ${isCameraAllowed ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-slate-900 text-slate-400"}`}>
+              Camera {isCameraAllowed ? "Enabled" : "Offline"}
             </span>
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              {isMonitoring ? "Sensor Stream Active" : "Sensor Standby"}
+            <span className={`rounded-full border px-2 py-1 ${isAiLoaded ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-200" : "border-amber-400/20 bg-amber-400/10 text-amber-200"}`}>
+              MediaPipe {isAiLoaded ? "Ready" : "Loading"}
+            </span>
+            <span className="rounded-full border border-white/10 bg-slate-900 px-2 py-1 text-slate-300">
+              ONNX {formatStatusValue(affectModelStatus)}
             </span>
           </div>
         </div>
@@ -456,13 +476,6 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 <p className="mt-1 max-w-xs text-xs text-slate-500">
                   {isPreparedSession ? "Camera access is required to begin monitoring." : "Enable the camera to continue this study session."}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowCameraDialog(true)}
-                  className="mt-4 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400"
-                >
-                  Enable Camera
-                </button>
               </>
             ) : isPausedSession ? (
               <>
@@ -480,6 +493,20 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
             ) : null}
           </div>
         )}
+
+        {!isFocusPanel && hasSession && !isBreakMode && (
+          <button
+            type="button"
+            onClick={isCameraAllowed ? handleDisableWebcam : () => setShowCameraDialog(true)}
+            className={`absolute bottom-3 right-3 z-40 rounded-lg px-4 py-2 text-xs font-semibold shadow-lg backdrop-blur-md transition-all focus:outline-none focus:ring-2 focus:ring-cyan-300 ${
+              isCameraAllowed
+                ? "border border-red-500/30 bg-slate-950/80 text-red-300 shadow-red-950/30 hover:bg-red-500/20"
+                : "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-cyan-500/20 hover:from-cyan-400 hover:to-blue-400"
+            }`}
+          >
+            {isCameraAllowed ? "Disable Webcam" : "Enable Camera"}
+          </button>
+        )}
       </div>
 
       {showControls && !isFocusPanel && (
@@ -496,23 +523,6 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
             }`}
           >
             {isMonitoring ? "Pause Session" : isPreparedSession ? "Enable Camera" : isActiveWithoutMonitoring ? "Enable Monitoring" : "Resume Session"}
-          </button>
-
-          <button
-            onClick={handleDisableWebcam}
-            disabled={!isCameraAllowed}
-            className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-all duration-300 ${
-              !isCameraAllowed
-                ? "cursor-not-allowed border-white/5 bg-slate-900/40 text-slate-600"
-                : "border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20"
-            }`}
-            title="Disable Webcam"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
-            </svg>
-            <span className="hidden sm:inline">Disable Webcam</span>
           </button>
         </div>
       )}

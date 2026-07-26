@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useMonitoring, useSession } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTargetDuration, formatTask } from "../dashboard/dashboardFormatters";
+import SuggestedBreakButton from "../session/SuggestedBreakButton";
 
 export default function FocusSessionBar({
   isFullscreen,
@@ -86,14 +87,9 @@ export default function FocusSessionBar({
           {isFullscreen ? (
             <>
               {showManualStartBreak && (
-                <button
-                  type="button"
+                <SuggestedBreakButton
                   onClick={automaticBreakSuggestionActions.openDurationChooser}
-                  className="rounded-xl border border-cyan-300/40 bg-cyan-300/15 px-3 py-2 text-xs font-bold text-cyan-100 transition-all hover:bg-cyan-300/25 focus:outline-none focus:ring-2 focus:ring-cyan-200"
-                  aria-label="Start a suggested break"
-                >
-                  Start a Break
-                </button>
+                />
               )}
               <button type="button" onClick={onToggleFullscreen} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-white/15">
                 Exit Fullscreen
@@ -107,14 +103,9 @@ export default function FocusSessionBar({
                 </button>
               )}
               {showManualStartBreak && (
-                <button
-                  type="button"
+                <SuggestedBreakButton
                   onClick={automaticBreakSuggestionActions.openDurationChooser}
-                  className="rounded-xl border border-cyan-300/40 bg-cyan-300/15 px-3 py-2 text-xs font-bold text-cyan-100 transition-all hover:bg-cyan-300/25 focus:outline-none focus:ring-2 focus:ring-cyan-200"
-                  aria-label="Start a suggested break"
-                >
-                  Start a Break
-                </button>
+                />
               )}
               {isFullscreenSupported && (
                 <button type="button" onClick={onToggleFullscreen} className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20">

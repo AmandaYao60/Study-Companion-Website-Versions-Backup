@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
 import { useDebug, useMonitoring, useSession } from "../../context/AppContext";
 import useSmoothSessionTimer from "../../hooks/useSmoothSessionTimer";
 import { formatTask } from "../dashboard/dashboardFormatters";
@@ -30,7 +29,7 @@ const getFriendlyStudyStatus = ({ activeSession, isMonitoring, attention, fatigu
   return "Your study rhythm is steady. Continue at your own pace.";
 };
 
-export default function ActiveSessionCard() {
+export default function ActiveSessionCard({ controls = null }) {
   const { activeSession } = useSession();
   const { isMonitoring, isCameraAllowed } = useMonitoring();
   const { resolvedDebugMetrics } = useDebug();
@@ -40,8 +39,6 @@ export default function ActiveSessionCard() {
 
   const isPrepared = activeSession.status === "prepared";
   const statusLabel = isPrepared ? "Ready to begin" : isMonitoring ? "Active" : "Paused";
-  const canEnterFocus = (activeSession.status === "active" || activeSession.status === "paused") && isCameraAllowed;
-  const canViewAnalytics = !isPrepared;
   const checkInSummary = formatCheckIn(activeSession);
   const attentionMetric = resolvedDebugMetrics.attention;
   const fatigueMetric = resolvedDebugMetrics.fatigue;
@@ -54,13 +51,13 @@ export default function ActiveSessionCard() {
   });
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-slate-950/50 p-6 shadow-2xl backdrop-blur-xl">
+    <section className="flex min-h-full flex-col rounded-3xl border border-white/10 bg-slate-950/50 p-6 shadow-2xl backdrop-blur-xl">
       <p className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-300">Study Session</p>
       <h2 className="mt-3 text-2xl font-black text-white">
         {isPrepared ? "Your study task is ready." : isMonitoring ? "Your study session is active." : "Your study session is paused."}
       </h2>
 
-      <div className="mt-5 space-y-4">
+      <div className="mt-5 flex-1 space-y-4">
         <div className="rounded-2xl border border-white/10 bg-slate-900/45 p-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Study task</p>
           <p className="mt-2 text-sm font-bold text-white">{formatTask(activeSession.taskDescription)}</p>
@@ -86,18 +83,7 @@ export default function ActiveSessionCard() {
         </div>
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
-        {canEnterFocus && (
-          <Link href="/app/focus" className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center text-sm font-semibold text-cyan-200 transition-all hover:bg-cyan-400/20">
-            Enter Focus Space
-          </Link>
-        )}
-        {canViewAnalytics && (
-          <Link href="/app/dashboard" className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800">
-            View Live Analytics
-          </Link>
-        )}
-      </div>
+      {controls && <div className="mt-6">{controls}</div>}
     </section>
   );
 }
