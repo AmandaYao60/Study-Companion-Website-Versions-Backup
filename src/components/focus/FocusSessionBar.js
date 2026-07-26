@@ -47,18 +47,6 @@ export default function FocusSessionBar({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleSessionToggle()}
-            disabled={isToggling}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:cursor-wait disabled:opacity-70 ${
-              timedBreak.isBreakMode || isMonitoring
-                ? "border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20"
-                : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
-            }`}
-          >
-            {timedBreak.isBreakMode ? "End Break Early" : isMonitoring ? "Pause Session" : "Resume Session"}
-          </button>
           <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-2 py-1.5">
             <button
               type="button"

@@ -17,6 +17,16 @@ const durationMs = (value, fallback = null) => (isFiniteNumber(value) && value >
 const nullableText = (value) => (value === null || value === undefined || value === "" ? null : String(value));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const isStepDuration = (value) => isFiniteNumber(value) && value % BREAK_DURATION_STEP_MS === 0;
+const TIMING_MODE_DEBUG = "debug";
+const TIMING_MODE_REGULAR = "regular";
+const DEBUG_BREAK_DURATION_STEP_MS = 1000;
+const MIN_DEBUG_BREAK_FOCUS_DURATION_MS = 15 * 1000;
+const MAX_DEBUG_BREAK_FOCUS_DURATION_MS = 600 * 1000;
+const MIN_DEBUG_BREAK_DURATION_MS = 5 * 1000;
+const MAX_DEBUG_BREAK_DURATION_MS = 300 * 1000;
+const DEFAULT_DEBUG_BREAK_FOCUS_DURATION_MS = 30 * 1000;
+const DEFAULT_DEBUG_BREAK_DURATION_MS = 10 * 1000;
+const isDebugStepDuration = (value) => isFiniteNumber(value) && value % DEBUG_BREAK_DURATION_STEP_MS === 0;
 const iso = (value, fallback = null) => {
   if (value === null || value === undefined || value === "") return fallback;
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : fallback;
@@ -86,6 +96,34 @@ export const coerceBreakDurationForFocus = (breakDurationMs, focusDurationMs) =>
   return notAboveRequested.at(-1) ?? allowed[0] ?? MIN_BREAK_DURATION_MS;
 };
 
+export const isValidDebugBreakFocusDuration = (focusDurationMs) => (
+  isDebugStepDuration(focusDurationMs) &&
+  focusDurationMs >= MIN_DEBUG_BREAK_FOCUS_DURATION_MS &&
+  focusDurationMs <= MAX_DEBUG_BREAK_FOCUS_DURATION_MS
+);
+
+export const isValidDebugBreakDuration = (breakDurationMs, focusDurationMs) => (
+  isDebugStepDuration(breakDurationMs) &&
+  breakDurationMs >= MIN_DEBUG_BREAK_DURATION_MS &&
+  breakDurationMs <= MAX_DEBUG_BREAK_DURATION_MS &&
+  breakDurationMs <= focusDurationMs / 3
+);
+
+export const coerceDebugFocusDuration = (focusDurationMs) => {
+  if (!isFiniteNumber(focusDurationMs)) return DEFAULT_DEBUG_BREAK_FOCUS_DURATION_MS;
+  if (!isDebugStepDuration(focusDurationMs)) return DEFAULT_DEBUG_BREAK_FOCUS_DURATION_MS;
+  return clamp(focusDurationMs, MIN_DEBUG_BREAK_FOCUS_DURATION_MS, MAX_DEBUG_BREAK_FOCUS_DURATION_MS);
+};
+
+export const coerceDebugBreakDurationForFocus = (breakDurationMs, focusDurationMs) => {
+  const focus = coerceDebugFocusDuration(focusDurationMs);
+  const maximum = Math.min(MAX_DEBUG_BREAK_DURATION_MS, Math.floor(focus / 3 / 1000) * 1000);
+  const requested = isFiniteNumber(breakDurationMs) && isDebugStepDuration(breakDurationMs)
+    ? breakDurationMs
+    : Math.min(DEFAULT_DEBUG_BREAK_DURATION_MS, maximum);
+  return clamp(requested, MIN_DEBUG_BREAK_DURATION_MS, maximum);
+};
+
 export const normalizeBreakPlanInput = (input = {}, options = {}) => {
   const source = isObject(input) ? input : {};
   const targetDurationMs = durationMs(
@@ -94,6 +132,7 @@ export const normalizeBreakPlanInput = (input = {}, options = {}) => {
   );
   const requestedFocusMs = durationMs(source.focusDurationMs ?? source.focusDuration, null);
   const requestedBreakMs = durationMs(source.breakDurationMs ?? source.breakDuration, 0);
+  const timingMode = source.timingMode === TIMING_MODE_DEBUG ? TIMING_MODE_DEBUG : TIMING_MODE_REGULAR;
   const enabled = source.enabled === true || (
     requestedFocusMs !== null &&
     requestedBreakMs > 0
@@ -105,6 +144,22 @@ export const normalizeBreakPlanInput = (input = {}, options = {}) => {
       focusDurationMs: null,
       breakDurationMs: 0,
       plannedBreakCount: 0,
+    };
+  }
+
+  if (timingMode === TIMING_MODE_DEBUG) {
+    const focusDurationMs = isValidDebugBreakFocusDuration(requestedFocusMs)
+      ? requestedFocusMs
+      : coerceDebugFocusDuration(requestedFocusMs);
+    const breakDurationMs = isValidDebugBreakDuration(requestedBreakMs, focusDurationMs)
+      ? requestedBreakMs
+      : coerceDebugBreakDurationForFocus(requestedBreakMs, focusDurationMs);
+    return {
+      targetDurationMs,
+      focusDurationMs,
+      breakDurationMs,
+      plannedBreakCount: derivePlannedBreakCount({ targetDurationMs, focusDurationMs, breakDurationMs }),
+      timingMode: TIMING_MODE_DEBUG,
     };
   }
 
@@ -141,6 +196,7 @@ export const normalizeSessionPlan = (input = {}, options = {}) => {
     focusDurationMs: normalized.focusDurationMs,
     breakDurationMs: normalized.breakDurationMs,
     plannedBreakCount,
+    ...(normalized.timingMode === TIMING_MODE_DEBUG ? { timingMode: TIMING_MODE_DEBUG } : {}),
   };
 };
 

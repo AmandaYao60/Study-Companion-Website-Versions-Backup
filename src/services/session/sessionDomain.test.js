@@ -14,15 +14,19 @@ import {
   calculateSessionStatistics,
   calculatePlannedBreakPositions,
   cancelBreak,
+  coerceDebugBreakDurationForFocus,
   coerceBreakDurationForFocus,
   completeBreak,
   classifyDataQuality,
   createCompletedStudySession,
   createIndexedDbSessionRepository,
   createMemorySessionRepository,
+  createSessionRuntime,
   createStudySession,
   generateSessionSummary,
   getNextScheduledBreak,
+  isValidDebugBreakDuration,
+  isValidDebugBreakFocusDuration,
   isValidBreakDuration,
   isValidBreakFocusDuration,
   normalizeBreakEvents,
@@ -403,6 +407,147 @@ test("regular break plan normalization keeps disabled and invalid plans safe", (
     breakDurationMs: 5 * 60000,
   });
   assert.deepEqual(calculatePlannedBreakPositions(tooShort), []);
+});
+
+test("debug break plan preserves second-based durations only with timing mode marker", () => {
+  const debugPlan = normalizeSessionPlan({
+    targetDurationMs: 60_000,
+    focusDurationMs: 30_000,
+    breakDurationMs: 10_000,
+    timingMode: "debug",
+  });
+
+  assert.deepEqual(debugPlan, {
+    targetDurationMs: 60_000,
+    focusDurationMs: 30_000,
+    breakDurationMs: 10_000,
+    plannedBreakCount: 1,
+    timingMode: "debug",
+  });
+  assert.deepEqual(calculatePlannedBreakPositions(debugPlan), [30_000]);
+
+  const regularPlan = normalizeSessionPlan({
+    targetDurationMs: 60_000,
+    focusDurationMs: 30_000,
+    breakDurationMs: 10_000,
+  });
+  assert.equal(regularPlan.timingMode, undefined);
+  assert.equal(regularPlan.focusDurationMs, 25 * 60000);
+  assert.equal(regularPlan.breakDurationMs, 5 * 60000);
+  assert.equal(regularPlan.plannedBreakCount, 0);
+});
+
+test("debug break validation rejects unsafe second values and normalization corrects them", () => {
+  assert.equal(isValidDebugBreakFocusDuration(14_000), false);
+  assert.equal(isValidDebugBreakFocusDuration(601_000), false);
+  assert.equal(isValidDebugBreakFocusDuration(30_500), false);
+  assert.equal(isValidDebugBreakFocusDuration(30_000), true);
+  assert.equal(isValidDebugBreakDuration(4_000, 30_000), false);
+  assert.equal(isValidDebugBreakDuration(301_000, 900_000), false);
+  assert.equal(isValidDebugBreakDuration(7_500, 30_000), false);
+  assert.equal(isValidDebugBreakDuration(11_000, 30_000), false);
+  assert.equal(isValidDebugBreakDuration(10_000, 30_000), true);
+
+  assert.equal(coerceDebugBreakDurationForFocus(20_000, 30_000), 10_000);
+  assert.equal(coerceDebugBreakDurationForFocus(4_000, 30_000), 5_000);
+
+  const emptyOrNonFinite = normalizeSessionPlan({
+    enabled: true,
+    targetDurationMs: 60_000,
+    focusDurationMs: Number.NaN,
+    breakDurationMs: Number.POSITIVE_INFINITY,
+    timingMode: "debug",
+  });
+  assert.equal(emptyOrNonFinite.focusDurationMs, 30_000);
+  assert.equal(emptyOrNonFinite.breakDurationMs, 5_000);
+  assert.equal(emptyOrNonFinite.timingMode, "debug");
+
+  const corrected = normalizeSessionPlan({
+    targetDurationMs: 600_000,
+    focusDurationMs: 10_000,
+    breakDurationMs: 600_000,
+    timingMode: "debug",
+  });
+  assert.equal(corrected.focusDurationMs, 15_000);
+  assert.equal(corrected.breakDurationMs, 5_000);
+  assert.equal(corrected.timingMode, "debug");
+
+  const fractional = normalizeSessionPlan({
+    targetDurationMs: 60_000,
+    focusDurationMs: 30_500,
+    breakDurationMs: 7_500,
+    timingMode: "debug",
+  });
+  assert.equal(fractional.focusDurationMs, 30_000);
+  assert.equal(fractional.breakDurationMs, 10_000);
+});
+
+test("debug planned-break count still excludes exact session end", () => {
+  const oneBreak = normalizeSessionPlan({
+    targetDurationMs: 60_000,
+    focusDurationMs: 30_000,
+    breakDurationMs: 10_000,
+    timingMode: "debug",
+  });
+  assert.deepEqual(calculatePlannedBreakPositions(oneBreak), [30_000]);
+
+  const exactEndOnly = normalizeSessionPlan({
+    targetDurationMs: 30_000,
+    focusDurationMs: 30_000,
+    breakDurationMs: 10_000,
+    timingMode: "debug",
+  });
+  assert.deepEqual(calculatePlannedBreakPositions(exactEndOnly), []);
+});
+
+test("debug timing mode survives session normalization and recovery", async () => {
+  const session = normalizeStudySession({
+    id: "debug-plan-session",
+    taskDescription: "Debug timing",
+    targetDurationMs: 60_000,
+    startedAt: baseTime,
+    createdAt: baseTime,
+    updatedAt: baseTime,
+    sessionPlan: {
+      targetDurationMs: 60_000,
+      focusDurationMs: 30_000,
+      breakDurationMs: 10_000,
+      timingMode: "debug",
+    },
+  });
+  assert.equal(session.sessionPlan.timingMode, "debug");
+  assert.equal(validateStudySession(session).valid, true);
+
+  const repository = createMemorySessionRepository();
+  const runtime = createSessionRuntime({
+    repository,
+    now: () => baseTime,
+    idFactory: () => "runtime-debug-plan",
+  });
+  await runtime.prepareSession({
+    taskDescription: "Runtime debug timing",
+    targetDurationMs: 60_000,
+    sessionPlan: {
+      targetDurationMs: 60_000,
+      focusDurationMs: 30_000,
+      breakDurationMs: 10_000,
+      timingMode: "debug",
+    },
+  });
+  await runtime.activatePreparedSession();
+  await runtime.checkpointActiveSession(15_000, {
+    checkpointedAt: "2026-01-01T00:00:15.000Z",
+  });
+
+  const recoveredRuntime = createSessionRuntime({
+    repository,
+    now: () => "2026-01-01T00:01:00.000Z",
+  });
+  const initialization = await recoveredRuntime.initializeSessionState();
+
+  assert.equal(initialization.recoveredSession.sessionPlan.timingMode, "debug");
+  assert.equal(initialization.recoveredSession.sessionPlan.focusDurationMs, 30_000);
+  assert.equal(initialization.recoveredSession.sessionPlan.breakDurationMs, 10_000);
 });
 
 test("break lifecycle transitions prevent duplicate and overlapping active breaks", () => {

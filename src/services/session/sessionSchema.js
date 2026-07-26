@@ -23,7 +23,7 @@ import {
 
 /** @typedef {{expectedDifficulty:number|null,taskConfidence:number|null,mood:number|null,energy:number|null,taskValue:number|null,recordedAt:string|null}} PreSessionCheckIn */
 /** @typedef {{sessionEnergy:number|null,sessionMood:number|null,perceivedFatigue:number|null,perceivedAttention:number|null,perceivedDifficulty:number|null,goalAttainment:number|null,strategiesUsed:Array<string>,primaryStrategy:string|null,primaryStrategyEffectiveness:number|null,primaryLearningActivity:string|null,learningReflection:string|null,nextSessionAdjustment:string|null,recordedAt:string|null}} PostSessionCheckOut */
-/** @typedef {{targetDurationMs:number|null,focusDurationMs:number|null,breakDurationMs:number,plannedBreakCount:number}} SessionPlan */
+/** @typedef {{targetDurationMs:number|null,focusDurationMs:number|null,breakDurationMs:number,plannedBreakCount:number,timingMode?:string}} SessionPlan */
 /** @typedef {{id:string,plannedStartElapsedMs:number|null,plannedStartAt:string|null,actualStartElapsedMs:number|null,actualStartAt:string|null,actualEndElapsedMs:number|null,actualEndAt:string|null,status:string}} BreakEvent */
 /** @typedef {{id:string,startElapsedMs:number|null,startAt:string|null,endElapsedMs:number|null,endAt:string|null,reason:string}} Interruption */
 /** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,sessionPlan:SessionPlan,breakEvents:Array<BreakEvent>,interruptions:Array<Interruption>,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
@@ -190,6 +190,7 @@ export const validateStudySession = (session) => {
     if (session.sessionPlan.focusDurationMs !== null && !isFiniteNumber(session.sessionPlan.focusDurationMs)) errors.push("sessionPlan.focusDurationMs must be a number or null.");
     if (!isFiniteNumber(session.sessionPlan.breakDurationMs) || session.sessionPlan.breakDurationMs < 0) errors.push("sessionPlan.breakDurationMs must be non-negative.");
     if (!Number.isInteger(session.sessionPlan.plannedBreakCount) || session.sessionPlan.plannedBreakCount < 0) errors.push("sessionPlan.plannedBreakCount must be a non-negative integer.");
+    if (session.sessionPlan.timingMode !== undefined && !["regular", "debug"].includes(session.sessionPlan.timingMode)) errors.push("sessionPlan.timingMode must be regular or debug when present.");
   }
   if (!Array.isArray(session.breakEvents)) errors.push("breakEvents must be an array.");
   if (!Array.isArray(session.interruptions)) errors.push("interruptions must be an array.");

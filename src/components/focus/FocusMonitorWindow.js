@@ -133,7 +133,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
           data-no-drag="true"
           onClick={() => void handlePauseResume()}
           disabled={isToggling}
-          className={`w-full rounded-xl px-3 py-2.5 text-xs font-bold transition-all disabled:cursor-wait disabled:opacity-70 ${
+          className={`w-full rounded-xl px-3 py-2.5 text-sm font-bold transition-all disabled:cursor-wait disabled:opacity-70 ${
             isMonitoring
               ? "border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20"
               : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"

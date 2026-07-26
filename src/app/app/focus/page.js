@@ -9,7 +9,7 @@ export default function ProductFocusPage() {
   const router = useRouter();
   const { activeSession, timedBreak } = useSession();
   const { isCameraAllowed } = useMonitoring();
-  const canUseFocus = (activeSession?.status === "active" || activeSession?.status === "paused") && (isCameraAllowed || timedBreak.isBreakMode);
+  const canUseFocus = (activeSession?.status === "active" || activeSession?.status === "paused") && (isCameraAllowed || timedBreak.isBlocking);
 
   useEffect(() => {
     if (!canUseFocus) {

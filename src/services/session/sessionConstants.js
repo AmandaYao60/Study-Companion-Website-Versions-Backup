@@ -11,7 +11,7 @@ export const MAX_BREAK_DURATION_MS = 15 * 60000;
 export const BREAK_DURATION_STEP_MS = 5 * 60000;
 export const PRE_BREAK_WARNING_MS = 3 * 60000;
 export const BREAK_EXTENSION_MS = 3 * 60000;
-export const BREAK_DECISION_WAIT_MS = 3 * 60000;
+export const BREAK_DECISION_WAIT_MS = 2 * 60000;
 export const BREAK_DECISION_ALARM_REPLAY_MS = 60 * 1000;
 export const MAX_BREAK_EXTENSION_COUNT = 3;
 

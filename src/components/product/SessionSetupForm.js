@@ -2,12 +2,15 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "../../context/AppContext";
+import { useDebug, useSession } from "../../context/AppContext";
 import {
   calculatePlannedBreakPositions,
+  coerceDebugBreakDurationForFocus,
   coerceBreakDurationForFocus,
   getAllowedBreakDurations,
   getAllowedFocusDurations,
+  isValidDebugBreakDuration,
+  isValidDebugBreakFocusDuration,
   normalizeSessionPlan,
 } from "../../services/session/index.js";
 
@@ -96,6 +99,8 @@ const initialDraft = {
   planRegularBreaks: false,
   focusMinutes: 25,
   breakMinutes: 5,
+  debugFocusSeconds: "30",
+  debugBreakSeconds: "10",
 };
 
 const minutesToMs = (minutes) => {
@@ -112,13 +117,23 @@ const greetingForNow = () => {
 
 const ratingLabel = (question, value) => `${value}. ${question.anchors.find((anchor) => anchor.startsWith(`${value} =`)) || ""}`;
 const msToMinutes = (milliseconds) => Math.round(milliseconds / 60000);
+const msToSeconds = (milliseconds) => Math.round(milliseconds / 1000);
 const focusMinuteOptions = getAllowedFocusDurations().map(msToMinutes);
+const secondsToMsStrict = (seconds) => {
+  if (seconds === "" || seconds === null || seconds === undefined) return null;
+  const value = Number(seconds);
+  return Number.isInteger(value) ? value * 1000 : null;
+};
 
-const formatBreakPositions = (positions) => {
-  const minutes = positions.map(msToMinutes);
-  if (minutes.length === 0) return "No planned break will be scheduled for this target duration.";
-  if (minutes.length === 1) return `Break after ${minutes[0]} min of focused study`;
-  return `Breaks after ${minutes.slice(0, -1).join(", ")}, and ${minutes.at(-1)} min of focused study`;
+const formatDurationForMode = (milliseconds, isDebugMode) => (
+  isDebugMode ? `${msToSeconds(milliseconds)} sec` : `${msToMinutes(milliseconds)} min`
+);
+
+const formatBreakPositions = (positions, isDebugMode) => {
+  const values = positions.map((position) => formatDurationForMode(position, isDebugMode));
+  if (values.length === 0) return "No planned break will be scheduled for this target duration.";
+  if (values.length === 1) return `Break after ${values[0]} of focused study`;
+  return `Breaks after ${values.slice(0, -1).join(", ")}, and ${values.at(-1)} of focused study`;
 };
 
 function SkipCheckInDialog({ open, onClose, onConfirm }) {
@@ -163,6 +178,7 @@ function SkipCheckInDialog({ open, onClose, onConfirm }) {
 export default function SessionSetupForm() {
   const router = useRouter();
   const { prepareSession, activeSession } = useSession();
+  const { isDebugMode } = useDebug();
   const [stage, setStage] = useState("welcome");
   const [optionalIndex, setOptionalIndex] = useState(0);
   const [draft, setDraft] = useState(initialDraft);
@@ -179,10 +195,29 @@ export default function SessionSetupForm() {
     : minutesToMs(draft.targetChoice);
   const selectedFocusMs = minutesToMs(draft.focusMinutes);
   const selectedBreakMs = minutesToMs(draft.breakMinutes);
+  const selectedDebugFocusMs = secondsToMsStrict(draft.debugFocusSeconds);
+  const selectedDebugBreakMs = secondsToMsStrict(draft.debugBreakSeconds);
   const allowedBreakMinutes = getAllowedBreakDurations(selectedFocusMs).map(msToMinutes);
+  const debugBreakValidation = (() => {
+    if (!draft.planRegularBreaks || !isDebugMode) return "";
+    if (selectedDebugFocusMs === null || !isValidDebugBreakFocusDuration(selectedDebugFocusMs)) {
+      return "Debug Focus Time must be a whole number from 15 to 600 seconds.";
+    }
+    if (selectedDebugBreakMs === null || !isValidDebugBreakDuration(selectedDebugBreakMs, selectedDebugFocusMs)) {
+      return "Debug Break Time must be a whole number from 5 to 300 seconds and no more than one third of Focus Time.";
+    }
+    return "";
+  })();
   const normalizedBreakPlan = normalizeSessionPlan(
     draft.planRegularBreaks
-      ? {
+      ? isDebugMode && !debugBreakValidation
+        ? {
+          targetDurationMs: selectedTargetMs,
+          focusDurationMs: selectedDebugFocusMs,
+          breakDurationMs: selectedDebugBreakMs,
+          timingMode: "debug",
+        }
+        : {
         targetDurationMs: selectedTargetMs,
         focusDurationMs: selectedFocusMs,
         breakDurationMs: selectedBreakMs,
@@ -190,10 +225,13 @@ export default function SessionSetupForm() {
       : { targetDurationMs: selectedTargetMs },
     { targetDurationMs: selectedTargetMs }
   );
-  const plannedBreakPositions = calculatePlannedBreakPositions(normalizedBreakPlan);
-  const plannedBreakMinutes = msToMinutes(normalizedBreakPlan.breakDurationMs * normalizedBreakPlan.plannedBreakCount);
+  const plannedBreakPositions = debugBreakValidation ? [] : calculatePlannedBreakPositions(normalizedBreakPlan);
+  const plannedBreakDurationMs = normalizedBreakPlan.breakDurationMs * normalizedBreakPlan.plannedBreakCount;
   const currentOptionalStep = optionalSteps[optionalIndex];
-  const setupValid = draft.taskName.trim().length > 0 && draft.taskName.trim().length <= 80 && selectedTargetMs !== null;
+  const setupValid = draft.taskName.trim().length > 0 &&
+    draft.taskName.trim().length <= 80 &&
+    selectedTargetMs !== null &&
+    !debugBreakValidation;
 
   const updateDraft = (updates) => {
     setDraft((previous) => ({ ...previous, ...updates }));
@@ -213,6 +251,19 @@ export default function SessionSetupForm() {
     const focusDurationMs = minutesToMs(focusMinutes);
     const safeBreakMinutes = msToMinutes(coerceBreakDurationForFocus(selectedBreakMs, focusDurationMs));
     updateDraft({ focusMinutes, breakMinutes: safeBreakMinutes });
+  };
+
+  const updateDebugFocusSeconds = (focusSeconds) => {
+    const focusDurationMs = secondsToMsStrict(focusSeconds);
+    const breakDurationMs = secondsToMsStrict(draft.debugBreakSeconds);
+    const updates = { debugFocusSeconds: focusSeconds };
+    if (isValidDebugBreakFocusDuration(focusDurationMs) && breakDurationMs !== null) {
+      const safeBreakSeconds = msToSeconds(coerceDebugBreakDurationForFocus(breakDurationMs, focusDurationMs));
+      if (safeBreakSeconds < Number(draft.debugBreakSeconds)) {
+        updates.debugBreakSeconds = String(safeBreakSeconds);
+      }
+    }
+    updateDraft(updates);
   };
 
   const goToNextOptional = () => {
@@ -240,6 +291,7 @@ export default function SessionSetupForm() {
     if (!draft.taskName.trim()) return "Task Name is required.";
     if (draft.taskName.trim().length > 80) return "Task Name should be about 80 characters or less.";
     if (selectedTargetMs === null) return "Choose a positive Target Duration of 300 minutes or less.";
+    if (debugBreakValidation) return debugBreakValidation;
     if (draft.planRegularBreaks && normalizedBreakPlan.breakDurationMs <= 0) return "Choose a valid Break Time for the selected Focus Time.";
     return "";
   };
@@ -378,36 +430,79 @@ export default function SessionSetupForm() {
 
           {draft.planRegularBreaks && (
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-xs font-semibold text-slate-400">Focus time</span>
-                <select
-                  value={draft.focusMinutes}
-                  onChange={(event) => updateFocusMinutes(Number(event.target.value))}
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
-                >
-                  {focusMinuteOptions.map((minutes) => (
-                    <option key={minutes} value={minutes}>{minutes} minutes</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold text-slate-400">Break time</span>
-                <select
-                  value={draft.breakMinutes}
-                  onChange={(event) => updateDraft({ breakMinutes: Number(event.target.value) })}
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
-                >
-                  {allowedBreakMinutes.map((minutes) => (
-                    <option key={minutes} value={minutes}>{minutes} minutes</option>
-                  ))}
-                </select>
-                <span className="mt-1 block text-[11px] text-slate-500">Break time cannot exceed one third of Focus time.</span>
-              </label>
+              {isDebugMode ? (
+                <>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">Focus time</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="15"
+                        max="600"
+                        step="1"
+                        value={draft.debugFocusSeconds}
+                        onChange={(event) => updateDebugFocusSeconds(event.target.value)}
+                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
+                      />
+                      <span className="text-xs font-semibold text-slate-400">seconds</span>
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">Break time</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="5"
+                        max="300"
+                        step="1"
+                        value={draft.debugBreakSeconds}
+                        onChange={(event) => updateDraft({ debugBreakSeconds: event.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
+                      />
+                      <span className="text-xs font-semibold text-slate-400">seconds</span>
+                    </div>
+                    <span className="mt-1 block text-[11px] text-slate-500">Debug Break time cannot exceed one third of Debug Focus time.</span>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">Focus time</span>
+                    <select
+                      value={draft.focusMinutes}
+                      onChange={(event) => updateFocusMinutes(Number(event.target.value))}
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
+                    >
+                      {focusMinuteOptions.map((minutes) => (
+                        <option key={minutes} value={minutes}>{minutes} minutes</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">Break time</span>
+                    <select
+                      value={draft.breakMinutes}
+                      onChange={(event) => updateDraft({ breakMinutes: Number(event.target.value) })}
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/50"
+                    >
+                      {allowedBreakMinutes.map((minutes) => (
+                        <option key={minutes} value={minutes}>{minutes} minutes</option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-[11px] text-slate-500">Break time cannot exceed one third of Focus time.</span>
+                  </label>
+                </>
+              )}
+              {debugBreakValidation && (
+                <p className="sm:col-span-2 text-sm font-semibold text-red-300">{debugBreakValidation}</p>
+              )}
               <div className="sm:col-span-2 rounded-xl border border-cyan-400/15 bg-cyan-400/[0.06] p-3">
                 <p className="text-xs font-bold text-cyan-100">
-                  {selectedTargetMs ? `${msToMinutes(selectedTargetMs)} min study + ${plannedBreakMinutes} min planned breaks` : "Choose a target duration to preview breaks"}
+                  {selectedTargetMs && !debugBreakValidation
+                    ? `${msToMinutes(selectedTargetMs)} min study + ${formatDurationForMode(plannedBreakDurationMs, isDebugMode)} planned breaks`
+                    : "Choose valid durations to preview breaks"}
                 </p>
-                <p className="mt-1 text-xs text-slate-300">{formatBreakPositions(plannedBreakPositions)}</p>
+                <p className="mt-1 text-xs text-slate-300">{formatBreakPositions(plannedBreakPositions, isDebugMode)}</p>
               </div>
             </div>
           )}
@@ -543,7 +638,11 @@ export default function SessionSetupForm() {
   const readySummary = [
     ["Task", draft.taskName.trim() || "Not provided"],
     ["Target duration", selectedTargetMs ? `${Math.round(selectedTargetMs / 60000)} minutes` : "Not provided"],
-    ["Regular breaks", draft.planRegularBreaks ? `${draft.focusMinutes} min focus / ${draft.breakMinutes} min break` : "Off"],
+    ["Regular breaks", draft.planRegularBreaks
+      ? isDebugMode
+        ? `${draft.debugFocusSeconds} sec focus / ${draft.debugBreakSeconds} sec break`
+        : `${draft.focusMinutes} min focus / ${draft.breakMinutes} min break`
+      : "Off"],
     ...(draft.sessionGoal.trim() ? [["Goal", draft.sessionGoal.trim()]] : []),
   ];
 
