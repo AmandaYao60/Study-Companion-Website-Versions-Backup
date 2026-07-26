@@ -17,6 +17,21 @@ const clamp = (value, min, max) => {
   return Math.min(max, Math.max(min, value));
 };
 
+const AUDIO_VOLUME_MULTIPLIERS = Object.freeze({
+  study: 1,
+  break: 1,
+  shortAlarm: 2,
+  longAlarm: 2,
+});
+
+const getAudioVolume = (key, baseVolume, muted = false) => {
+  if (muted) return 0;
+
+  const multiplier = AUDIO_VOLUME_MULTIPLIERS[key] ?? 1;
+
+  return clamp(baseVolume * multiplier, 0, 1);
+};
+
 export function useSessionAudioController({ getPlaybackContext } = {}) {
   const [state, setState] = useState({
     volume: 0.55,
@@ -38,9 +53,7 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
     const audio = new Audio(AUDIO_ASSETS[key]);
     audio.preload = "auto";
     audioVolumeMultipliersRef.current[key] = audioVolumeMultipliersRef.current[key] ?? 1;
-    audio.volume = stateRef.current.muted
-      ? 0
-      : clamp(stateRef.current.volume * audioVolumeMultipliersRef.current[key], 0, 1);
+    audio.volume = getAudioVolume(key, stateRef.current.volume, stateRef.current.muted,);
     audioElementsRef.current[key] = audio;
     return audio;
   }, []);
@@ -65,7 +78,7 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
     const multiplier = clamp(Number(volumeMultiplier), 0, 1);
     audioVolumeMultipliersRef.current[key] = multiplier;
     audio.loop = loop;
-    audio.volume = audioState.muted ? 0 : clamp(audioState.volume * multiplier, 0, 1);
+    audio.volume = getAudioVolume(key, audioState.volume, audioState.muted,);
     if (audioState.muted) return;
     if (restart) audio.currentTime = 0;
     const playPromise = audio.play();
@@ -85,8 +98,7 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
     const nextVolume = clamp(Number(volume), 0, 1);
     setState((previous) => ({ ...previous, volume: nextVolume, blocked: false }));
     Object.entries(audioElementsRef.current).forEach(([key, audio]) => {
-      const multiplier = audioVolumeMultipliersRef.current[key] ?? 1;
-      audio.volume = stateRef.current.muted ? 0 : clamp(nextVolume * multiplier, 0, 1);
+      audio.volume = getAudioVolume(key, nextVolume, stateRef.current.muted,);
     });
   }, []);
 
@@ -94,8 +106,7 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
     const nextMuted = Boolean(muted);
     setState((previous) => ({ ...previous, muted: nextMuted, blocked: false }));
     Object.entries(audioElementsRef.current).forEach(([key, audio]) => {
-      const multiplier = audioVolumeMultipliersRef.current[key] ?? 1;
-      audio.volume = nextMuted ? 0 : clamp(stateRef.current.volume * multiplier, 0, 1);
+      audio.volume = getAudioVolume(key, stateRef.current.volume, nextMuted,);
     });
     if (nextMuted) stopAllSessionAudio();
   }, [stopAllSessionAudio]);

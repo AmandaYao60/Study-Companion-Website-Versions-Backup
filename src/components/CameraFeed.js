@@ -364,6 +364,10 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
   const videoClass = isFocusPanel
     ? "absolute inset-0 h-full w-full object-cover opacity-0"
     : "absolute inset-0 h-full w-full object-cover opacity-70 transition-all duration-700";
+  const affectStatusLabel = formatStatusValue(affectModelStatus);
+  const isAffectModelReady = affectStatusLabel.trim().toLowerCase() === "ready";
+  const readyStatusClass = "border-amber-200/25 bg-amber-200/10 text-amber-100";
+  const idleStatusClass = "border-white/10 bg-slate-900 text-slate-400";
 
   return (
     <div className={containerClass}>
@@ -381,15 +385,15 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
               </span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] font-bold uppercase tracking-wider">
-            <span className={`rounded-full border px-2 py-1 ${isCameraAllowed ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-slate-900 text-slate-400"}`}>
-              Camera {isCameraAllowed ? "Enabled" : "Offline"}
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] font-normal uppercase tracking-wider">
+            <span className={`rounded-full border px-2 py-1 ${isCameraAllowed ? readyStatusClass : idleStatusClass}`}>
+              Camera {isCameraAllowed ? "Ready" : "Off"}
             </span>
-            <span className={`rounded-full border px-2 py-1 ${isAiLoaded ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-200" : "border-amber-400/20 bg-amber-400/10 text-amber-200"}`}>
-              MediaPipe {isAiLoaded ? "Ready" : "Loading"}
+            <span className={`rounded-full border px-2 py-1 ${isAiLoaded ? readyStatusClass : idleStatusClass}`}>
+              MediaPipe {isAiLoaded ? "Ready" : "Idle"}
             </span>
-            <span className="rounded-full border border-white/10 bg-slate-900 px-2 py-1 text-slate-300">
-              ONNX {formatStatusValue(affectModelStatus)}
+            <span className={`rounded-full border px-2 py-1 ${isAffectModelReady ? readyStatusClass : idleStatusClass}`}>
+              ONNX {affectStatusLabel}
             </span>
           </div>
         </div>
@@ -476,6 +480,15 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 <p className="mt-1 max-w-xs text-xs text-slate-500">
                   {isPreparedSession ? "Camera access is required to begin monitoring." : "Enable the camera to continue this study session."}
                 </p>
+                {!isFocusPanel && hasSession && (
+                <button
+                  type="button"
+                  onClick={() => setShowCameraDialog(true)}
+                  className="mt-4 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400 focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                >
+                  Enable Camera
+                </button>
+              )}
               </>
             ) : isPausedSession ? (
               <>
@@ -494,17 +507,13 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
           </div>
         )}
 
-        {!isFocusPanel && hasSession && !isBreakMode && (
+        {!isFocusPanel && hasSession && !isBreakMode && isCameraAllowed && (
           <button
             type="button"
-            onClick={isCameraAllowed ? handleDisableWebcam : () => setShowCameraDialog(true)}
-            className={`absolute bottom-3 right-3 z-40 rounded-lg px-4 py-2 text-xs font-semibold shadow-lg backdrop-blur-md transition-all focus:outline-none focus:ring-2 focus:ring-cyan-300 ${
-              isCameraAllowed
-                ? "border border-red-500/30 bg-slate-950/80 text-red-300 shadow-red-950/30 hover:bg-red-500/20"
-                : "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-cyan-500/20 hover:from-cyan-400 hover:to-blue-400"
-            }`}
+            onClick={handleDisableWebcam}
+            className="absolute bottom-3 right-3 z-40 rounded-lg border border-red-500/30 bg-slate-950/80 px-4 py-2 text-xs font-normal text-red-300 shadow-lg shadow-red-950/30 backdrop-blur-md transition-all hover:bg-red-500/20 focus:outline-none focus:ring-2 focus:ring-cyan-300"
           >
-            {isCameraAllowed ? "Disable Webcam" : "Enable Camera"}
+            Disable Webcam
           </button>
         )}
       </div>
