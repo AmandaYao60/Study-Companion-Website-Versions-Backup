@@ -21,6 +21,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
 - Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
 - App state is exposed through focused Session, Monitoring, and Debug contexts rather than a single monolithic consumer hook.
+- AppProvider remains the composition boundary while the timed-break controller, session-audio controller, timed-break presentation, and pure break-state helpers are split into dedicated modules.
 - The session domain normalizes optional `sessionPlan`, `breakEvents`, and `interruptions` fields for regular timed breaks.
 - Optional regular breaks can be planned in Session Setup, scheduled by effective focused-study time, shown in Focus Space Break Mode, extended up to three times, and persisted as break events separate from pauses.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.

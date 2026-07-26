@@ -2,28 +2,21 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import TimedBreakOverlay from "../components/session/TimedBreakOverlay";
 import {
-  BREAK_DECISION_ALARM_REPLAY_MS,
-  BREAK_DECISION_WAIT_MS,
-  BREAK_EXTENSION_MS,
+  useSessionAudioController,
+  useSessionAudioPlaybackSync,
+} from "../hooks/useSessionAudioController";
+import useTimedBreakController from "../hooks/useTimedBreakController";
+import {
   BREAK_STATUS,
-  MAX_BREAK_EXTENSION_COUNT,
-  PRE_BREAK_WARNING_MS,
   createIndexedDbSessionRepository,
   createSessionRuntime,
   SESSION_STATUS,
   calculatePlannedBreakPositions,
   cancelBreak,
-  completeBreak,
-  markBreakDecisionAlarmReplayed,
-  markBreakDecisionStarted,
-  markBreakReady,
-  markBreakWarningShown,
   normalizeBreakEvents,
   normalizeSessionPlan,
-  skipBreak,
-  startBreakExtension,
-  startPlannedBreak,
   validateSessionRepositoryContract,
 } from "../services/session/index.js";
 import {
@@ -64,61 +57,6 @@ const BLINK_MIN_MS = 80;
 const BLINK_MAX_MS = 450;
 const BLINK_BASELINE_MIN_MS = 30000;
 const SESSION_START_BASELINE = { attention: 80, fatigue: 10 };
-const AUDIO_ASSETS = Object.freeze({
-  study: "/music/studytime-music.mp3",
-  break: "/music/breaktime-music.mp3",
-  shortAlarm: "/music/short-alarm.mp3",
-  longAlarm: "/music/long-alarm.mp3",
-});
-const BREAK_PHASE = Object.freeze({
-  IDLE: "idle",
-  WARNING: "pre-break-warning",
-  READY: "break-ready",
-  SKIP_CONFIRMATION: "skip-confirmation",
-  ACTIVE: "active-break",
-  END_EARLY_CONFIRMATION: "end-early-confirmation",
-  COMPLETE_DECISION: "break-complete-awaiting-decision",
-  PAUSED_FALLBACK: "paused-session",
-});
-const createIdleBreakState = () => ({
-  phase: BREAK_PHASE.IDLE,
-  breakId: null,
-  plannedStartElapsedMs: null,
-  baseDurationMs: 0,
-  extensionCount: 0,
-  activeSegmentStartedAt: null,
-  activeSegmentDurationMs: 0,
-  decisionStartedAt: null,
-  remainingMs: 0,
-  decisionElapsedMs: 0,
-  audioBlocked: false,
-});
-const isBreakModePhase = (phase) => (
-  phase === BREAK_PHASE.ACTIVE ||
-  phase === BREAK_PHASE.END_EARLY_CONFIRMATION ||
-  phase === BREAK_PHASE.COMPLETE_DECISION
-);
-const isBreakBlockingPhase = (phase) => (
-  phase === BREAK_PHASE.READY ||
-  phase === BREAK_PHASE.SKIP_CONFIRMATION ||
-  phase === BREAK_PHASE.ACTIVE ||
-  phase === BREAK_PHASE.END_EARLY_CONFIRMATION ||
-  phase === BREAK_PHASE.COMPLETE_DECISION
-);
-const findBreakEvent = (session, breakId) => (
-  normalizeBreakEvents(session?.breakEvents || []).find((event) => event.id === breakId) || null
-);
-const getNextScheduledBreakEvent = (session) => (
-  normalizeBreakEvents(session?.breakEvents || [])
-    .filter((event) => event.status === BREAK_STATUS.SCHEDULED)
-    .sort((a, b) => (a.plannedStartElapsedMs ?? Infinity) - (b.plannedStartElapsedMs ?? Infinity))[0] || null
-);
-const formatCountdown = (milliseconds) => {
-  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-};
 
 const clamp = (value, min, max) => {
   if (!Number.isFinite(value)) return min;
@@ -209,118 +147,6 @@ export const useDebug = () => {
   }
   return context;
 };
-
-function TimedBreakDialog({ state, actions }) {
-  const primaryRef = useRef(null);
-  const phase = state.phase;
-  const isOpen = [
-    BREAK_PHASE.READY,
-    BREAK_PHASE.SKIP_CONFIRMATION,
-    BREAK_PHASE.END_EARLY_CONFIRMATION,
-    BREAK_PHASE.COMPLETE_DECISION,
-  ].includes(phase);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const previous = document.activeElement;
-    const timeout = window.setTimeout(() => primaryRef.current?.focus(), 0);
-    const handleKeyDown = (event) => {
-      if (event.key !== "Escape") return;
-      if (phase === BREAK_PHASE.SKIP_CONFIRMATION) actions.cancelSkipBreak();
-      if (phase === BREAK_PHASE.END_EARLY_CONFIRMATION) actions.cancelEndBreakEarly();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.clearTimeout(timeout);
-      document.removeEventListener("keydown", handleKeyDown);
-      previous?.focus?.();
-    };
-  }, [actions, isOpen, phase]);
-
-  if (!isOpen) return null;
-
-  let title = "This is your break time!";
-  let body = "Step away for a moment and let your focus reset.";
-  let controls = (
-    <>
-      <button ref={primaryRef} type="button" onClick={actions.startReadyBreak} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200">
-        Start Your Break Now
-      </button>
-      <button type="button" onClick={actions.requestSkipBreak} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-300">
-        Skip This Break
-      </button>
-    </>
-  );
-
-  if (phase === BREAK_PHASE.SKIP_CONFIRMATION) {
-    title = "Skip this planned break?";
-    body = "Regular breaks can help protect your focus and reduce fatigue. Are you sure you want to skip this break?";
-    controls = (
-      <>
-        <button ref={primaryRef} type="button" onClick={actions.cancelSkipBreak} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-300">
-          Cancel
-        </button>
-        <button type="button" onClick={actions.confirmSkipBreak} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200">
-          Confirm
-        </button>
-      </>
-    );
-  } else if (phase === BREAK_PHASE.END_EARLY_CONFIRMATION) {
-    title = "End your break early?";
-    body = "Taking the full break can help you return with better focus. Do you still want to end your break early?";
-    controls = (
-      <>
-        <button ref={primaryRef} type="button" onClick={actions.cancelEndBreakEarly} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-300">
-          Cancel
-        </button>
-        <button type="button" onClick={actions.confirmEndBreakEarly} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200">
-          Confirm
-        </button>
-      </>
-    );
-  } else if (phase === BREAK_PHASE.COMPLETE_DECISION) {
-    title = "Break complete";
-    body = "You can return to your study session now, or take one short extension.";
-    controls = (
-      <>
-        <button ref={primaryRef} type="button" onClick={actions.continueStudyAfterBreak} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200">
-          Continue Study
-        </button>
-        {state.extensionCount < MAX_BREAK_EXTENSION_COUNT && (
-          <button type="button" onClick={() => actions.extendBreak("manual")} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-300">
-            Extend Break by 3 Minutes
-          </button>
-        )}
-      </>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-[950] flex items-center justify-center bg-slate-950/82 p-4 backdrop-blur-sm" role="presentation">
-      <section role="dialog" aria-modal="true" aria-labelledby="timed-break-title" className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-950 p-5 text-white shadow-2xl">
-        <p className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-300">Planned Break</p>
-        <h2 id="timed-break-title" className="mt-3 text-2xl font-black">{title}</h2>
-        <p className="mt-3 text-sm leading-relaxed text-slate-300">{body}</p>
-        {phase === BREAK_PHASE.COMPLETE_DECISION && (
-          <p className="mt-3 text-xs text-slate-500" aria-live="polite">
-            Automatic extension in {formatCountdown(Math.max(0, BREAK_DECISION_WAIT_MS - state.decisionElapsedMs))}.
-          </p>
-        )}
-        <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">{controls}</div>
-      </section>
-    </div>
-  );
-}
-
-function TimedBreakWarning({ state }) {
-  if (state.phase !== BREAK_PHASE.WARNING) return null;
-  return (
-    <div className="fixed inset-x-4 top-20 z-[850] mx-auto max-w-md rounded-2xl border border-cyan-300/25 bg-slate-950/92 p-4 text-white shadow-2xl backdrop-blur-xl" role="status" aria-live="polite">
-      <p className="text-sm font-black text-cyan-200">Break in {formatCountdown(state.remainingMs)}</p>
-      <p className="mt-1 text-xs text-slate-300">You&apos;re almost there. Keep going for a little longer.</p>
-    </div>
-  );
-}
 
 export const AppProvider = ({ children }) => {
   const router = useRouter();
@@ -453,22 +279,13 @@ export const AppProvider = ({ children }) => {
   const [completedSessions, setCompletedSessions] = useState([]);
   const [activeSessionSamples, setActiveSessionSamples] = useState([]);
   const [recoveryPromptDismissedSessionId, setRecoveryPromptDismissedSessionId] = useState(null);
-  const [timedBreakState, setTimedBreakState] = useState(createIdleBreakState);
   const [isFocusSpaceActive, setIsFocusSpaceActive] = useState(false);
-  const [sessionAudioState, setSessionAudioState] = useState({
-    volume: 0.55,
-    muted: false,
-    blocked: false,
-  });
 
   const streamRef = useRef(null);
   const sessionClockRef = useRef(sessionClock);
   const activeSessionRef = useRef(activeSession);
-  const timedBreakStateRef = useRef(timedBreakState);
   const isFocusSpaceActiveRef = useRef(isFocusSpaceActive);
-  const sessionAudioStateRef = useRef(sessionAudioState);
-  const audioElementsRef = useRef({});
-  const breakActionPromiseRef = useRef(null);
+  const timedBreakControllerRef = useRef(null);
   const affectStateRef = useRef(affectState);
   const monitoringRef = useRef(isMonitoring);
   const cameraAllowedRef = useRef(isCameraAllowed);
@@ -483,16 +300,8 @@ export const AppProvider = ({ children }) => {
   }, [activeSession]);
 
   useEffect(() => {
-    timedBreakStateRef.current = timedBreakState;
-  }, [timedBreakState]);
-
-  useEffect(() => {
     isFocusSpaceActiveRef.current = isFocusSpaceActive;
   }, [isFocusSpaceActive]);
-
-  useEffect(() => {
-    sessionAudioStateRef.current = sessionAudioState;
-  }, [sessionAudioState]);
 
   useEffect(() => {
     affectStateRef.current = affectState;
@@ -583,11 +392,6 @@ export const AppProvider = ({ children }) => {
 
       faceLandmarkerRef.current = null;
       gestureRecognizerRef.current = null;
-      Object.values(audioElementsRef.current).forEach((audio) => {
-        audio.pause();
-        audio.src = "";
-      });
-      audioElementsRef.current = {};
     };
   }, []);
 
@@ -599,76 +403,6 @@ export const AppProvider = ({ children }) => {
   const clearEventLog = useCallback(() => {
     setEventLog([]);
   }, []);
-
-  const getAudioElement = useCallback((key) => {
-    if (typeof Audio === "undefined") return null;
-    const existing = audioElementsRef.current[key];
-    if (existing) return existing;
-    const audio = new Audio(AUDIO_ASSETS[key]);
-    audio.preload = "auto";
-    audio.volume = sessionAudioStateRef.current.muted ? 0 : sessionAudioStateRef.current.volume;
-    audioElementsRef.current[key] = audio;
-    return audio;
-  }, []);
-
-  const stopAudio = useCallback((key) => {
-    const audio = audioElementsRef.current[key];
-    if (!audio) return;
-    audio.pause();
-    audio.currentTime = 0;
-  }, []);
-
-  const stopAllSessionAudio = useCallback(() => {
-    Object.keys(audioElementsRef.current).forEach((key) => stopAudio(key));
-  }, [stopAudio]);
-
-  const playSessionAudio = useCallback((key, { loop = false, restart = true } = {}) => {
-    const audioState = sessionAudioStateRef.current;
-    const audio = getAudioElement(key);
-    if (!audio) return;
-    audio.loop = loop;
-    audio.volume = audioState.muted ? 0 : audioState.volume;
-    if (audioState.muted) return;
-    if (restart) audio.currentTime = 0;
-    const playPromise = audio.play();
-    if (playPromise?.then) {
-        playPromise.then(() => {
-          setSessionAudioState((previous) => previous.blocked ? { ...previous, blocked: false } : previous);
-        })
-        .catch((error) => {
-          if (error?.name === "AbortError") return;
-          setSessionAudioState((previous) => previous.blocked ? previous : { ...previous, blocked: true });
-        });
-      }
-    
-  }, [getAudioElement]);
-
-  const setSessionAudioVolume = useCallback((volume) => {
-    const nextVolume = clamp(Number(volume), 0, 1);
-    setSessionAudioState((previous) => ({ ...previous, volume: nextVolume, blocked: false }));
-    Object.values(audioElementsRef.current).forEach((audio) => {
-      audio.volume = sessionAudioStateRef.current.muted ? 0 : nextVolume;
-    });
-  }, []);
-
-  const setSessionAudioMuted = useCallback((muted) => {
-    const nextMuted = Boolean(muted);
-    setSessionAudioState((previous) => ({ ...previous, muted: nextMuted, blocked: false }));
-    Object.values(audioElementsRef.current).forEach((audio) => {
-      audio.volume = nextMuted ? 0 : sessionAudioStateRef.current.volume;
-    });
-    if (nextMuted) stopAllSessionAudio();
-  }, [stopAllSessionAudio]);
-
-  const enableSessionAudio = useCallback(() => {
-    setSessionAudioState((previous) => ({ ...previous, muted: false, blocked: false }));
-    const state = timedBreakStateRef.current;
-    if (state.phase === BREAK_PHASE.ACTIVE) {
-      playSessionAudio("break", { loop: true, restart: false });
-    } else if (isFocusSpaceActiveRef.current && activeSessionRef.current?.status === SESSION_STATUS.ACTIVE && sessionClockRef.current.isRunning) {
-      playSessionAudio("study", { loop: true, restart: false });
-    }
-  }, [playSessionAudio]);
 
   const setDebugMetricOverride = useCallback((metric, value) => {
     if (!isDebugMode || !["attention", "fatigue"].includes(metric)) return;
@@ -1598,6 +1332,90 @@ export const AppProvider = ({ children }) => {
     setRawLandmarksHistory([]);
   }, [resetAffectState]);
 
+  const startCamera = useCallback(async () => {
+    try {
+      if (streamRef.current) {
+        setIsCameraAllowed(true);
+        cameraAllowedRef.current = true;
+        setCameraStatus("ready");
+        return streamRef.current;
+      }
+
+      setCameraStatus("requesting");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" },
+        audio: false
+      });
+
+      setCameraStream(stream);
+      streamRef.current = stream;
+      setIsCameraAllowed(true);
+      cameraAllowedRef.current = true;
+      setCameraStatus("ready");
+      addLog("Camera access granted. Live stream connected.", "success");
+      return stream;
+    } catch (err) {
+      console.error("Error accessing webcam:", err);
+      setIsCameraAllowed(false);
+      cameraAllowedRef.current = false;
+      setCameraStatus("error");
+      addLog("Camera access denied or unavailable.", "error");
+      throw err;
+    }
+  }, [addLog]);
+
+  const sessionAudio = useSessionAudioController({
+    getPlaybackContext: () => ({
+      timedBreakPhase: timedBreakControllerRef.current?.stateRef.current.phase,
+      isFocusSpaceActive: isFocusSpaceActiveRef.current,
+      activeSessionStatus: activeSessionRef.current?.status,
+      sessionClockIsRunning: sessionClockRef.current.isRunning,
+    }),
+  });
+
+  const timedBreakController = useTimedBreakController({
+    router,
+    session: {
+      activeSession,
+      activeSessionRef,
+      sessionClock,
+      sessionRuntimeRef,
+      getSessionElapsedMs,
+      freezeSessionClock,
+      startSessionClock,
+      syncSessionState,
+    },
+    monitoring: {
+      setIsMonitoring,
+      monitoringRef,
+    },
+    camera: {
+      startCamera,
+      clearCameraStream,
+      resetTransientInferenceState,
+      setShowCameraDialog,
+    },
+    audio: {
+      ...sessionAudio,
+      isFocusSpaceActiveRef,
+    },
+    logger: {
+      addLog,
+    },
+  });
+
+  useEffect(() => {
+    timedBreakControllerRef.current = timedBreakController;
+  }, [timedBreakController]);
+
+  useSessionAudioPlaybackSync({
+    activeSessionStatus: activeSession?.status,
+    sessionClockIsRunning: sessionClock.isRunning,
+    isFocusSpaceActive,
+    timedBreakPhase: timedBreakController.state.phase,
+    audio: sessionAudio,
+  });
+
   const prepareSession = useCallback(async ({
     taskName = "",
     taskDescription = "",
@@ -1622,7 +1440,7 @@ export const AppProvider = ({ children }) => {
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
-    setTimedBreakState(createIdleBreakState());
+    timedBreakController.reset();
 
     const normalizedSessionPlan = normalizeSessionPlan(sessionPlan, { targetDurationMs });
     const breakEvents = calculatePlannedBreakPositions(normalizedSessionPlan).map((plannedStartElapsedMs, index) => ({
@@ -1649,7 +1467,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session prepared. Camera permission is required to begin monitoring.", "info");
     return session;
-  }, [addLog, resetEstimatorSession, resetSessionClock, syncSessionState]);
+  }, [addLog, resetEstimatorSession, resetSessionClock, syncSessionState, timedBreakController]);
 
   const activatePreparedSession = useCallback(async () => {
     const active = activeSessionRef.current;
@@ -1759,38 +1577,6 @@ export const AppProvider = ({ children }) => {
     });
   }, [activatePreparedSession, addLog, runResumeTransition, startSessionClock, syncSessionState]);
 
-  const startCamera = useCallback(async () => {
-    try {
-      if (streamRef.current) {
-        setIsCameraAllowed(true);
-        cameraAllowedRef.current = true;
-        setCameraStatus("ready");
-        return streamRef.current;
-      }
-
-      setCameraStatus("requesting");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-        audio: false
-      });
-
-      setCameraStream(stream);
-      streamRef.current = stream;
-      setIsCameraAllowed(true);
-      cameraAllowedRef.current = true;
-      setCameraStatus("ready");
-      addLog("Camera access granted. Live stream connected.", "success");
-      return stream;
-    } catch (err) {
-      console.error("Error accessing webcam:", err);
-      setIsCameraAllowed(false);
-      cameraAllowedRef.current = false;
-      setCameraStatus("error");
-      addLog("Camera access denied or unavailable.", "error");
-      throw err;
-    }
-  }, [addLog]);
-
   const stopCamera = useCallback(async ({ pauseActiveSession = true } = {}) => {
     const active = activeSessionRef.current;
     const shouldPause = pauseActiveSession && active?.status === SESSION_STATUS.ACTIVE;
@@ -1808,299 +1594,6 @@ export const AppProvider = ({ children }) => {
     addLog("Camera stream stopped. Study session data was preserved.", "info");
     return true;
   }, [addLog, clearCameraStream, freezeSessionClock, getSessionElapsedMs, resetTransientInferenceState, syncSessionState]);
-
-  const persistBreakSession = useCallback(async (nextSession, input = {}) => {
-    const saved = await sessionRuntimeRef.current.updateBreakEvents(nextSession.breakEvents, input);
-    syncSessionState();
-    return saved;
-  }, [syncSessionState]);
-
-  const runBreakAction = useCallback((operation) => {
-    if (breakActionPromiseRef.current) return breakActionPromiseRef.current;
-    const promise = operation().finally(() => {
-      breakActionPromiseRef.current = null;
-    });
-    breakActionPromiseRef.current = promise;
-    return promise;
-  }, []);
-
-  const enterBreakReady = useCallback((breakEvent) => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const currentBreakState = timedBreakStateRef.current;
-    const isAlreadyHandlingThisBreak = currentBreakState.breakId === breakEvent?.id &&
-    isBreakBlockingPhase(currentBreakState.phase);
-    if (!active || !breakEvent || isAlreadyHandlingThisBreak) return null;
-    const elapsedMs = freezeSessionClock();
-    await sessionRuntimeRef.current.flushPendingObservations({ force: true });
-    const readyAt = new Date().toISOString();
-    const nextSession = markBreakReady(active, breakEvent.id, {
-      readyAt,
-      baseDurationMs: breakEvent.baseDurationMs || active.sessionPlan?.breakDurationMs,
-    });
-    await persistBreakSession(nextSession, { accumulatedStudyMs: elapsedMs, lastCheckpointAt: readyAt });
-    stopAudio("study");
-    playSessionAudio("shortAlarm", { loop: false, restart: true });
-    setTimedBreakState({
-      ...createIdleBreakState(),
-      phase: BREAK_PHASE.READY,
-      breakId: breakEvent.id,
-      plannedStartElapsedMs: breakEvent.plannedStartElapsedMs,
-      baseDurationMs: breakEvent.baseDurationMs || active.sessionPlan?.breakDurationMs || 0,
-    });
-    addLog("Planned break is ready.", "info");
-    return nextSession;
-  }), [addLog, freezeSessionClock, persistBreakSession, playSessionAudio, runBreakAction, stopAudio]);
-
-  const requestSkipBreak = useCallback(() => {
-    setTimedBreakState((previous) => previous.phase === BREAK_PHASE.READY
-      ? { ...previous, phase: BREAK_PHASE.SKIP_CONFIRMATION }
-      : previous);
-  }, []);
-
-  const cancelSkipBreak = useCallback(() => {
-    setTimedBreakState((previous) => previous.phase === BREAK_PHASE.SKIP_CONFIRMATION
-      ? { ...previous, phase: BREAK_PHASE.READY }
-      : previous);
-  }, []);
-
-  const confirmSkipBreak = useCallback(() => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const state = timedBreakStateRef.current;
-    if (!active || state.phase !== BREAK_PHASE.SKIP_CONFIRMATION || !state.breakId) return null;
-    stopAudio("shortAlarm");
-    const skippedAt = new Date().toISOString();
-    const elapsedMs = getSessionElapsedMs();
-    const nextSession = skipBreak(active, state.breakId, {
-      actualEndElapsedMs: elapsedMs,
-      actualEndAt: skippedAt,
-    });
-    await persistBreakSession(nextSession, { accumulatedStudyMs: elapsedMs, lastCheckpointAt: skippedAt });
-    setTimedBreakState(createIdleBreakState());
-    startSessionClock();
-    setIsMonitoring(true);
-    monitoringRef.current = true;
-    addLog("Planned break skipped.", "warning");
-    return nextSession;
-  }), [addLog, getSessionElapsedMs, persistBreakSession, runBreakAction, startSessionClock, stopAudio]);
-
-  const startReadyBreak = useCallback(() => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const state = timedBreakStateRef.current;
-    if (!active || state.phase !== BREAK_PHASE.READY || !state.breakId) return null;
-    stopAudio("shortAlarm");
-    stopAudio("study");
-    const startedAt = new Date().toISOString();
-    const baseDurationMs = state.baseDurationMs || active.sessionPlan?.breakDurationMs || 0;
-    const elapsedMs = getSessionElapsedMs();
-    const nextSession = startPlannedBreak(active, state.breakId, {
-      actualStartElapsedMs: elapsedMs,
-      actualStartAt: startedAt,
-      baseDurationMs,
-      activeSegmentStartedAt: startedAt,
-      activeSegmentDurationMs: baseDurationMs,
-    });
-    await persistBreakSession(nextSession, { accumulatedStudyMs: elapsedMs, lastCheckpointAt: startedAt });
-    setTimedBreakState({
-      ...createIdleBreakState(),
-      phase: BREAK_PHASE.ACTIVE,
-      breakId: state.breakId,
-      plannedStartElapsedMs: state.plannedStartElapsedMs,
-      baseDurationMs,
-      activeSegmentStartedAt: startedAt,
-      activeSegmentDurationMs: baseDurationMs,
-      remainingMs: baseDurationMs,
-    });
-    setIsMonitoring(false);
-    monitoringRef.current = false;
-    clearCameraStream();
-    resetTransientInferenceState();
-    playSessionAudio("break", { loop: true, restart: true });
-    router.replace("/app/focus");
-    addLog("Planned break started. Camera and monitoring are stopped during break time.", "info");
-    return nextSession;
-  }), [addLog, clearCameraStream, getSessionElapsedMs, persistBreakSession, playSessionAudio, resetTransientInferenceState, router, runBreakAction, stopAudio]);
-
-  const completeActiveBreakSegment = useCallback(() => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const state = timedBreakStateRef.current;
-    if (!active || state.phase !== BREAK_PHASE.ACTIVE || !state.breakId) return null;
-    const event = findBreakEvent(active, state.breakId);
-    if (!event) return null;
-    stopAudio("break");
-    const nowIso = new Date().toISOString();
-    if ((event.extensionCount || 0) >= MAX_BREAK_EXTENSION_COUNT) {
-      const nextSession = completeBreak(active, state.breakId, {
-        actualEndElapsedMs: getSessionElapsedMs(),
-        actualEndAt: nowIso,
-        actualActiveBreakDurationMs: (event.baseDurationMs || state.baseDurationMs || 0) + (event.totalExtensionDurationMs || 0),
-        totalExtensionDurationMs: event.totalExtensionDurationMs || 0,
-      });
-      await persistBreakSession(nextSession, {
-        accumulatedStudyMs: getSessionElapsedMs(),
-        status: SESSION_STATUS.PAUSED,
-        recoveryPending: false,
-        lastCheckpointAt: nowIso,
-      });
-      setIsMonitoring(false);
-      monitoringRef.current = false;
-      setTimedBreakState({ ...createIdleBreakState(), phase: BREAK_PHASE.PAUSED_FALLBACK });
-      addLog("Break extension limit reached. The study session is paused until you are ready.", "warning");
-      return nextSession;
-    }
-    const nextSession = markBreakDecisionStarted(active, state.breakId, { decisionStartedAt: nowIso });
-    await persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: nowIso });
-    setTimedBreakState((previous) => ({
-      ...previous,
-      phase: BREAK_PHASE.COMPLETE_DECISION,
-      activeSegmentStartedAt: null,
-      activeSegmentDurationMs: 0,
-      remainingMs: 0,
-      decisionStartedAt: nowIso,
-      decisionElapsedMs: 0,
-      extensionCount: event.extensionCount || 0,
-    }));
-    playSessionAudio("longAlarm", { loop: false, restart: true });
-    return nextSession;
-  }), [addLog, getSessionElapsedMs, persistBreakSession, playSessionAudio, runBreakAction, stopAudio]);
-
-  const extendBreak = useCallback((source = "manual") => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const state = timedBreakStateRef.current;
-    if (!active || state.phase !== BREAK_PHASE.COMPLETE_DECISION || !state.breakId) return null;
-    const event = findBreakEvent(active, state.breakId);
-    if (!event || (event.extensionCount || 0) >= MAX_BREAK_EXTENSION_COUNT) return null;
-    stopAudio("longAlarm");
-    const startedAt = new Date().toISOString();
-    const nextSession = startBreakExtension(active, state.breakId, {
-      activeSegmentStartedAt: startedAt,
-      activeSegmentDurationMs: BREAK_EXTENSION_MS,
-      source,
-    });
-    const nextEvent = findBreakEvent(nextSession, state.breakId);
-    await persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: startedAt });
-    setTimedBreakState((previous) => ({
-      ...previous,
-      phase: BREAK_PHASE.ACTIVE,
-      activeSegmentStartedAt: startedAt,
-      activeSegmentDurationMs: BREAK_EXTENSION_MS,
-      remainingMs: BREAK_EXTENSION_MS,
-      decisionStartedAt: null,
-      decisionElapsedMs: 0,
-      extensionCount: nextEvent?.extensionCount || previous.extensionCount + 1,
-    }));
-    playSessionAudio("break", { loop: true, restart: true });
-    return nextSession;
-  }), [getSessionElapsedMs, persistBreakSession, playSessionAudio, runBreakAction, stopAudio]);
-
-  const continueStudyAfterBreak = useCallback(() => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const state = timedBreakStateRef.current;
-    if (!active || state.phase !== BREAK_PHASE.COMPLETE_DECISION || !state.breakId) return null;
-    const event = findBreakEvent(active, state.breakId);
-    stopAudio("longAlarm");
-    const endedAt = new Date().toISOString();
-    const activeBreakDuration = (event?.baseDurationMs || state.baseDurationMs || 0) + (event?.totalExtensionDurationMs || 0);
-    const nextSession = completeBreak(active, state.breakId, {
-      actualEndElapsedMs: getSessionElapsedMs(),
-      actualEndAt: endedAt,
-      actualActiveBreakDurationMs: activeBreakDuration,
-      totalExtensionDurationMs: event?.totalExtensionDurationMs || 0,
-    });
-    
-    stopAudio("longAlarm");
-    stopAudio("break");
-    if (isFocusSpaceActiveRef.current && !sessionAudioStateRef.current.muted) {
-      playSessionAudio("study", {loop: true, restart: true,});
-    }
-
-    await persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: endedAt });
-    try {
-      await startCamera();
-      startSessionClock();
-      setIsMonitoring(true);
-      monitoringRef.current = true;
-      setTimedBreakState(createIdleBreakState());
-      addLog("Study session resumed after break.", "success");
-      return nextSession;
-    } catch (error) {
-      const paused = await sessionRuntimeRef.current.updateBreakEvents(nextSession.breakEvents, {
-        accumulatedStudyMs: getSessionElapsedMs(),
-        status: SESSION_STATUS.PAUSED,
-        recoveryPending: false,
-        lastCheckpointAt: endedAt,
-      });
-      stopAudio("study");
-      syncSessionState();
-      setTimedBreakState(createIdleBreakState());
-      setShowCameraDialog(true);
-      addLog("Camera could not restart after the break. The session is paused safely.", "error");
-      return paused;
-    }
-  }), [addLog, getSessionElapsedMs, persistBreakSession, runBreakAction, startCamera, startSessionClock, stopAudio, syncSessionState]);
-
-  const requestEndBreakEarly = useCallback(() => {
-    setTimedBreakState((previous) => previous.phase === BREAK_PHASE.ACTIVE
-      ? { ...previous, phase: BREAK_PHASE.END_EARLY_CONFIRMATION }
-      : previous);
-  }, []);
-
-  const cancelEndBreakEarly = useCallback(() => {
-    setTimedBreakState((previous) => previous.phase === BREAK_PHASE.END_EARLY_CONFIRMATION
-      ? { ...previous, phase: BREAK_PHASE.ACTIVE }
-      : previous);
-  }, []);
-
-  const confirmEndBreakEarly = useCallback(() => runBreakAction(async () => {
-    const active = activeSessionRef.current;
-    const state = timedBreakStateRef.current;
-    if (!active || state.phase !== BREAK_PHASE.END_EARLY_CONFIRMATION || !state.breakId) return null;
-    const endedAt = new Date().toISOString();
-    const event = findBreakEvent(active, state.breakId);
-    stopAudio("break");
-    const activeSegmentStarted = Date.parse(state.activeSegmentStartedAt || event?.activeSegmentStartedAt || "");
-    const partialActiveMs = Number.isFinite(activeSegmentStarted) ? Math.max(0, Date.now() - activeSegmentStarted) : 0;
-    const previousExtensionMs = Math.max(0, (event?.extensionCount || 0) * BREAK_EXTENSION_MS - (event?.activeSegmentDurationMs === BREAK_EXTENSION_MS ? BREAK_EXTENSION_MS : 0));
-    const activeBreakDuration = Math.min(
-      (event?.baseDurationMs || state.baseDurationMs || 0) + (event?.totalExtensionDurationMs || 0),
-      (event?.baseDurationMs || state.baseDurationMs || 0) + previousExtensionMs + partialActiveMs
-    );
-    const nextSession = completeBreak(active, state.breakId, {
-      actualEndElapsedMs: getSessionElapsedMs(),
-      actualEndAt: endedAt,
-      actualActiveBreakDurationMs: activeBreakDuration,
-      totalExtensionDurationMs: event?.totalExtensionDurationMs || 0,
-    });
-
-    stopAudio("longAlarm");
-    stopAudio("break");
-    if (isFocusSpaceActiveRef.current && !sessionAudioStateRef.current.muted) {
-        playSessionAudio("study", {loop: true, restart: true,});
-    }
-
-    await persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: endedAt });
-    try {
-      await startCamera();
-      startSessionClock();
-      setIsMonitoring(true);
-      monitoringRef.current = true;
-      setTimedBreakState(createIdleBreakState());
-      addLog("Study session resumed after ending the break early.", "success");
-      return nextSession;
-    } catch {
-      const paused = await sessionRuntimeRef.current.updateBreakEvents(nextSession.breakEvents, {
-        accumulatedStudyMs: getSessionElapsedMs(),
-        status: SESSION_STATUS.PAUSED,
-        recoveryPending: false,
-        lastCheckpointAt: endedAt,
-      });
-      stopAudio("study");
-      syncSessionState();
-      setTimedBreakState(createIdleBreakState());
-      setShowCameraDialog(true);
-      addLog("Camera could not restart after the break. The session is paused safely.", "error");
-      return paused;
-    }
-  }), [addLog, getSessionElapsedMs, persistBreakSession, runBreakAction, startCamera, startSessionClock, stopAudio, syncSessionState]);
 
   const returnToRecoveredSession = useCallback(async () => {
     const active = activeSessionRef.current;
@@ -2131,7 +1624,7 @@ export const AppProvider = ({ children }) => {
 
     const elapsedMs = getSessionElapsedMs();
     setIsMonitoring(false);
-    stopAllSessionAudio();
+    sessionAudio.stopAllSessionAudio();
 
     const activeBreak = normalizeBreakEvents(activeSessionRef.current.breakEvents || [])
       .find((event) => [BREAK_STATUS.SCHEDULED, BREAK_STATUS.ACTIVE].includes(event.status));
@@ -2148,7 +1641,7 @@ export const AppProvider = ({ children }) => {
     clearCameraStream();
     resetTransientInferenceState();
     resetSessionClock();
-    setTimedBreakState(createIdleBreakState());
+    timedBreakController.reset();
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -2156,18 +1649,18 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
     return completed;
-  }, [addLog, clearCameraStream, getSessionElapsedMs, resetSessionClock, resetTransientInferenceState, stopAllSessionAudio, syncSessionState]);
+  }, [addLog, clearCameraStream, getSessionElapsedMs, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
 
   const discardSession = useCallback(async () => {
     if (!activeSessionRef.current) return false;
 
     setIsMonitoring(false);
-    stopAllSessionAudio();
+    sessionAudio.stopAllSessionAudio();
     clearCameraStream();
     resetTransientInferenceState();
     const discarded = await sessionRuntimeRef.current.discardSession();
     resetSessionClock();
-    setTimedBreakState(createIdleBreakState());
+    timedBreakController.reset();
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -2175,7 +1668,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session discarded.", "warning");
     return discarded;
-  }, [addLog, clearCameraStream, resetSessionClock, resetTransientInferenceState, stopAllSessionAudio, syncSessionState]);
+  }, [addLog, clearCameraStream, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
 
   const updateSessionTask = useCallback(async (taskDescription) => {
     const session = await sessionRuntimeRef.current.updateSessionTask(taskDescription);
@@ -2280,237 +1773,6 @@ export const AppProvider = ({ children }) => {
     };
   }, [persistActiveSessionCheckpoint]);
 
-  useEffect(() => {
-    const active = activeSession;
-    if (!active || active.status !== SESSION_STATUS.ACTIVE || isBreakBlockingPhase(timedBreakState.phase)) {
-      return undefined;
-    }
-    const plan = normalizeSessionPlan(active.sessionPlan, { targetDurationMs: active.targetDurationMs });
-    if (!plan.focusDurationMs || !plan.breakDurationMs || plan.plannedBreakCount <= 0) {
-      return undefined;
-    }
-
-    const evaluate = () => {
-      const currentSession = activeSessionRef.current;
-      const currentState = timedBreakStateRef.current;
-      if (!currentSession || currentSession.status !== SESSION_STATUS.ACTIVE || isBreakBlockingPhase(currentState.phase)) return;
-      const nextBreak = getNextScheduledBreakEvent(currentSession);
-      if (!nextBreak || !Number.isFinite(nextBreak.plannedStartElapsedMs)) {
-        if (currentState.phase === BREAK_PHASE.WARNING) setTimedBreakState(createIdleBreakState());
-        return;
-      }
-
-      const elapsedMs = getSessionElapsedMs();
-      const remainingMs = nextBreak.plannedStartElapsedMs - elapsedMs;
-      if (remainingMs <= 0) {
-        void enterBreakReady(nextBreak).catch((error) => {
-          console.error("Failed to enter planned break ready state:", error);
-          addLog("Could not open the planned break prompt.", "error");
-        });
-        return;
-      }
-
-      if (remainingMs <= PRE_BREAK_WARNING_MS) {
-        if (!nextBreak.warningShownAt) {
-          const warningAt = new Date().toISOString();
-          const nextSession = markBreakWarningShown(currentSession, nextBreak.id, { warningShownAt: warningAt });
-          void persistBreakSession(nextSession, {
-            accumulatedStudyMs: elapsedMs,
-            lastCheckpointAt: warningAt,
-          }).catch((error) => {
-            console.error("Failed to persist break warning:", error);
-          });
-        }
-        setTimedBreakState({
-          ...createIdleBreakState(),
-          phase: BREAK_PHASE.WARNING,
-          breakId: nextBreak.id,
-          plannedStartElapsedMs: nextBreak.plannedStartElapsedMs,
-          baseDurationMs: nextBreak.baseDurationMs || currentSession.sessionPlan?.breakDurationMs || 0,
-          remainingMs,
-        });
-      } else if (currentState.phase === BREAK_PHASE.WARNING) {
-        setTimedBreakState(createIdleBreakState());
-      }
-    };
-
-    evaluate();
-    if (!sessionClock.isRunning) return undefined;
-    const interval = window.setInterval(evaluate, 500);
-    return () => window.clearInterval(interval);
-  }, [
-    activeSession,
-    addLog,
-    enterBreakReady,
-    getSessionElapsedMs,
-    persistBreakSession,
-    sessionClock.isRunning,
-    timedBreakState.phase,
-  ]);
-
-  useEffect(() => {
-    if (timedBreakState.phase !== BREAK_PHASE.ACTIVE || !timedBreakState.activeSegmentStartedAt) {
-      return undefined;
-    }
-
-    const tick = () => {
-      const state = timedBreakStateRef.current;
-      if (state.phase !== BREAK_PHASE.ACTIVE || !state.activeSegmentStartedAt) return;
-      const startedAt = Date.parse(state.activeSegmentStartedAt);
-      const durationMs = state.activeSegmentDurationMs || state.baseDurationMs || 0;
-      const remainingMs = Math.max(0, startedAt + durationMs - Date.now());
-      setTimedBreakState((previous) => previous.phase === BREAK_PHASE.ACTIVE
-        ? { ...previous, remainingMs }
-        : previous);
-      if (remainingMs <= 0) {
-        void completeActiveBreakSegment().catch((error) => {
-          console.error("Failed to complete break segment:", error);
-          addLog("Could not complete the planned break cleanly.", "error");
-        });
-      }
-    };
-
-    tick();
-    const interval = window.setInterval(tick, 500);
-    return () => window.clearInterval(interval);
-  }, [addLog, completeActiveBreakSegment, timedBreakState.activeSegmentStartedAt, timedBreakState.phase]);
-
-  useEffect(() => {
-    if (timedBreakState.phase !== BREAK_PHASE.COMPLETE_DECISION || !timedBreakState.decisionStartedAt) {
-      return undefined;
-    }
-
-    const tick = () => {
-      const state = timedBreakStateRef.current;
-      const active = activeSessionRef.current;
-      if (state.phase !== BREAK_PHASE.COMPLETE_DECISION || !state.decisionStartedAt || !active || !state.breakId) return;
-      const decisionElapsedMs = Math.max(0, Date.now() - Date.parse(state.decisionStartedAt));
-      setTimedBreakState((previous) => previous.phase === BREAK_PHASE.COMPLETE_DECISION
-        ? { ...previous, decisionElapsedMs }
-        : previous);
-      const event = findBreakEvent(active, state.breakId);
-      if (
-        event &&
-        decisionElapsedMs >= BREAK_DECISION_ALARM_REPLAY_MS &&
-        !event.decisionAlarmReplayedAt
-      ) {
-        const replayedAt = new Date().toISOString();
-        const nextSession = markBreakDecisionAlarmReplayed(active, state.breakId, { decisionAlarmReplayedAt: replayedAt });
-        void persistBreakSession(nextSession, { accumulatedStudyMs: getSessionElapsedMs(), lastCheckpointAt: replayedAt });
-        playSessionAudio("longAlarm", { loop: false, restart: true });
-      }
-      if (decisionElapsedMs >= BREAK_DECISION_WAIT_MS && (event?.extensionCount || 0) < MAX_BREAK_EXTENSION_COUNT) {
-        void extendBreak("automatic").catch((error) => {
-          console.error("Failed to auto-extend break:", error);
-        });
-      }
-    };
-
-    tick();
-    const interval = window.setInterval(tick, 1000);
-    return () => window.clearInterval(interval);
-  }, [extendBreak, getSessionElapsedMs, persistBreakSession, playSessionAudio, timedBreakState.decisionStartedAt, timedBreakState.phase]);
-
-  useEffect(() => {
-    if (!activeSession) {
-      stopAllSessionAudio();
-      return;
-    }
-
-    const events = normalizeBreakEvents(activeSession.breakEvents || []);
-    const activeBreak = events.find((event) => event.status === BREAK_STATUS.ACTIVE);
-    if (!activeBreak) return;
-    if (timedBreakState.breakId === activeBreak.id && timedBreakState.phase !== BREAK_PHASE.IDLE) return;
-
-    if (activeBreak.decisionStartedAt) {
-      const timeout = window.setTimeout(() => {
-        setTimedBreakState({
-          ...createIdleBreakState(),
-          phase: BREAK_PHASE.COMPLETE_DECISION,
-          breakId: activeBreak.id,
-          plannedStartElapsedMs: activeBreak.plannedStartElapsedMs,
-          baseDurationMs: activeBreak.baseDurationMs || activeSession.sessionPlan?.breakDurationMs || 0,
-          extensionCount: activeBreak.extensionCount || 0,
-          decisionStartedAt: activeBreak.decisionStartedAt,
-          decisionElapsedMs: Math.max(0, Date.now() - Date.parse(activeBreak.decisionStartedAt)),
-        });
-      }, 0);
-      return () => window.clearTimeout(timeout);
-    }
-
-    if (activeBreak.activeSegmentStartedAt) {
-      const remainingMs = Math.max(
-        0,
-        Date.parse(activeBreak.activeSegmentStartedAt) + (activeBreak.activeSegmentDurationMs || activeBreak.baseDurationMs || 0) - Date.now()
-      );
-      const timeout = window.setTimeout(() => {
-        setIsMonitoring(false);
-        monitoringRef.current = false;
-        clearCameraStream();
-        resetTransientInferenceState();
-        setTimedBreakState({
-          ...createIdleBreakState(),
-          phase: BREAK_PHASE.ACTIVE,
-          breakId: activeBreak.id,
-          plannedStartElapsedMs: activeBreak.plannedStartElapsedMs,
-          baseDurationMs: activeBreak.baseDurationMs || activeSession.sessionPlan?.breakDurationMs || 0,
-          extensionCount: activeBreak.extensionCount || 0,
-          activeSegmentStartedAt: activeBreak.activeSegmentStartedAt,
-          activeSegmentDurationMs: activeBreak.activeSegmentDurationMs || activeBreak.baseDurationMs || 0,
-          remainingMs,
-        });
-      }, 0);
-      return () => window.clearTimeout(timeout);
-    }
-  }, [activeSession, clearCameraStream, resetTransientInferenceState, stopAllSessionAudio, timedBreakState.breakId, timedBreakState.phase]);
-  
-  useEffect(() => {
-    if (!isBreakModePhase(timedBreakState.phase)) return;
-
-    router.replace("/app/focus");
-  }, [router, timedBreakState.phase]);
-  
-  useEffect(() => {
-    Object.values(audioElementsRef.current).forEach((audio) => {
-      audio.volume = sessionAudioState.muted ? 0 : sessionAudioState.volume;
-    });
-
-    if (sessionAudioState.muted) {
-      stopAllSessionAudio();
-      return;
-    }
-
-    const isStudyAudioAllowed =
-      isFocusSpaceActive &&
-      activeSession?.status === SESSION_STATUS.ACTIVE &&
-      sessionClock.isRunning &&
-      ![BREAK_PHASE.READY, BREAK_PHASE.SKIP_CONFIRMATION, BREAK_PHASE.ACTIVE, BREAK_PHASE.END_EARLY_CONFIRMATION, BREAK_PHASE.COMPLETE_DECISION].includes(timedBreakState.phase);
-
-    if (timedBreakState.phase === BREAK_PHASE.ACTIVE) {
-      stopAudio("study");
-      stopAudio("shortAlarm");
-      stopAudio("longAlarm");
-      playSessionAudio("break", { loop: true, restart: false });
-    } else if (isStudyAudioAllowed) {
-      stopAudio("break");
-      playSessionAudio("study", { loop: true, restart: false });
-    } else {
-      stopAudio("study");
-      if (timedBreakState.phase !== BREAK_PHASE.COMPLETE_DECISION) stopAudio("longAlarm");
-      if (timedBreakState.phase !== BREAK_PHASE.READY) stopAudio("shortAlarm");
-      if (timedBreakState.phase !== BREAK_PHASE.ACTIVE) stopAudio("break");
-    }
-  }, [
-    activeSession?.status,
-    isFocusSpaceActive,
-    playSessionAudio,
-    sessionAudioState,
-    sessionClock.isRunning,
-    stopAllSessionAudio,
-    stopAudio,
-    timedBreakState.phase,
-  ]);
-
   const toggleMonitoring = useCallback(async () => {
     if (monitoringRef.current) {
       return pauseSession();
@@ -2541,8 +1803,8 @@ export const AppProvider = ({ children }) => {
   // Reset metrics and clear local session data
   const resetMetrics = useCallback(async () => {
     setIsMonitoring(false);
-    stopAllSessionAudio();
-    setTimedBreakState(createIdleBreakState());
+    sessionAudio.stopAllSessionAudio();
+    timedBreakController.reset();
     clearCameraStream();
     resetTransientInferenceState();
     setAttention(80);
@@ -2584,9 +1846,11 @@ export const AppProvider = ({ children }) => {
     resetEstimatorSession,
     resetSessionClock,
     resetTransientInferenceState,
-    stopAllSessionAudio,
+    sessionAudio,
     syncSessionState,
+    timedBreakController,
   ]);
+
   const sessionValue = useMemo(() => ({
     sessionClock,
     getSessionElapsedMs,
@@ -2609,30 +1873,14 @@ export const AppProvider = ({ children }) => {
     getMetricSamples,
     resetMetrics,
     setFocusSpaceActive: setIsFocusSpaceActive,
-    timedBreak: {
-      ...timedBreakState,
-      isBreakMode: isBreakModePhase(timedBreakState.phase),
-      isBlocking: isBreakBlockingPhase(timedBreakState.phase),
-      formattedRemaining: formatCountdown(timedBreakState.remainingMs),
-      formattedDecisionRemaining: formatCountdown(Math.max(0, BREAK_DECISION_WAIT_MS - timedBreakState.decisionElapsedMs)),
-    },
-    timedBreakActions: {
-      startReadyBreak,
-      requestSkipBreak,
-      cancelSkipBreak,
-      confirmSkipBreak,
-      requestEndBreakEarly,
-      cancelEndBreakEarly,
-      confirmEndBreakEarly,
-      continueStudyAfterBreak,
-      extendBreak,
-    },
+    timedBreak: timedBreakController.publicState,
+    timedBreakActions: timedBreakController.actions,
     sessionAudio: {
-      ...sessionAudioState,
-      assets: AUDIO_ASSETS,
-      setVolume: setSessionAudioVolume,
-      setMuted: setSessionAudioMuted,
-      enableAudio: enableSessionAudio,
+      ...sessionAudio.state,
+      assets: sessionAudio.assets,
+      setVolume: sessionAudio.setVolume,
+      setMuted: sessionAudio.setMuted,
+      enableAudio: sessionAudio.enableAudio,
     },
     isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
       recoveryPromptDismissedSessionId !== activeSession.id,
@@ -2654,22 +1902,10 @@ export const AppProvider = ({ children }) => {
     resumeSession,
     returnToRecoveredSession,
     sessionClock,
-    sessionAudioState,
+    sessionAudio,
     sessionRepositoryKind,
-    setSessionAudioMuted,
-    setSessionAudioVolume,
     startSession,
-    startReadyBreak,
-    requestSkipBreak,
-    cancelSkipBreak,
-    confirmSkipBreak,
-    requestEndBreakEarly,
-    cancelEndBreakEarly,
-    confirmEndBreakEarly,
-    continueStudyAfterBreak,
-    enableSessionAudio,
-    extendBreak,
-    timedBreakState,
+    timedBreakController,
     updateSessionTask,
     updateTargetDuration,
   ]);
@@ -2809,8 +2045,7 @@ export const AppProvider = ({ children }) => {
       <MonitoringContext.Provider value={monitoringValue}>
         <DebugContext.Provider value={debugValue}>
           {children}
-          <TimedBreakWarning state={timedBreakState} />
-          <TimedBreakDialog state={timedBreakState} actions={sessionValue.timedBreakActions} />
+          <TimedBreakOverlay state={timedBreakController.state} actions={timedBreakController.actions} />
         </DebugContext.Provider>
       </MonitoringContext.Provider>
     </SessionContext.Provider>

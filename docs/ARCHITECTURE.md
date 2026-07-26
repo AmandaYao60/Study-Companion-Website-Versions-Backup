@@ -23,11 +23,18 @@ src/
       FocusStagePlaceholder.js
       FocusMonitorWindow.js
       FocusSessionControls.js
+    session/
+      TimedBreakOverlay.js
   hooks/
     useDraggablePanel.js
+    useSessionAudioController.js
     useSmoothSessionTimer.js
+    useTimedBreakController.js
   context/
     AppContext.js
+  services/
+    session/
+      timedBreakState.js
 ```
 
 The app uses the Next.js App Router. `src/app/layout.js` defines the root HTML shell, loads Geist fonts, imports `globals.css`, wraps the app in `AppProvider`, and renders `Navbar` above route content.
@@ -99,13 +106,15 @@ Debug Simulation and display overrides are cleared when Debug Mode is turned off
 - `useMonitoring()`: camera and monitoring status, MediaPipe model refs/status, browser affect state, authoritative live attention/fatigue/valence/arousal values, runtime detections, bounded estimator refs, and `updateAiMetrics()`.
 - `useDebug()`: Debug Mode, memory-only simulation and overrides, diagnostic snapshots, bounded telemetry, sensitive landmark capture/export, and sanitized event log.
 
-The top-level `AppProvider` still coordinates cross-boundary actions such as camera-gated session activation, timed-break transitions, and clear-local-data, but consumers no longer import a monolithic app-state object. Presentational components should choose the narrow hook matching their responsibility. `MonitoringRuntimeHost` remains the single monitoring runtime; providers do not create a second inference loop.
+The top-level `AppProvider` remains the composition boundary for cross-boundary actions such as camera-gated session activation, timed-break/audio wiring, and clear-local-data, but consumers no longer import a monolithic app-state object. Presentational components should choose the narrow hook matching their responsibility. The three focused contexts have not been fully separated into independent physical providers. `MonitoringRuntimeHost` remains the single monitoring runtime; providers do not create a second inference loop.
 
 ## Timed Break Flow
 
-`AppProvider` owns the single timed-break scheduler/controller. Session Setup optionally creates a normalized `sessionPlan` and scheduled `breakEvents`; no other route starts break timers. Break scheduling uses effective focused-study elapsed time from the session clock, so manual pause time, break-ready decision time, active break time, extension time, completed-break decision time, and camera recovery time are excluded.
+`src/hooks/useTimedBreakController.js` owns the single timed-break scheduler/controller and is wired by `AppProvider` with the existing session runtime, session clock, camera, Monitoring, router, and audio dependencies. `src/hooks/useSessionAudioController.js` owns the shared session-audio element cache, playback policy, mute/volume state, and playback synchronization. `src/components/session/TimedBreakOverlay.js` owns the warning banner and blocking modal presentation. `src/services/session/timedBreakState.js` keeps pure break phase, selector, countdown, and break-event lookup helpers outside React orchestration.
 
-The flow is active focus -> three-minute non-interactive warning -> break-ready Start/Skip modal -> active Focus Space Break Mode -> completion decision -> Continue Study or up to three three-minute extensions. If the user does not respond to a completion decision, the long alarm replays once after 60 seconds and an automatic three-minute extension starts after three minutes. After the third extension completes, the session moves to the existing paused-session recovery path instead of starting a fourth extension.
+Session Setup optionally creates a normalized `sessionPlan` and scheduled `breakEvents`; no other route starts break timers. Break scheduling uses effective focused-study elapsed time from the session clock, so manual pause time, break-ready decision time, active break time, extension time, completed-break decision time, and camera recovery time are excluded.
+
+The flow is active focus -> three-minute non-interactive warning -> break-ready Start/Skip modal -> active Focus Space Break Mode -> completion decision -> Continue Study or up to three three-minute extensions. If the user does not respond to a completion decision, the long alarm replays once after 60 seconds and an automatic three-minute extension starts after two minutes. After the third extension completes, the session moves to the existing paused-session recovery path instead of starting a fourth extension.
 
 Focus completion force-flushes useful pending formal observations, freezes the focused-study clock, stops study music, and plays `public/music/short-alarm.mp3` once. Camera and inference remain active until the user chooses Start Your Break Now. Starting a break closes webcam tracks, stops monitoring/inference, prevents formal samples, navigates to Focus Space, dims the stage, and loops `public/music/breaktime-music.mp3`. Active focus in Focus Space loops `public/music/studytime-music.mp3`; completion decisions play `public/music/long-alarm.mp3` once, with the one replay described above. The shared audio controls apply one session volume/mute setting to study music, break music, and alarms.
 
