@@ -78,12 +78,20 @@ export const POST_SESSION_DEFAULTS = Object.freeze({
   recordedAt: null,
 });
 
+export const POST_SESSION_REFLECTION_DRAFT_STATUS = Object.freeze({
+  PENDING: "pending",
+});
+
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 const trimText = (value, maxLength = 300) => {
   if (value === null || value === undefined) return null;
   const trimmed = String(value).trim();
   if (!trimmed) return null;
   return trimmed.slice(0, maxLength);
+};
+const draftText = (value, maxLength = 300) => {
+  if (value === null || value === undefined) return "";
+  return String(value).slice(0, maxLength);
 };
 const iso = (value, fallback = null) => {
   if (value === null || value === undefined || value === "") return fallback;
@@ -138,6 +146,43 @@ export const normalizePostSessionCheckOut = (value = null) => {
     learningReflection: trimText(value?.learningReflection, 300),
     nextSessionAdjustment: trimText(value?.nextSessionAdjustment, 300),
     recordedAt: iso(value?.recordedAt, null),
+  };
+};
+
+export const normalizePostSessionReflectionAnswers = (value = null) => {
+  const normalized = normalizePostSessionCheckOut(value);
+  return {
+    sessionEnergy: normalized.sessionEnergy,
+    sessionMood: normalized.sessionMood,
+    perceivedFatigue: normalized.perceivedFatigue,
+    perceivedAttention: normalized.perceivedAttention,
+    perceivedDifficulty: normalized.perceivedDifficulty,
+    goalAttainment: normalized.goalAttainment,
+    strategiesUsed: normalized.strategiesUsed,
+    primaryStrategy: normalized.primaryStrategy,
+    primaryStrategyEffectiveness: normalized.primaryStrategyEffectiveness,
+    primaryLearningActivity: normalized.primaryLearningActivity,
+    learningReflection: draftText(value?.learningReflection, 300),
+    nextSessionAdjustment: draftText(value?.nextSessionAdjustment, 300),
+  };
+};
+
+export const normalizePostSessionReflectionDraft = (value = null, { sessionId = null } = {}) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const resolvedSessionId = typeof value.sessionId === "string" && value.sessionId.trim()
+    ? value.sessionId.trim()
+    : null;
+  if (!resolvedSessionId || (sessionId && resolvedSessionId !== sessionId)) return null;
+  if (value.status && value.status !== POST_SESSION_REFLECTION_DRAFT_STATUS.PENDING) return null;
+  const currentStepId = typeof value.currentStepId === "string" && value.currentStepId.trim()
+    ? value.currentStepId.trim()
+    : null;
+  return {
+    sessionId: resolvedSessionId,
+    status: POST_SESSION_REFLECTION_DRAFT_STATUS.PENDING,
+    currentStepId,
+    answers: normalizePostSessionReflectionAnswers(value.answers),
+    updatedAt: iso(value.updatedAt, new Date().toISOString()),
   };
 };
 

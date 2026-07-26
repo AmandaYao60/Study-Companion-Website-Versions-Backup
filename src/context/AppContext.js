@@ -1865,6 +1865,12 @@ export const AppProvider = ({ children }) => {
     return session;
   }, [syncSessionState]);
 
+  const updatePostSessionReflectionDraft = useCallback(async (postSessionReflectionDraft) => {
+    const session = await sessionRuntimeRef.current.updatePostSessionReflectionDraft(postSessionReflectionDraft);
+    syncSessionState();
+    return session;
+  }, [syncSessionState]);
+
   const getSessionById = useCallback((sessionId) => (
     sessionRuntimeRef.current.getSessionById(sessionId)
   ), []);
@@ -2054,6 +2060,7 @@ export const AppProvider = ({ children }) => {
     discardSession,
     updateSessionTask,
     updateTargetDuration,
+    updatePostSessionReflectionDraft,
     getSessionById,
     getMetricSamples,
     resetMetrics,
@@ -2070,6 +2077,7 @@ export const AppProvider = ({ children }) => {
       enableAudio: sessionAudio.enableAudio,
     },
     isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
+      !activeSession?.postSessionReflectionDraft &&
       recoveryPromptDismissedSessionId !== activeSession.id,
   }), [
     activeSession,
@@ -2096,6 +2104,7 @@ export const AppProvider = ({ children }) => {
     timedBreakController,
     updateSessionTask,
     updateTargetDuration,
+    updatePostSessionReflectionDraft,
   ]);
 
   const monitoringValue = useMemo(() => ({

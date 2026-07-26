@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test src/components/product/questionnaireNavigation.test.js src/services/affect/browserAffectModel.test.js src/services/debug/debugDiagnostics.test.js src/services/debug/debugEventLog.test.js src/services/debug/debugSimulation.test.js src/services/session/automaticBreakSuggestionState.test.js src/services/session/sessionDomain.test.js src/services/session/sessionRuntime.test.js src/services/session/timedBreakState.test.js"
+    "test": "node --test src/components/product/postSessionReflectionState.test.js src/components/product/questionnaireNavigation.test.js src/services/affect/browserAffectModel.test.js src/services/debug/debugDiagnostics.test.js src/services/debug/debugEventLog.test.js src/services/debug/debugSimulation.test.js src/services/session/automaticBreakSuggestionState.test.js src/services/session/sessionDomain.test.js src/services/session/sessionRuntime.test.js src/services/session/timedBreakState.test.js"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",

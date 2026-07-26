@@ -361,3 +361,107 @@ test("runtime persists setup context and post-session reflection on completion",
   assert.equal(completed.postSessionCheckOut.primaryStrategy, "elaboration");
   assert.equal(completed.postSessionCheckOut.learningReflection, "I improved main-idea timing.");
 });
+
+test("runtime persists and recovers unfinished post-session reflection draft", async () => {
+  setNow("2026-01-07T00:00:00.000Z");
+  const repository = createMemorySessionRepository();
+  const runtime = createSessionRuntime({
+    repository,
+    now,
+    idFactory: () => "runtime-session-reflection-draft",
+  });
+
+  await runtime.prepareSession({ taskDescription: "Draft recovery" });
+  await runtime.activatePreparedSession();
+  await runtime.pauseSession(2400);
+  const withDraft = await runtime.updatePostSessionReflectionDraft({
+    sessionId: "runtime-session-reflection-draft",
+    currentStepId: "strategiesUsed",
+    answers: {
+      sessionEnergy: 4,
+      strategiesUsed: ["elaboration", "organization"],
+      primaryStrategy: "organization",
+      learningReflection: "Halfway through the reflection",
+    },
+    updatedAt: "2026-01-07T00:01:00.000Z",
+  });
+
+  assert.equal(withDraft.status, SESSION_STATUS.PAUSED);
+  assert.equal(withDraft.recoveryPending, true);
+  assert.equal(withDraft.postSessionReflectionDraft.currentStepId, "strategiesUsed");
+  assert.equal(withDraft.postSessionReflectionDraft.answers.sessionEnergy, 4);
+  assert.deepEqual(withDraft.postSessionReflectionDraft.answers.strategiesUsed, ["elaboration", "organization"]);
+
+  const recoveredRuntime = createSessionRuntime({ repository, now });
+  const recovered = await recoveredRuntime.initializeSessionState({ recoverInterrupted: true });
+  assert.equal(recovered.recoveredSession.id, "runtime-session-reflection-draft");
+  assert.equal(recovered.recoveredSession.postSessionReflectionDraft.currentStepId, "strategiesUsed");
+  assert.equal(recovered.recoveredSession.postSessionReflectionDraft.answers.primaryStrategy, "organization");
+  assert.equal(recovered.recoverableSessionCount, 1);
+});
+
+test("runtime clears reflection draft only after successful completion", async () => {
+  setNow("2026-01-08T00:00:00.000Z");
+  const repository = createMemorySessionRepository();
+  const runtime = createSessionRuntime({
+    repository,
+    now,
+    idFactory: () => "runtime-session-reflection-clear",
+  });
+
+  await runtime.prepareSession({ taskDescription: "Draft clear" });
+  await runtime.activatePreparedSession();
+  await runtime.pauseSession(1200);
+  await runtime.updatePostSessionReflectionDraft({
+    sessionId: "runtime-session-reflection-clear",
+    currentStepId: "learningReflection",
+    answers: {
+      learningReflection: "Keep this if completion fails.",
+    },
+  });
+
+  const completed = await runtime.finishSession(1200, {
+    postSessionCheckOut: {
+      learningReflection: "Completed reflection.",
+    },
+  });
+  assert.equal(completed.status, SESSION_STATUS.COMPLETED);
+  assert.equal(completed.postSessionReflectionDraft, null);
+  assert.equal(completed.postSessionCheckOut.learningReflection, "Completed reflection.");
+});
+
+test("failed completion keeps post-session reflection draft recoverable", async () => {
+  setNow("2026-01-09T00:00:00.000Z");
+  const repository = createMemorySessionRepository();
+  const failingRepository = {
+    ...repository,
+    completeSession: async () => {
+      throw new Error("complete failed");
+    },
+  };
+  const runtime = createSessionRuntime({
+    repository: failingRepository,
+    now,
+    idFactory: () => "runtime-session-reflection-fail",
+  });
+
+  await runtime.prepareSession({ taskDescription: "Draft failure" });
+  await runtime.activatePreparedSession();
+  await runtime.pauseSession(900);
+  await runtime.updatePostSessionReflectionDraft({
+    sessionId: "runtime-session-reflection-fail",
+    currentStepId: "nextSessionAdjustment",
+    answers: {
+      nextSessionAdjustment: "Try again after failure.",
+    },
+  });
+
+  await assert.rejects(
+    () => runtime.finishSession(900, { postSessionCheckOut: { nextSessionAdjustment: "Try again after failure." } }),
+    /complete failed/
+  );
+
+  const stored = await repository.getSessionById("runtime-session-reflection-fail");
+  assert.equal(stored.postSessionReflectionDraft.currentStepId, "nextSessionAdjustment");
+  assert.equal(stored.postSessionReflectionDraft.answers.nextSessionAdjustment, "Try again after failure.");
+});

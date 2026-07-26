@@ -21,6 +21,7 @@ export default function StudySpace() {
     resumeSession,
     finishSession,
     discardSession,
+    updatePostSessionReflectionDraft,
   } = useSession();
   const {
     isMonitoring,
@@ -40,6 +41,8 @@ export default function StudySpace() {
   const canEnterFocus = (activeSession?.status === "active" || activeSession?.status === "paused") && isCameraAllowed;
   const canViewAnalytics = activeSession?.status !== "prepared";
   const showManualStartBreak = automaticBreakSuggestion?.showManualStartBreak === true;
+  const hasPendingReflectionDraft = activeSession?.postSessionReflectionDraft?.status === "pending";
+  const isPostSessionReflectionOpen = Boolean(activeSession && (isReflectionOpen || hasPendingReflectionDraft));
 
   const handlePauseResume = async () => {
     if (!hasActivatedSession) return;
@@ -181,11 +184,13 @@ export default function StudySpace() {
           <CameraFeed presentation="monitor" showControls={false} />
         </main>
       </div>
-      <EndSessionDialog open={isDialogOpen} isEnding={isEnding} onClose={() => setIsDialogOpen(false)} onConfirm={() => void handleEnd()} onDiscard={() => void handleDiscard()} />
+      <EndSessionDialog open={isDialogOpen && !hasPendingReflectionDraft} isEnding={isEnding} onClose={() => setIsDialogOpen(false)} onConfirm={() => void handleEnd()} onDiscard={() => void handleDiscard()} />
       <PostSessionReflectionDialog
-        open={isReflectionOpen}
+        open={isPostSessionReflectionOpen}
         session={activeSession}
+        reflectionDraft={activeSession?.postSessionReflectionDraft || null}
         isSaving={isCompletingReflection}
+        onDraftChange={updatePostSessionReflectionDraft}
         onCancel={() => setIsReflectionOpen(false)}
         onSave={(postSessionCheckOut) => void handleSaveReflection(postSessionCheckOut)}
       />

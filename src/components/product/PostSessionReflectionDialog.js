@@ -11,54 +11,26 @@ import {
   getQuestionTransitionClass,
   isSingleChoiceAutoAdvanceStep,
 } from "./questionnaireNavigation.js";
-
-const ratingQuestions = [
-  { id: "sessionEnergy", question: "How alert and energetic did you feel overall during this study session?", anchors: ["1 = Very low or sleepy", "3 = Moderate", "5 = Very alert and energetic"] },
-  { id: "sessionMood", question: "How negative or positive did you feel overall during this study session?", anchors: ["1 = Very negative", "3 = Neutral", "5 = Very positive"] },
-  { id: "perceivedFatigue", question: "How mentally or physically fatigued did you feel during this session?", anchors: ["1 = Not fatigued", "3 = Moderately fatigued", "5 = Very fatigued"] },
-  { id: "perceivedAttention", question: "How well were you able to keep your attention on the task?", anchors: ["1 = Not well", "3 = Moderately well", "5 = Very well"] },
-  { id: "perceivedDifficulty", question: "How difficult did the task feel during the session?", anchors: ["1 = Very easy", "3 = Moderate", "5 = Very difficult"] },
-];
-
-const strategyOptions = [
-  ["rehearsal", "Rehearsal", "Repeated, reread, recited, or memorized information."],
-  ["elaboration", "Elaboration", "Summarized in your own words, created examples, or connected new ideas to prior knowledge."],
-  ["organization", "Organization", "Categorized information, created an outline, table, diagram, concept map, or structured notes."],
-  ["critical_thinking", "Critical thinking", "Questioned ideas or evidence, compared explanations, or applied knowledge to a new problem."],
-  ["metacognitive_self_regulation", "Metacognitive self-regulation", "Planned your approach, checked your understanding, and adjusted your strategy when needed."],
-  ["none_or_unsure", "None / Not sure", "Use this when you do not want to record a specific strategy."],
-];
-
-const learningActivities = [
-  ["received_information", "Received information", "I mainly read, listened to, or watched the material without producing substantial new output."],
-  ["worked_with_material", "Worked with the material", "I mainly highlighted, copied, repeated, selected answers, or manipulated existing information."],
-  ["generated_new_understanding", "Generated new understanding", "I mainly solved problems, explained ideas in my own words, summarized, derived, or formed new connections."],
-  ["built_understanding_with_others", "Built understanding with others", "I mainly developed understanding through substantive discussion, mutual explanation, and feedback."],
-  ["mixed_or_unsure", "Mixed / Not sure", "This session mixed several approaches, or you are not sure which best fits."],
-];
-
-const initialReflection = {
-  sessionEnergy: null,
-  sessionMood: null,
-  perceivedFatigue: null,
-  perceivedAttention: null,
-  perceivedDifficulty: null,
-  goalAttainment: null,
-  strategiesUsed: [],
-  primaryStrategy: null,
-  primaryStrategyEffectiveness: null,
-  primaryLearningActivity: null,
-  learningReflection: "",
-  nextSessionAdjustment: "",
-};
+import { normalizePostSessionReflectionDraft } from "../../services/session/sessionSelfReport.js";
+import {
+  createPostSessionReflectionSteps,
+  hasPreviousPostSessionStep,
+  initialReflection,
+  learningActivities,
+  resolvePostSessionStepIndex,
+  shouldShowCenteredPostSessionContinue,
+  strategyOptions,
+  substantiveStrategies,
+} from "./postSessionReflectionState.js";
 
 const ratingLabel = (question, value) => `${value}. ${question.anchors.find((anchor) => anchor.startsWith(`${value} =`)) || ""}`;
-const substantiveStrategies = (strategies) => strategies.filter((strategy) => strategy !== "none_or_unsure");
 
 export default function PostSessionReflectionDialog({
   open,
   session,
+  reflectionDraft = null,
   isSaving = false,
+  onDraftChange,
   onSave,
   onCancel,
 }) {
@@ -73,26 +45,13 @@ export default function PostSessionReflectionDialog({
   const advanceTimerRef = useRef(null);
   const transitionTimerRef = useRef(null);
   const pendingStepIdRef = useRef(null);
+  const loadedSessionRef = useRef(null);
+  const persistedDraftKeyRef = useRef("");
+  const skipNextPersistRef = useRef(false);
 
-  const steps = useMemo(() => {
-    const goalQuestion = session?.sessionGoal
-      ? "To what extent did you achieve your session goal?"
-      : "To what extent did you complete what you intended to work on?";
-    const selectedSubstantiveStrategies = substantiveStrategies(draft.strategiesUsed);
-    return [
-      ...ratingQuestions.map((question) => ({ ...question, type: "rating" })),
-      { id: "goalAttainment", type: "rating", question: goalQuestion, anchors: ["1 = Not at all", "3 = Partly", "5 = Fully achieved"] },
-      { id: "strategiesUsed", type: "strategies", question: "Which learning strategies did you use during this session?", subtitle: "Select all that apply." },
-      ...(selectedSubstantiveStrategies.length > 0 ? [
-        { id: "primaryStrategy", type: "primaryStrategy", question: "Which strategy contributed most to your progress?", strategies: selectedSubstantiveStrategies },
-        { id: "primaryStrategyEffectiveness", type: "rating", question: "How effective was this strategy in helping you make progress?", anchors: ["1 = Not effective", "3 = Moderately effective", "5 = Very effective"] },
-      ] : []),
-      { id: "primaryLearningActivity", type: "learningActivity", question: "Which option best describes how you worked with the learning material for most of this session?" },
-      { id: "learningReflection", type: "text", question: "What did you complete, learn, or improve during this session?" },
-      { id: "nextSessionAdjustment", type: "text", question: "Is there anything you would approach differently next time?" },
-      { id: "complete", type: "complete", question: "Reflection complete" },
-    ];
-  }, [draft.strategiesUsed, session?.sessionGoal]);
+  const steps = useMemo(() => (
+    createPostSessionReflectionSteps({ draft, session })
+  ), [draft, session]);
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
 
@@ -110,6 +69,29 @@ export default function PostSessionReflectionDialog({
   }, []);
 
   useEffect(() => {
+    if (!open) {
+      loadedSessionRef.current = null;
+      persistedDraftKeyRef.current = "";
+      return;
+    }
+    if (!session?.id || loadedSessionRef.current === session.id) return;
+    const recoveredDraft = normalizePostSessionReflectionDraft(reflectionDraft, { sessionId: session.id });
+    const nextDraft = recoveredDraft?.answers || initialReflection;
+    const nextSteps = createPostSessionReflectionSteps({ draft: nextDraft, session });
+    setDraft(nextDraft);
+    setStepIndex(resolvePostSessionStepIndex(nextSteps, recoveredDraft?.currentStepId));
+    setShowFinishConfirm(false);
+    setIsAdvancing(false);
+    setTransitionDirection(NAV_DIRECTION.FORWARD);
+    setTransitionPhase(TRANSITION_PHASE.IDLE);
+    window.clearTimeout(advanceTimerRef.current);
+    window.clearTimeout(transitionTimerRef.current);
+    pendingStepIdRef.current = null;
+    skipNextPersistRef.current = Boolean(recoveredDraft);
+    loadedSessionRef.current = session.id;
+  }, [open, reflectionDraft, session]);
+
+  useEffect(() => {
     if (!open) return undefined;
     const previous = document.activeElement;
     const previousOverflow = document.body.style.overflow;
@@ -120,6 +102,29 @@ export default function PostSessionReflectionDialog({
       previous?.focus?.();
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !session?.id || !currentStep?.id || typeof onDraftChange !== "function") return;
+    const draftCore = {
+      sessionId: session.id,
+      status: "pending",
+      currentStepId: currentStep.id,
+      answers: draft,
+    };
+    const nextKey = JSON.stringify(draftCore);
+    if (persistedDraftKeyRef.current === nextKey) return;
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
+    persistedDraftKeyRef.current = nextKey;
+    void onDraftChange({
+      ...draftCore,
+      updatedAt: new Date().toISOString(),
+    }).catch((error) => {
+      console.error("Failed to persist post-session reflection draft:", error);
+    });
+  }, [currentStep?.id, draft, onDraftChange, open, session?.id]);
 
   if (!open) return null;
 
@@ -201,6 +206,8 @@ export default function PostSessionReflectionDialog({
   };
 
   const isOrdinaryStep = currentStep.type !== "complete";
+  const hasPreviousStep = isOrdinaryStep && hasPreviousPostSessionStep(steps, currentStep);
+  const showCenteredContinue = isOrdinaryStep && shouldShowCenteredPostSessionContinue(currentStep);
   const transitionClass = getQuestionTransitionClass({
     direction: transitionDirection,
     phase: transitionPhase,
@@ -212,17 +219,19 @@ export default function PostSessionReflectionDialog({
       <section role="dialog" aria-modal="true" aria-labelledby="post-session-reflection-title" className="relative w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950 p-6 text-white shadow-2xl">
         {isOrdinaryStep && (
           <>
-            <button
-              type="button"
-              aria-label="Previous question"
-              onClick={goBack}
-              disabled={isSaving || isAdvancing || showFinishConfirm}
-              className={`${getCircularNavButtonClass({ theme: "emerald" })} left-2 sm:-left-5`}
-            >
-              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none">
-                <path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            {hasPreviousStep && (
+              <button
+                type="button"
+                aria-label="Previous question"
+                onClick={goBack}
+                disabled={isSaving || isAdvancing || showFinishConfirm}
+                className={`${getCircularNavButtonClass({ theme: "emerald" })} left-2 sm:-left-5`}
+              >
+                <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+                  <path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               aria-label="Next question"
@@ -392,13 +401,27 @@ export default function PostSessionReflectionDialog({
         )}
 
         {isOrdinaryStep ? (
-          <div className="mt-7 flex justify-end px-9 sm:px-10">
+          <div className="mt-7 grid grid-cols-1 items-center gap-3 px-9 sm:grid-cols-[1fr_auto_1fr] sm:px-10">
+            <span className="hidden sm:block" aria-hidden="true" />
+            {showCenteredContinue ? (
+              <button
+                type="button"
+                aria-label="Continue to next question"
+                onClick={advance}
+                disabled={isSaving || isAdvancing || showFinishConfirm}
+                className="justify-self-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-2 text-sm font-bold text-emerald-100 transition-all hover:bg-emerald-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Continue
+              </button>
+            ) : (
+              <span className="hidden sm:block" aria-hidden="true" />
+            )}
             <button
               ref={closeRef}
               type="button"
               onClick={requestFinishWithoutReflection}
               disabled={isSaving || isAdvancing || showFinishConfirm}
-              className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-white/5 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+              className="justify-self-center rounded-lg px-3 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-white/5 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50 sm:justify-self-end"
             >
               Finish Without Reflection
             </button>

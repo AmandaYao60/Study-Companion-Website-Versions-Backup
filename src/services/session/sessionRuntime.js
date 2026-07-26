@@ -14,6 +14,7 @@ import { calculateSessionStatistics } from "./sessionStatistics.js";
 import { generateSessionSummary } from "./sessionSummary.js";
 import { normalizeBreakEvents, normalizeSessionPlan } from "./sessionBreaks.js";
 import { normalizeAutomaticBreakSuggestionState } from "./automaticBreakSuggestionState.js";
+import { normalizePostSessionReflectionDraft } from "./sessionSelfReport.js";
 import { createMemorySessionRepository } from "./repositories/memorySessionRepository.js";
 
 const clone = (value) => {
@@ -361,6 +362,20 @@ export const createSessionRuntime = (options = {}) => {
       return clone(activeSession);
     },
 
+    async updatePostSessionReflectionDraft(postSessionReflectionDraft = null, input = {}) {
+      if (!activeSession) return null;
+      const updatedAt = input.updatedAt || now();
+      const normalizedDraft = normalizePostSessionReflectionDraft(postSessionReflectionDraft, {
+        sessionId: activeSession.id,
+      });
+      activeSession = await repository.updateSession(activeSession.id, {
+        postSessionReflectionDraft: normalizedDraft,
+        ...(normalizedDraft ? { recoveryPending: true, lastCheckpointAt: updatedAt } : {}),
+        updatedAt,
+      });
+      return clone(activeSession);
+    },
+
     async updateBreakEvents(breakEvents = [], input = {}) {
       if (!activeSession) return null;
       const updatedAt = input.updatedAt || now();
@@ -408,6 +423,7 @@ export const createSessionRuntime = (options = {}) => {
         accumulatedStudyMs: actualDurationMs,
         recoveryPending: false,
         postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
+        postSessionReflectionDraft: null,
       };
       const samples = await repository.getMetricSamples(activeSession.id);
       const statistics = calculateSessionStatistics(samples, sessionForStats);

@@ -12,6 +12,7 @@ import {
   SUBJECT_OPTIONS,
   TASK_TYPE_OPTIONS,
   normalizePostSessionCheckOut,
+  normalizePostSessionReflectionDraft,
   normalizePreSessionCheckIn,
   validateSelfReportFields,
 } from "./sessionSelfReport.js";
@@ -33,7 +34,8 @@ import {
 /** @typedef {{id:string,plannedStartElapsedMs:number|null,plannedStartAt:string|null,actualStartElapsedMs:number|null,actualStartAt:string|null,actualEndElapsedMs:number|null,actualEndAt:string|null,status:string}} BreakEvent */
 /** @typedef {{id:string,startElapsedMs:number|null,startAt:string|null,endElapsedMs:number|null,endAt:string|null,reason:string}} Interruption */
 /** @typedef {{cycleStartElapsedMs:number,handledThresholds:Array<Object>,activePrompt:Object|null}} AutomaticBreakSuggestionState */
-/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,breakMode:string,sessionPlan:SessionPlan,breakEvents:Array<BreakEvent>,automaticBreakSuggestionState:AutomaticBreakSuggestionState,interruptions:Array<Interruption>,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
+/** @typedef {{sessionId:string,status:string,currentStepId:string|null,answers:Object,updatedAt:string}} PostSessionReflectionDraft */
+/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,postSessionReflectionDraft:PostSessionReflectionDraft|null,questionnaireSchemaVersion:number,breakMode:string,sessionPlan:SessionPlan,breakEvents:Array<BreakEvent>,automaticBreakSuggestionState:AutomaticBreakSuggestionState,interruptions:Array<Interruption>,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
 /** @typedef {{recordedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,faceDetected:boolean,affectValid:boolean,dataValid:boolean}} MetricObservation */
 /** @typedef {{id:string,sessionId:string,recordedAt:string,intervalStartedAt:string,intervalEndedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,validObservationCount:number,expectedObservationCount:number,affectObservationCount:number,dataCoverage:number,dataQuality:string,aggregationVersion:string}} MetricSample */
 /** @typedef {{mean:number|null,min:number|null,max:number|null,standardDeviation:number|null,startMean:number|null,endMean:number|null,change:number|null,trend:string,validCount:number}} MetricStatistics */
@@ -84,6 +86,7 @@ const validateVersion = (name, value, errors) => {
 /** Create a normalized active study session with injectable ID and clock factories. @param {Partial<ActiveStudySession>} input @param {{idFactory?:Function,now?:Function}=} options @returns {ActiveStudySession} */
 export const createStudySession = (input = {}, options = {}) => {
   const currentTime = iso((options.now || nowIso)(), nowIso());
+  const sessionId = text(input.id || (options.idFactory || defaultIdFactory)("session"));
   const sessionPlan = normalizeSessionPlan(input.sessionPlan, {
     targetDurationMs: input.targetDurationMs,
   });
@@ -91,7 +94,7 @@ export const createStudySession = (input = {}, options = {}) => {
   const breakMode = inferBreakMode({ breakMode: input.breakMode, sessionPlan, breakEvents });
   const session = {
     ...input,
-    id: text(input.id || (options.idFactory || defaultIdFactory)("session")),
+    id: sessionId,
     userId: nullableText(input.userId),
     taskName: optionalShortText(input.taskName ?? input.taskDescription, 80) || "",
     taskDescription: optionalShortText(input.taskDescription ?? input.taskName, 80) || "",
@@ -103,6 +106,7 @@ export const createStudySession = (input = {}, options = {}) => {
     sessionGoal: optionalShortText(input.sessionGoal, 300),
     preSessionCheckIn: normalizePreSessionCheckIn(input.preSessionCheckIn),
     postSessionCheckOut: normalizePostSessionCheckOut(input.postSessionCheckOut),
+    postSessionReflectionDraft: normalizePostSessionReflectionDraft(input.postSessionReflectionDraft, { sessionId }),
     questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
       ? input.questionnaireSchemaVersion
       : QUESTIONNAIRE_SCHEMA_VERSION,
@@ -133,6 +137,7 @@ export const createStudySession = (input = {}, options = {}) => {
 
 /** Normalize a persisted or in-memory study session shape without generating missing required IDs. @param {Object} input @returns {ActiveStudySession|CompletedStudySession} */
 export const normalizeStudySession = (input = {}) => {
+  const sessionId = text(input.id, "");
   const sessionPlan = normalizeSessionPlan(input.sessionPlan, {
     targetDurationMs: input.targetDurationMs,
   });
@@ -140,7 +145,7 @@ export const normalizeStudySession = (input = {}) => {
   const breakMode = inferBreakMode({ breakMode: input.breakMode, sessionPlan, breakEvents });
   const base = {
     ...input,
-    id: text(input.id, ""),
+    id: sessionId,
     userId: nullableText(input.userId),
     taskName: optionalShortText(input.taskName ?? input.taskDescription, 80) || "",
     taskDescription: optionalShortText(input.taskDescription ?? input.taskName, 80) || "",
@@ -152,6 +157,7 @@ export const normalizeStudySession = (input = {}) => {
     sessionGoal: optionalShortText(input.sessionGoal, 300),
     preSessionCheckIn: normalizePreSessionCheckIn(input.preSessionCheckIn),
     postSessionCheckOut: normalizePostSessionCheckOut(input.postSessionCheckOut),
+    postSessionReflectionDraft: normalizePostSessionReflectionDraft(input.postSessionReflectionDraft, { sessionId }),
     questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
       ? input.questionnaireSchemaVersion
       : QUESTIONNAIRE_SCHEMA_VERSION,
@@ -204,6 +210,8 @@ export const validateStudySession = (session) => {
   if (session.taskType !== null && !VALID_TASK_TYPES.has(session.taskType)) errors.push("taskType is invalid.");
   if (!isObject(session.preSessionCheckIn)) errors.push("preSessionCheckIn must be an object.");
   if (!isObject(session.postSessionCheckOut)) errors.push("postSessionCheckOut must be an object.");
+  if (session.postSessionReflectionDraft !== null && !isObject(session.postSessionReflectionDraft)) errors.push("postSessionReflectionDraft must be an object or null.");
+  if (session.postSessionReflectionDraft && session.postSessionReflectionDraft.sessionId !== session.id) errors.push("postSessionReflectionDraft.sessionId must match session id.");
   if (!Number.isInteger(session.questionnaireSchemaVersion) || session.questionnaireSchemaVersion < 1) errors.push("questionnaireSchemaVersion must be a positive integer.");
   if (![BREAK_MODE_AUTOMATIC, BREAK_MODE_REGULAR].includes(session.breakMode)) errors.push("breakMode must be automatic or regular.");
   if (!isObject(session.sessionPlan)) errors.push("sessionPlan must be an object.");
@@ -319,6 +327,7 @@ export const createCompletedStudySession = (session, completion = {}) => {
     recoveryPending: false,
     lastCheckpointAt: iso(completion.lastCheckpointAt, normalized.lastCheckpointAt),
     postSessionCheckOut: completion.postSessionCheckOut ?? normalized.postSessionCheckOut,
+    postSessionReflectionDraft: null,
     updatedAt: endedAt,
   });
   const validation = validateStudySession(completed);
