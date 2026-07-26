@@ -2,11 +2,13 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import AutomaticBreakSuggestionOverlay from "../components/session/AutomaticBreakSuggestionOverlay";
 import TimedBreakOverlay from "../components/session/TimedBreakOverlay";
 import {
   useSessionAudioController,
   useSessionAudioPlaybackSync,
 } from "../hooks/useSessionAudioController";
+import useAutomaticBreakSuggestionController from "../hooks/useAutomaticBreakSuggestionController";
 import useTimedBreakController from "../hooks/useTimedBreakController";
 import {
   BREAK_STATUS,
@@ -19,6 +21,10 @@ import {
   normalizeSessionPlan,
   validateSessionRepositoryContract,
 } from "../services/session/index.js";
+import {
+  BREAK_MODE_REGULAR,
+  REGULAR_BREAK_EVENT_SOURCE,
+} from "../services/session/automaticBreakSuggestionState.js";
 import {
   applyDebugSimulationPreset,
   createDefaultDebugSimulationState,
@@ -1408,6 +1414,25 @@ export const AppProvider = ({ children }) => {
     timedBreakControllerRef.current = timedBreakController;
   }, [timedBreakController]);
 
+  const automaticBreakSuggestionController = useAutomaticBreakSuggestionController({
+    session: {
+      activeSession,
+      activeSessionRef,
+      sessionClock,
+      sessionRuntimeRef,
+      getSessionElapsedMs,
+      syncSessionState,
+    },
+    timedBreak: {
+      state: timedBreakController.publicState,
+      actions: timedBreakController.actions,
+    },
+    audio: sessionAudio,
+    logger: {
+      addLog,
+    },
+  });
+
   useSessionAudioPlaybackSync({
     activeSessionStatus: activeSession?.status,
     sessionClockIsRunning: sessionClock.isRunning,
@@ -1420,6 +1445,7 @@ export const AppProvider = ({ children }) => {
     taskName = "",
     taskDescription = "",
     targetDurationMs = null,
+    breakMode = null,
     sessionPlan = null,
     subject = null,
     customSubject = null,
@@ -1441,19 +1467,24 @@ export const AppProvider = ({ children }) => {
     setHasDetectedFace(false);
     setHasDetectedHand(false);
     timedBreakController.reset();
+    automaticBreakSuggestionController.reset();
 
     const normalizedSessionPlan = normalizeSessionPlan(sessionPlan, { targetDurationMs });
-    const breakEvents = calculatePlannedBreakPositions(normalizedSessionPlan).map((plannedStartElapsedMs, index) => ({
-      id: `planned-break-${index + 1}`,
-      plannedStartElapsedMs,
-      baseDurationMs: normalizedSessionPlan.breakDurationMs,
-      status: BREAK_STATUS.SCHEDULED,
-    }));
+    const breakEvents = breakMode === BREAK_MODE_REGULAR
+      ? calculatePlannedBreakPositions(normalizedSessionPlan).map((plannedStartElapsedMs, index) => ({
+        id: `planned-break-${index + 1}`,
+        plannedStartElapsedMs,
+        baseDurationMs: normalizedSessionPlan.breakDurationMs,
+        status: BREAK_STATUS.SCHEDULED,
+        source: REGULAR_BREAK_EVENT_SOURCE,
+      }))
+      : [];
 
     const session = await sessionRuntimeRef.current.prepareSession({
       taskName,
       taskDescription,
       targetDurationMs,
+      breakMode,
       sessionPlan: normalizedSessionPlan,
       breakEvents,
       subject,
@@ -1467,7 +1498,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session prepared. Camera permission is required to begin monitoring.", "info");
     return session;
-  }, [addLog, resetEstimatorSession, resetSessionClock, syncSessionState, timedBreakController]);
+  }, [addLog, automaticBreakSuggestionController, resetEstimatorSession, resetSessionClock, syncSessionState, timedBreakController]);
 
   const activatePreparedSession = useCallback(async () => {
     const active = activeSessionRef.current;
@@ -1642,6 +1673,7 @@ export const AppProvider = ({ children }) => {
     resetTransientInferenceState();
     resetSessionClock();
     timedBreakController.reset();
+    automaticBreakSuggestionController.reset();
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -1649,7 +1681,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
     return completed;
-  }, [addLog, clearCameraStream, getSessionElapsedMs, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
+  }, [addLog, automaticBreakSuggestionController, clearCameraStream, getSessionElapsedMs, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
 
   const discardSession = useCallback(async () => {
     if (!activeSessionRef.current) return false;
@@ -1661,6 +1693,7 @@ export const AppProvider = ({ children }) => {
     const discarded = await sessionRuntimeRef.current.discardSession();
     resetSessionClock();
     timedBreakController.reset();
+    automaticBreakSuggestionController.reset();
     monitoringDetectionsRef.current = { face: null, gesture: null };
     setHasDetectedFace(false);
     setHasDetectedHand(false);
@@ -1668,7 +1701,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session discarded.", "warning");
     return discarded;
-  }, [addLog, clearCameraStream, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
+  }, [addLog, automaticBreakSuggestionController, clearCameraStream, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
 
   const updateSessionTask = useCallback(async (taskDescription) => {
     const session = await sessionRuntimeRef.current.updateSessionTask(taskDescription);
@@ -1805,6 +1838,7 @@ export const AppProvider = ({ children }) => {
     setIsMonitoring(false);
     sessionAudio.stopAllSessionAudio();
     timedBreakController.reset();
+    automaticBreakSuggestionController.reset();
     clearCameraStream();
     resetTransientInferenceState();
     setAttention(80);
@@ -1848,6 +1882,7 @@ export const AppProvider = ({ children }) => {
     resetTransientInferenceState,
     sessionAudio,
     syncSessionState,
+    automaticBreakSuggestionController,
     timedBreakController,
   ]);
 
@@ -1875,6 +1910,8 @@ export const AppProvider = ({ children }) => {
     setFocusSpaceActive: setIsFocusSpaceActive,
     timedBreak: timedBreakController.publicState,
     timedBreakActions: timedBreakController.actions,
+    automaticBreakSuggestion: automaticBreakSuggestionController.publicState,
+    automaticBreakSuggestionActions: automaticBreakSuggestionController.actions,
     sessionAudio: {
       ...sessionAudio.state,
       assets: sessionAudio.assets,
@@ -1888,6 +1925,7 @@ export const AppProvider = ({ children }) => {
     activeSession,
     activeSessionSamples,
     activatePreparedSession,
+    automaticBreakSuggestionController,
     checkpointStatus,
     completedSessions,
     discardSession,
@@ -2046,6 +2084,10 @@ export const AppProvider = ({ children }) => {
         <DebugContext.Provider value={debugValue}>
           {children}
           <TimedBreakOverlay state={timedBreakController.state} actions={timedBreakController.actions} />
+          <AutomaticBreakSuggestionOverlay
+            state={automaticBreakSuggestionController.publicState}
+            actions={automaticBreakSuggestionController.actions}
+          />
         </DebugContext.Provider>
       </MonitoringContext.Provider>
     </SessionContext.Provider>

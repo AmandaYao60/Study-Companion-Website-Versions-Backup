@@ -3,6 +3,7 @@ export * from "./sessionSchema.js";
 export * from "./sessionSelfReport.js";
 export * from "./sessionBreaks.js";
 export * from "./timedBreakState.js";
+export * from "./automaticBreakSuggestionState.js";
 export * from "./metricAggregation.js";
 export * from "./sessionStatistics.js";
 export * from "./sessionSummary.js";

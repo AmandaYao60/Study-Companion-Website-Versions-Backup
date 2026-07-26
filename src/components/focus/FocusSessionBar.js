@@ -12,7 +12,16 @@ export default function FocusSessionBar({
   onShowMonitor,
   onToggleFullscreen,
 }) {
-  const { activeSession, pauseSession, resumeSession, sessionAudio, timedBreak, timedBreakActions } = useSession();
+  const {
+    activeSession,
+    automaticBreakSuggestion,
+    automaticBreakSuggestionActions,
+    pauseSession,
+    resumeSession,
+    sessionAudio,
+    timedBreak,
+    timedBreakActions,
+  } = useSession();
   const { isMonitoring } = useMonitoring();
   const { formatted } = useSmoothSessionTimer(250);
   const [isToggling, setIsToggling] = useState(false);
@@ -20,6 +29,7 @@ export default function FocusSessionBar({
   if (!activeSession) return null;
 
   const statusLabel = timedBreak.isBreakMode ? "Relaxing" : isMonitoring ? "Active" : "Paused";
+  const showManualStartBreak = automaticBreakSuggestion?.showManualStartBreak === true;
   const handleSessionToggle = async () => {
     setIsToggling(true);
     try {
@@ -74,14 +84,36 @@ export default function FocusSessionBar({
             )}
           </div>
           {isFullscreen ? (
-            <button type="button" onClick={onToggleFullscreen} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-white/15">
-              Exit Fullscreen
-            </button>
+            <>
+              {showManualStartBreak && (
+                <button
+                  type="button"
+                  onClick={automaticBreakSuggestionActions.openDurationChooser}
+                  className="rounded-xl border border-cyan-300/40 bg-cyan-300/15 px-3 py-2 text-xs font-bold text-cyan-100 transition-all hover:bg-cyan-300/25 focus:outline-none focus:ring-2 focus:ring-cyan-200"
+                  aria-label="Start a suggested break"
+                >
+                  Start a Break
+                </button>
+              )}
+              <button type="button" onClick={onToggleFullscreen} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-white/15">
+                Exit Fullscreen
+              </button>
+            </>
           ) : (
             <>
               {isMonitorHidden && (
                 <button type="button" onClick={onShowMonitor} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 transition-all hover:bg-slate-800">
                   Show Monitor
+                </button>
+              )}
+              {showManualStartBreak && (
+                <button
+                  type="button"
+                  onClick={automaticBreakSuggestionActions.openDurationChooser}
+                  className="rounded-xl border border-cyan-300/40 bg-cyan-300/15 px-3 py-2 text-xs font-bold text-cyan-100 transition-all hover:bg-cyan-300/25 focus:outline-none focus:ring-2 focus:ring-cyan-200"
+                  aria-label="Start a suggested break"
+                >
+                  Start a Break
                 </button>
               )}
               {isFullscreenSupported && (

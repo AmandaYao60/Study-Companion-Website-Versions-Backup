@@ -1,4 +1,10 @@
 import {
+  AUTOMATIC_BREAK_EVENT_SOURCE,
+  REGULAR_BREAK_EVENT_SOURCE,
+  TIMING_MODE_DEBUG,
+  TIMING_MODE_REGULAR,
+} from "./automaticBreakSuggestionState.js";
+import {
   BREAK_DURATION_STEP_MS,
   BREAK_EXTENSION_MS,
   BREAK_STATUS,
@@ -17,8 +23,6 @@ const durationMs = (value, fallback = null) => (isFiniteNumber(value) && value >
 const nullableText = (value) => (value === null || value === undefined || value === "" ? null : String(value));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const isStepDuration = (value) => isFiniteNumber(value) && value % BREAK_DURATION_STEP_MS === 0;
-const TIMING_MODE_DEBUG = "debug";
-const TIMING_MODE_REGULAR = "regular";
 const DEBUG_BREAK_DURATION_STEP_MS = 1000;
 const MIN_DEBUG_BREAK_FOCUS_DURATION_MS = 15 * 1000;
 const MAX_DEBUG_BREAK_FOCUS_DURATION_MS = 600 * 1000;
@@ -144,6 +148,7 @@ export const normalizeBreakPlanInput = (input = {}, options = {}) => {
       focusDurationMs: null,
       breakDurationMs: 0,
       plannedBreakCount: 0,
+      ...(timingMode === TIMING_MODE_DEBUG ? { timingMode: TIMING_MODE_DEBUG } : {}),
     };
   }
 
@@ -220,6 +225,9 @@ export const calculatePlannedBreakPositions = (plan = {}) => {
 export const normalizeBreakEvent = (input = {}, options = {}) => {
   const source = isObject(input) ? input : {};
   const statusValues = new Set(Object.values(BREAK_STATUS));
+  const eventSource = source.source === AUTOMATIC_BREAK_EVENT_SOURCE
+    ? AUTOMATIC_BREAK_EVENT_SOURCE
+    : REGULAR_BREAK_EVENT_SOURCE;
   return {
     ...source,
     id: nonEmpty(source.id) ? source.id : (options.idFactory || createBreakId)(),
@@ -242,6 +250,10 @@ export const normalizeBreakEvent = (input = {}, options = {}) => {
     ),
     totalExtensionDurationMs: durationMs(source.totalExtensionDurationMs, 0),
     actualActiveBreakDurationMs: durationMs(source.actualActiveBreakDurationMs, 0),
+    source: eventSource,
+    suggestionThresholdMs: eventSource === AUTOMATIC_BREAK_EVENT_SOURCE
+      ? durationMs(source.suggestionThresholdMs, null)
+      : null,
     skipped: source.skipped === true,
     status: statusValues.has(source.status) ? source.status : BREAK_STATUS.SCHEDULED,
   };
@@ -324,6 +336,33 @@ export const startPlannedBreak = (session = {}, breakId, input = {}) => (
     };
   })
 );
+
+export const startAdHocBreak = (session = {}, input = {}) => {
+  const events = normalizeBreakEvents(session.breakEvents);
+  ensureNoActiveBreak(events);
+  const now = iso(input.actualStartAt || input.startedAt, new Date().toISOString());
+  const duration = durationMs(input.baseDurationMs ?? input.durationMs, null);
+  if (!isFiniteNumber(duration) || duration <= 0) throw new Error("Ad hoc break duration is required.");
+  const event = normalizeBreakEvent({
+    id: input.id || createBreakId(),
+    plannedStartElapsedMs: durationMs(input.plannedStartElapsedMs ?? input.actualStartElapsedMs, null),
+    plannedStartAt: now,
+    actualStartElapsedMs: durationMs(input.actualStartElapsedMs, 0),
+    actualStartAt: now,
+    baseDurationMs: duration,
+    activeSegmentStartedAt: now,
+    activeSegmentDurationMs: duration,
+    status: BREAK_STATUS.ACTIVE,
+    source: input.source === AUTOMATIC_BREAK_EVENT_SOURCE
+      ? AUTOMATIC_BREAK_EVENT_SOURCE
+      : REGULAR_BREAK_EVENT_SOURCE,
+    suggestionThresholdMs: input.suggestionThresholdMs,
+  });
+  return {
+    ...session,
+    breakEvents: events.concat(event),
+  };
+};
 
 export const completeBreak = (session = {}, breakId, input = {}) => (
   updateBreakEvent(session, breakId, (event) => {

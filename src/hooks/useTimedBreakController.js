@@ -17,9 +17,14 @@ import {
   normalizeBreakEvents,
   normalizeSessionPlan,
   skipBreak,
+  startAdHocBreak as startAdHocBreakEvent,
   startBreakExtension,
   startPlannedBreak,
 } from "../services/session/index.js";
+import {
+  AUTOMATIC_BREAK_EVENT_SOURCE,
+  BREAK_MODE_AUTOMATIC,
+} from "../services/session/automaticBreakSuggestionState.js";
 import {
   BREAK_PHASE,
   createIdleBreakState,
@@ -189,6 +194,77 @@ export default function useTimedBreakController({
     addLog("Planned break started. Camera and monitoring are stopped during break time.", "info");
     return nextSession;
   }), [activeSessionRef, addLog, clearCameraStream, getSessionElapsedMs, monitoringRef, persistBreakSession, playSessionAudio, resetTransientInferenceState, router, runBreakAction, setIsMonitoring, stopAudio]);
+
+  const startAdHocBreak = useCallback(({
+    durationMs,
+    source = AUTOMATIC_BREAK_EVENT_SOURCE,
+    suggestionThresholdMs = null,
+  } = {}) => runBreakAction(async () => {
+    const active = activeSessionRef.current;
+    const currentState = stateRef.current;
+    if (!active || active.status !== SESSION_STATUS.ACTIVE || active.breakMode !== BREAK_MODE_AUTOMATIC) return null;
+    if (isBreakBlockingPhase(currentState.phase)) return null;
+    if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error("Break duration is required.");
+
+    const startedAt = new Date().toISOString();
+    const elapsedMs = freezeSessionClock();
+    try {
+      await sessionRuntimeRef.current.flushPendingObservations({ force: true });
+      const nextSession = startAdHocBreakEvent(active, {
+        actualStartElapsedMs: elapsedMs,
+        plannedStartElapsedMs: elapsedMs,
+        actualStartAt: startedAt,
+        baseDurationMs: durationMs,
+        durationMs,
+        activeSegmentStartedAt: startedAt,
+        activeSegmentDurationMs: durationMs,
+        source,
+        suggestionThresholdMs,
+      });
+      const nextEvent = nextSession.breakEvents.at(-1);
+      await persistBreakSession(nextSession, { accumulatedStudyMs: elapsedMs, lastCheckpointAt: startedAt });
+      stopAudio("shortAlarm");
+      stopAudio("shortAlarm2");
+      stopAudio("study");
+      stopAudio("longAlarm");
+      setState({
+        ...createIdleBreakState(),
+        phase: BREAK_PHASE.ACTIVE,
+        breakId: nextEvent.id,
+        plannedStartElapsedMs: nextEvent.plannedStartElapsedMs,
+        baseDurationMs: durationMs,
+        activeSegmentStartedAt: startedAt,
+        activeSegmentDurationMs: durationMs,
+        remainingMs: durationMs,
+      });
+      setIsMonitoring(false);
+      monitoringRef.current = false;
+      clearCameraStream();
+      resetTransientInferenceState();
+      playSessionAudio("break", { loop: true, restart: true });
+      router.replace("/app/focus");
+      addLog("Suggested break started. Camera and monitoring are stopped during break time.", "info");
+      return nextSession;
+    } catch (error) {
+      startSessionClock();
+      throw error;
+    }
+  }), [
+    activeSessionRef,
+    addLog,
+    clearCameraStream,
+    freezeSessionClock,
+    monitoringRef,
+    persistBreakSession,
+    playSessionAudio,
+    resetTransientInferenceState,
+    router,
+    runBreakAction,
+    sessionRuntimeRef,
+    setIsMonitoring,
+    startSessionClock,
+    stopAudio,
+  ]);
 
   const completeActiveBreakSegment = useCallback(() => runBreakAction(async () => {
     const active = activeSessionRef.current;
@@ -374,7 +450,12 @@ export default function useTimedBreakController({
 
   useEffect(() => {
     const active = activeSession;
-    if (!active || active.status !== SESSION_STATUS.ACTIVE || isBreakBlockingPhase(state.phase)) {
+    if (
+      !active ||
+      active.status !== SESSION_STATUS.ACTIVE ||
+      active.breakMode === BREAK_MODE_AUTOMATIC ||
+      isBreakBlockingPhase(state.phase)
+    ) {
       return undefined;
     }
     const plan = normalizeSessionPlan(active.sessionPlan, { targetDurationMs: active.targetDurationMs });
@@ -385,7 +466,12 @@ export default function useTimedBreakController({
     const evaluate = () => {
       const currentSession = activeSessionRef.current;
       const currentState = stateRef.current;
-      if (!currentSession || currentSession.status !== SESSION_STATUS.ACTIVE || isBreakBlockingPhase(currentState.phase)) return;
+      if (
+        !currentSession ||
+        currentSession.status !== SESSION_STATUS.ACTIVE ||
+        currentSession.breakMode === BREAK_MODE_AUTOMATIC ||
+        isBreakBlockingPhase(currentState.phase)
+      ) return;
       const nextBreak = getNextScheduledBreakEvent(currentSession);
       if (!nextBreak || !Number.isFinite(nextBreak.plannedStartElapsedMs)) {
         if (currentState.phase === BREAK_PHASE.WARNING) setState(createIdleBreakState());
@@ -573,6 +659,7 @@ export default function useTimedBreakController({
     confirmEndBreakEarly,
     continueStudyAfterBreak,
     extendBreak,
+    startAdHocBreak,
   }), [
     cancelEndBreakEarly,
     cancelSkipBreak,
@@ -582,6 +669,7 @@ export default function useTimedBreakController({
     extendBreak,
     requestEndBreakEarly,
     requestSkipBreak,
+    startAdHocBreak,
     startReadyBreak,
   ]);
 

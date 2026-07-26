@@ -13,6 +13,7 @@ import {
 import { calculateSessionStatistics } from "./sessionStatistics.js";
 import { generateSessionSummary } from "./sessionSummary.js";
 import { normalizeBreakEvents, normalizeSessionPlan } from "./sessionBreaks.js";
+import { normalizeAutomaticBreakSuggestionState } from "./automaticBreakSuggestionState.js";
 import { createMemorySessionRepository } from "./repositories/memorySessionRepository.js";
 
 const clone = (value) => {
@@ -209,7 +210,9 @@ export const createSessionRuntime = (options = {}) => {
         preSessionCheckIn: input.preSessionCheckIn ?? null,
         postSessionCheckOut: input.postSessionCheckOut ?? null,
         sessionPlan: input.sessionPlan ?? null,
+        breakMode: input.breakMode,
         breakEvents: input.breakEvents ?? [],
+        automaticBreakSuggestionState: input.automaticBreakSuggestionState ?? null,
         interruptions: input.interruptions ?? [],
         startedAt,
         createdAt: startedAt,
@@ -340,6 +343,20 @@ export const createSessionRuntime = (options = {}) => {
       activeSession = await repository.updateSession(activeSession.id, {
         sessionPlan: normalizeSessionPlan(sessionPlan, { targetDurationMs: activeSession.targetDurationMs }),
         updatedAt: now(),
+      });
+      return clone(activeSession);
+    },
+
+    async updateAutomaticBreakSuggestionState(automaticBreakSuggestionState = null, input = {}) {
+      if (!activeSession) return null;
+      const updatedAt = input.updatedAt || now();
+      activeSession = await repository.updateSession(activeSession.id, {
+        automaticBreakSuggestionState: normalizeAutomaticBreakSuggestionState(automaticBreakSuggestionState, {
+          timingMode: activeSession.sessionPlan?.timingMode,
+        }),
+        ...(Number.isFinite(input.accumulatedStudyMs) ? { accumulatedStudyMs: input.accumulatedStudyMs } : {}),
+        ...(input.lastCheckpointAt !== undefined ? { lastCheckpointAt: input.lastCheckpointAt } : {}),
+        updatedAt,
       });
       return clone(activeSession);
     },

@@ -22,8 +22,11 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
 - App state is exposed through focused Session, Monitoring, and Debug contexts rather than a single monolithic consumer hook.
 - AppProvider remains the composition boundary while the timed-break controller, session-audio controller, timed-break presentation, and pure break-state helpers are split into dedicated modules.
-- The session domain normalizes optional `sessionPlan`, `breakEvents`, and `interruptions` fields for regular timed breaks.
+- The session domain normalizes optional `breakMode`, `sessionPlan`, `breakEvents`, `automaticBreakSuggestionState`, and `interruptions` fields for break timing and recovery.
 - Optional regular breaks can be planned in Session Setup, scheduled by effective focused-study time, shown in Focus Space Break Mode, extended up to three times, and persisted as break events separate from pauses.
+- Automatic Break Suggestions are the default setup mode. They use effective focused-study thresholds of 45, 60, 90, and 135 minutes in production, or 15, 30, 45, and 60 seconds in Debug timing.
+- Automatic suggestions are nonblocking until the user confirms a break duration; suggested breaks then reuse the shared timed-break active/extension/completion/recovery lifecycle.
+- Dismissed, expired, or confirmed-continued automatic suggestions expose a persistent Focus Space `Start a Break` entry for the current suggestion cycle.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
 - Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
@@ -45,7 +48,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Replace PDF export placeholder with a real report export path.
 - Fix mojibake UI strings in source files in a separate source-code task.
 - Add tests for metric heuristics and critical UI state transitions.
-- Browser-QA the timed-break experience with real camera permissions and autoplay policies.
+- Browser-QA regular and automatic timed-break experiences with real camera permissions and autoplay policies.
 
 ## Known Issues
 
@@ -63,6 +66,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Some source strings display mojibake characters.
 - Session check-in and reflection are theory-informed self-report fields only. They are not validated psychological tests, clinical assessments, diagnostic instruments, or learning scores.
 - Hidden-tab continuous monitoring and guaranteed background break alarms are not available; timed-break state is recomputed from timestamps when the app runs again.
+- Automatic suggestion prompt state is persisted in the active session to avoid duplicate threshold prompts or replayed suggestion alarms after refresh.
 
 ### Next.js PostCSS dependency advisory
 
@@ -95,6 +99,13 @@ Current mitigation:
 
 - `src/components/CameraFeed.js`
 - `src/context/AppContext.js`
+- `src/hooks/useTimedBreakController.js`
+- `src/hooks/useAutomaticBreakSuggestionController.js`
+- `src/hooks/useSessionAudioController.js`
+- `src/components/session/AutomaticBreakSuggestionOverlay.js`
+- `src/components/session/TimedBreakOverlay.js`
+- `src/services/session/automaticBreakSuggestionState.js`
+- `src/services/session/timedBreakState.js`
 - `src/components/DebugPanel.js`
 - `src/components/DashboardCharts.js`
 - `src/components/Navbar.js`

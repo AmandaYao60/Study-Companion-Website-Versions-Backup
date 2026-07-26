@@ -8,6 +8,7 @@ export const AUDIO_ASSETS = Object.freeze({
   study: "/music/studytime-music.mp3",
   break: "/music/breaktime-music.mp3",
   shortAlarm: "/music/short-alarm.mp3",
+  shortAlarm2: "/music/short-alarm-2.mp3",
   longAlarm: "/music/long-alarm.mp3",
 });
 
@@ -24,6 +25,7 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
   });
   const stateRef = useRef(state);
   const audioElementsRef = useRef({});
+  const audioVolumeMultipliersRef = useRef({});
 
   useEffect(() => {
     stateRef.current = state;
@@ -35,7 +37,10 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
     if (existing) return existing;
     const audio = new Audio(AUDIO_ASSETS[key]);
     audio.preload = "auto";
-    audio.volume = stateRef.current.muted ? 0 : stateRef.current.volume;
+    audioVolumeMultipliersRef.current[key] = audioVolumeMultipliersRef.current[key] ?? 1;
+    audio.volume = stateRef.current.muted
+      ? 0
+      : clamp(stateRef.current.volume * audioVolumeMultipliersRef.current[key], 0, 1);
     audioElementsRef.current[key] = audio;
     return audio;
   }, []);
@@ -45,18 +50,22 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
     if (!audio) return;
     audio.pause();
     audio.currentTime = 0;
+    audioVolumeMultipliersRef.current[key] = 1;
+    audio.volume = stateRef.current.muted ? 0 : stateRef.current.volume;
   }, []);
 
   const stopAllSessionAudio = useCallback(() => {
     Object.keys(audioElementsRef.current).forEach((key) => stopAudio(key));
   }, [stopAudio]);
 
-  const playSessionAudio = useCallback((key, { loop = false, restart = true } = {}) => {
+  const playSessionAudio = useCallback((key, { loop = false, restart = true, volumeMultiplier = 1 } = {}) => {
     const audioState = stateRef.current;
     const audio = getAudioElement(key);
     if (!audio) return;
+    const multiplier = clamp(Number(volumeMultiplier), 0, 1);
+    audioVolumeMultipliersRef.current[key] = multiplier;
     audio.loop = loop;
-    audio.volume = audioState.muted ? 0 : audioState.volume;
+    audio.volume = audioState.muted ? 0 : clamp(audioState.volume * multiplier, 0, 1);
     if (audioState.muted) return;
     if (restart) audio.currentTime = 0;
     const playPromise = audio.play();
@@ -75,16 +84,18 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
   const setVolume = useCallback((volume) => {
     const nextVolume = clamp(Number(volume), 0, 1);
     setState((previous) => ({ ...previous, volume: nextVolume, blocked: false }));
-    Object.values(audioElementsRef.current).forEach((audio) => {
-      audio.volume = stateRef.current.muted ? 0 : nextVolume;
+    Object.entries(audioElementsRef.current).forEach(([key, audio]) => {
+      const multiplier = audioVolumeMultipliersRef.current[key] ?? 1;
+      audio.volume = stateRef.current.muted ? 0 : clamp(nextVolume * multiplier, 0, 1);
     });
   }, []);
 
   const setMuted = useCallback((muted) => {
     const nextMuted = Boolean(muted);
     setState((previous) => ({ ...previous, muted: nextMuted, blocked: false }));
-    Object.values(audioElementsRef.current).forEach((audio) => {
-      audio.volume = nextMuted ? 0 : stateRef.current.volume;
+    Object.entries(audioElementsRef.current).forEach(([key, audio]) => {
+      const multiplier = audioVolumeMultipliersRef.current[key] ?? 1;
+      audio.volume = nextMuted ? 0 : clamp(stateRef.current.volume * multiplier, 0, 1);
     });
     if (nextMuted) stopAllSessionAudio();
   }, [stopAllSessionAudio]);
@@ -109,6 +120,7 @@ export function useSessionAudioController({ getPlaybackContext } = {}) {
       audio.src = "";
     });
     audioElementsRef.current = {};
+    audioVolumeMultipliersRef.current = {};
   }, []);
 
   return useMemo(() => ({
@@ -169,6 +181,7 @@ export function useSessionAudioPlaybackSync({
     if (timedBreakPhase === BREAK_PHASE.ACTIVE) {
       stopAudio("study");
       stopAudio("shortAlarm");
+      stopAudio("shortAlarm2");
       stopAudio("longAlarm");
       playSessionAudio("break", { loop: true, restart: false });
     } else if (isStudyAudioAllowed) {
@@ -178,6 +191,7 @@ export function useSessionAudioPlaybackSync({
       stopAudio("study");
       if (timedBreakPhase !== BREAK_PHASE.COMPLETE_DECISION) stopAudio("longAlarm");
       if (timedBreakPhase !== BREAK_PHASE.READY) stopAudio("shortAlarm");
+      stopAudio("shortAlarm2");
       if (timedBreakPhase !== BREAK_PHASE.ACTIVE) stopAudio("break");
     }
   }, [

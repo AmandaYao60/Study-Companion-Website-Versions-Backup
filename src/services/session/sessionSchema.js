@@ -20,13 +20,20 @@ import {
   normalizeInterruptions,
   normalizeSessionPlan,
 } from "./sessionBreaks.js";
+import {
+  BREAK_MODE_AUTOMATIC,
+  BREAK_MODE_REGULAR,
+  inferBreakMode,
+  normalizeAutomaticBreakSuggestionState,
+} from "./automaticBreakSuggestionState.js";
 
 /** @typedef {{expectedDifficulty:number|null,taskConfidence:number|null,mood:number|null,energy:number|null,taskValue:number|null,recordedAt:string|null}} PreSessionCheckIn */
 /** @typedef {{sessionEnergy:number|null,sessionMood:number|null,perceivedFatigue:number|null,perceivedAttention:number|null,perceivedDifficulty:number|null,goalAttainment:number|null,strategiesUsed:Array<string>,primaryStrategy:string|null,primaryStrategyEffectiveness:number|null,primaryLearningActivity:string|null,learningReflection:string|null,nextSessionAdjustment:string|null,recordedAt:string|null}} PostSessionCheckOut */
 /** @typedef {{targetDurationMs:number|null,focusDurationMs:number|null,breakDurationMs:number,plannedBreakCount:number,timingMode?:string}} SessionPlan */
 /** @typedef {{id:string,plannedStartElapsedMs:number|null,plannedStartAt:string|null,actualStartElapsedMs:number|null,actualStartAt:string|null,actualEndElapsedMs:number|null,actualEndAt:string|null,status:string}} BreakEvent */
 /** @typedef {{id:string,startElapsedMs:number|null,startAt:string|null,endElapsedMs:number|null,endAt:string|null,reason:string}} Interruption */
-/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,sessionPlan:SessionPlan,breakEvents:Array<BreakEvent>,interruptions:Array<Interruption>,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
+/** @typedef {{cycleStartElapsedMs:number,handledThresholds:Array<Object>,activePrompt:Object|null}} AutomaticBreakSuggestionState */
+/** @typedef {{id:string,userId:string|null,taskName:string,taskDescription:string,targetDurationMs:number|null,subject:string|null,customSubject:string|null,taskType:string|null,customTaskType:string|null,sessionGoal:string|null,preSessionCheckIn:PreSessionCheckIn,postSessionCheckOut:PostSessionCheckOut,questionnaireSchemaVersion:number,breakMode:string,sessionPlan:SessionPlan,breakEvents:Array<BreakEvent>,automaticBreakSuggestionState:AutomaticBreakSuggestionState,interruptions:Array<Interruption>,startedAt:string,endedAt:string|null,createdAt:string,updatedAt:string,status:string,accumulatedStudyMs:number,recoveryPending:boolean,lastCheckpointAt:string|null,schemaVersion:string,pipelineVersion:string,aggregationVersion:string,summaryAlgorithmVersion:string}} ActiveStudySession */
 /** @typedef {{recordedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,faceDetected:boolean,affectValid:boolean,dataValid:boolean}} MetricObservation */
 /** @typedef {{id:string,sessionId:string,recordedAt:string,intervalStartedAt:string,intervalEndedAt:string,elapsedMs:number,attention:number|null,fatigue:number|null,valence:number|null,arousal:number|null,emotion:string|null,emotionConfidence:number|null,validObservationCount:number,expectedObservationCount:number,affectObservationCount:number,dataCoverage:number,dataQuality:string,aggregationVersion:string}} MetricSample */
 /** @typedef {{mean:number|null,min:number|null,max:number|null,standardDeviation:number|null,startMean:number|null,endMean:number|null,change:number|null,trend:string,validCount:number}} MetricStatistics */
@@ -77,6 +84,11 @@ const validateVersion = (name, value, errors) => {
 /** Create a normalized active study session with injectable ID and clock factories. @param {Partial<ActiveStudySession>} input @param {{idFactory?:Function,now?:Function}=} options @returns {ActiveStudySession} */
 export const createStudySession = (input = {}, options = {}) => {
   const currentTime = iso((options.now || nowIso)(), nowIso());
+  const sessionPlan = normalizeSessionPlan(input.sessionPlan, {
+    targetDurationMs: input.targetDurationMs,
+  });
+  const breakEvents = normalizeBreakEvents(input.breakEvents);
+  const breakMode = inferBreakMode({ breakMode: input.breakMode, sessionPlan, breakEvents });
   const session = {
     ...input,
     id: text(input.id || (options.idFactory || defaultIdFactory)("session")),
@@ -94,10 +106,12 @@ export const createStudySession = (input = {}, options = {}) => {
     questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
       ? input.questionnaireSchemaVersion
       : QUESTIONNAIRE_SCHEMA_VERSION,
-    sessionPlan: normalizeSessionPlan(input.sessionPlan, {
-      targetDurationMs: input.targetDurationMs,
+    breakMode,
+    sessionPlan,
+    breakEvents,
+    automaticBreakSuggestionState: normalizeAutomaticBreakSuggestionState(input.automaticBreakSuggestionState, {
+      timingMode: sessionPlan.timingMode,
     }),
-    breakEvents: normalizeBreakEvents(input.breakEvents),
     interruptions: normalizeInterruptions(input.interruptions),
     startedAt: iso(input.startedAt, currentTime),
     endedAt: iso(input.endedAt, null),
@@ -119,6 +133,11 @@ export const createStudySession = (input = {}, options = {}) => {
 
 /** Normalize a persisted or in-memory study session shape without generating missing required IDs. @param {Object} input @returns {ActiveStudySession|CompletedStudySession} */
 export const normalizeStudySession = (input = {}) => {
+  const sessionPlan = normalizeSessionPlan(input.sessionPlan, {
+    targetDurationMs: input.targetDurationMs,
+  });
+  const breakEvents = normalizeBreakEvents(input.breakEvents);
+  const breakMode = inferBreakMode({ breakMode: input.breakMode, sessionPlan, breakEvents });
   const base = {
     ...input,
     id: text(input.id, ""),
@@ -136,10 +155,12 @@ export const normalizeStudySession = (input = {}) => {
     questionnaireSchemaVersion: Number.isInteger(input.questionnaireSchemaVersion)
       ? input.questionnaireSchemaVersion
       : QUESTIONNAIRE_SCHEMA_VERSION,
-    sessionPlan: normalizeSessionPlan(input.sessionPlan, {
-      targetDurationMs: input.targetDurationMs,
+    breakMode,
+    sessionPlan,
+    breakEvents,
+    automaticBreakSuggestionState: normalizeAutomaticBreakSuggestionState(input.automaticBreakSuggestionState, {
+      timingMode: sessionPlan.timingMode,
     }),
-    breakEvents: normalizeBreakEvents(input.breakEvents),
     interruptions: normalizeInterruptions(input.interruptions),
     startedAt: iso(input.startedAt, null),
     endedAt: iso(input.endedAt, null),
@@ -184,6 +205,7 @@ export const validateStudySession = (session) => {
   if (!isObject(session.preSessionCheckIn)) errors.push("preSessionCheckIn must be an object.");
   if (!isObject(session.postSessionCheckOut)) errors.push("postSessionCheckOut must be an object.");
   if (!Number.isInteger(session.questionnaireSchemaVersion) || session.questionnaireSchemaVersion < 1) errors.push("questionnaireSchemaVersion must be a positive integer.");
+  if (![BREAK_MODE_AUTOMATIC, BREAK_MODE_REGULAR].includes(session.breakMode)) errors.push("breakMode must be automatic or regular.");
   if (!isObject(session.sessionPlan)) errors.push("sessionPlan must be an object.");
   if (session.sessionPlan) {
     if (session.sessionPlan.targetDurationMs !== null && !isFiniteNumber(session.sessionPlan.targetDurationMs)) errors.push("sessionPlan.targetDurationMs must be a number or null.");
@@ -193,6 +215,7 @@ export const validateStudySession = (session) => {
     if (session.sessionPlan.timingMode !== undefined && !["regular", "debug"].includes(session.sessionPlan.timingMode)) errors.push("sessionPlan.timingMode must be regular or debug when present.");
   }
   if (!Array.isArray(session.breakEvents)) errors.push("breakEvents must be an array.");
+  if (!isObject(session.automaticBreakSuggestionState)) errors.push("automaticBreakSuggestionState must be an object.");
   if (!Array.isArray(session.interruptions)) errors.push("interruptions must be an array.");
   validateSelfReportFields(session, errors);
   if (!validIso(session.startedAt)) errors.push("startedAt must be an ISO 8601 timestamp.");
