@@ -1,6 +1,16 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AUTO_ADVANCE_IDLE_MS,
+  NAV_DIRECTION,
+  QUESTION_TRANSITION_MS,
+  REDUCED_MOTION_TRANSITION_MS,
+  TRANSITION_PHASE,
+  getCircularNavButtonClass,
+  getQuestionTransitionClass,
+  isSingleChoiceAutoAdvanceStep,
+} from "./questionnaireNavigation.js";
 
 const ratingQuestions = [
   { id: "sessionEnergy", question: "How alert and energetic did you feel overall during this study session?", anchors: ["1 = Very low or sleepy", "3 = Moderate", "5 = Very alert and energetic"] },
@@ -57,7 +67,12 @@ export default function PostSessionReflectionDialog({
   const [draft, setDraft] = useState(initialReflection);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState(NAV_DIRECTION.FORWARD);
+  const [transitionPhase, setTransitionPhase] = useState(TRANSITION_PHASE.IDLE);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const advanceTimerRef = useRef(null);
+  const transitionTimerRef = useRef(null);
+  const pendingStepIdRef = useRef(null);
 
   const steps = useMemo(() => {
     const goalQuestion = session?.sessionGoal
@@ -81,7 +96,18 @@ export default function PostSessionReflectionDialog({
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
 
-  useEffect(() => () => window.clearTimeout(advanceTimerRef.current), []);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery?.matches === true);
+    updatePreference();
+    mediaQuery?.addEventListener?.("change", updatePreference);
+    return () => mediaQuery?.removeEventListener?.("change", updatePreference);
+  }, []);
+
+  useEffect(() => () => {
+    window.clearTimeout(advanceTimerRef.current);
+    window.clearTimeout(transitionTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -98,18 +124,54 @@ export default function PostSessionReflectionDialog({
   if (!open) return null;
 
   const updateDraft = (updates) => setDraft((previous) => ({ ...previous, ...updates }));
-  const advance = () => {
-    if (isAdvancing) return;
-    setIsAdvancing(true);
+  const cancelPendingAdvance = () => {
     window.clearTimeout(advanceTimerRef.current);
-    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    pendingStepIdRef.current = null;
+  };
+  const navigateReflection = (direction) => {
+    if (isAdvancing || showFinishConfirm) return;
+    cancelPendingAdvance();
+    setIsAdvancing(true);
+    setTransitionDirection(direction);
+    setTransitionPhase(TRANSITION_PHASE.EXITING);
+    const transitionMs = prefersReducedMotion ? REDUCED_MOTION_TRANSITION_MS : QUESTION_TRANSITION_MS;
+    window.clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = window.setTimeout(() => {
+      if (direction === NAV_DIRECTION.BACKWARD) {
+        if (stepIndex === 0) {
+          onCancel();
+          return;
+        }
+        setStepIndex((previous) => Math.max(0, previous - 1));
+      } else {
+        setStepIndex((previous) => Math.min(previous + 1, steps.length - 1));
+      }
+      setTransitionPhase(TRANSITION_PHASE.ENTERING);
+      window.clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = window.setTimeout(() => {
+        setTransitionPhase(TRANSITION_PHASE.IDLE);
+        setIsAdvancing(false);
+      }, transitionMs);
+    }, transitionMs);
+  };
+  const advance = () => navigateReflection(NAV_DIRECTION.FORWARD);
+  const goBack = () => navigateReflection(NAV_DIRECTION.BACKWARD);
+  const scheduleAdvance = (stepId) => {
+    window.clearTimeout(advanceTimerRef.current);
+    pendingStepIdRef.current = stepId;
     advanceTimerRef.current = window.setTimeout(() => {
-      setIsAdvancing(false);
-      setStepIndex((previous) => Math.min(previous + 1, steps.length - 1));
-    }, prefersReducedMotion ? 0 : 240);
+      if (pendingStepIdRef.current !== stepId || currentStep?.id !== stepId || isAdvancing || showFinishConfirm) return;
+      pendingStepIdRef.current = null;
+      navigateReflection(NAV_DIRECTION.FORWARD);
+    }, AUTO_ADVANCE_IDLE_MS);
+  };
+  const requestFinishWithoutReflection = () => {
+    cancelPendingAdvance();
+    setShowFinishConfirm(true);
   };
 
   const saveReflection = (skipRemaining = false) => {
+    cancelPendingAdvance();
     const response = {
       ...draft,
       learningReflection: draft.learningReflection.trim() || null,
@@ -138,9 +200,43 @@ export default function PostSessionReflectionDialog({
     });
   };
 
+  const isOrdinaryStep = currentStep.type !== "complete";
+  const transitionClass = getQuestionTransitionClass({
+    direction: transitionDirection,
+    phase: transitionPhase,
+    reducedMotion: prefersReducedMotion,
+  });
+
   return (
     <div className="fixed inset-0 z-[950] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" role="presentation">
-      <section role="dialog" aria-modal="true" aria-labelledby="post-session-reflection-title" className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950 p-6 text-white shadow-2xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="post-session-reflection-title" className="relative w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950 p-6 text-white shadow-2xl">
+        {isOrdinaryStep && (
+          <>
+            <button
+              type="button"
+              aria-label="Previous question"
+              onClick={goBack}
+              disabled={isSaving || isAdvancing || showFinishConfirm}
+              className={`${getCircularNavButtonClass({ theme: "emerald" })} left-2 sm:-left-5`}
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+                <path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label="Next question"
+              onClick={advance}
+              disabled={isSaving || isAdvancing || showFinishConfirm}
+              className={`${getCircularNavButtonClass({ theme: "emerald" })} right-2 sm:-right-5`}
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+                <path d="m7.5 4.5 5.5 5.5-5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </>
+        )}
+        <div className={`px-9 sm:px-10 ${isOrdinaryStep ? transitionClass : ""}`}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">Theory-informed session check-in and reflection</p>
@@ -148,9 +244,6 @@ export default function PostSessionReflectionDialog({
               {currentStep.question}
             </h2>
           </div>
-          <button ref={closeRef} type="button" onClick={() => setShowFinishConfirm(true)} disabled={isSaving} className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 transition-all hover:bg-slate-800 disabled:opacity-60">
-            Finish Without Reflection
-          </button>
         </div>
         <p className="mt-3 text-sm leading-relaxed text-slate-400">
           Please reflect on your overall experience during this study session, not only how you feel right now.
@@ -170,11 +263,11 @@ export default function PostSessionReflectionDialog({
                     <button
                       key={value}
                       type="button"
-                      disabled={isAdvancing || isSaving}
+                      disabled={isAdvancing || isSaving || showFinishConfirm}
                       aria-label={ratingLabel(currentStep, value)}
                       onClick={() => {
                         updateDraft({ [currentStep.id]: value });
-                        advance();
+                        if (isSingleChoiceAutoAdvanceStep(currentStep, value)) scheduleAdvance(currentStep.id);
                       }}
                       className={`rounded-xl border px-3 py-4 text-lg font-black transition-all ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}
                     >
@@ -196,7 +289,7 @@ export default function PostSessionReflectionDialog({
                 {strategyOptions.map(([value, label, description]) => {
                   const selected = draft.strategiesUsed.includes(value);
                   return (
-                    <button key={value} type="button" onClick={() => toggleStrategy(value)} className={`rounded-xl border p-3 text-left transition-all ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}>
+                    <button key={value} type="button" disabled={isAdvancing || isSaving || showFinishConfirm} onClick={() => toggleStrategy(value)} className={`rounded-xl border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}>
                       <span className="block text-sm font-bold">{label}</span>
                       <span className={`mt-1 block text-xs ${selected ? "text-slate-800" : "text-slate-500"}`}>{description}</span>
                     </button>
@@ -212,7 +305,16 @@ export default function PostSessionReflectionDialog({
                 const option = strategyOptions.find(([id]) => id === value);
                 const selected = draft.primaryStrategy === value;
                 return (
-                  <button key={value} type="button" onClick={() => updateDraft({ primaryStrategy: value, primaryStrategyEffectiveness: null })} className={`rounded-xl border p-3 text-left text-sm font-bold transition-all ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}>
+                  <button
+                    key={value}
+                    type="button"
+                    disabled={isAdvancing || isSaving || showFinishConfirm}
+                    onClick={() => {
+                      updateDraft({ primaryStrategy: value, primaryStrategyEffectiveness: null });
+                      scheduleAdvance(currentStep.id);
+                    }}
+                    className={`rounded-xl border p-3 text-left text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}
+                  >
                     {option?.[1] || value}
                   </button>
                 );
@@ -225,7 +327,16 @@ export default function PostSessionReflectionDialog({
               {learningActivities.map(([value, label, description]) => {
                 const selected = draft.primaryLearningActivity === value;
                 return (
-                  <button key={value} type="button" onClick={() => updateDraft({ primaryLearningActivity: value })} className={`w-full rounded-xl border p-3 text-left transition-all ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}>
+                  <button
+                    key={value}
+                    type="button"
+                    disabled={isAdvancing || isSaving || showFinishConfirm}
+                    onClick={() => {
+                      updateDraft({ primaryLearningActivity: value });
+                      scheduleAdvance(currentStep.id);
+                    }}
+                    className={`w-full rounded-xl border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-emerald-400/40"}`}
+                  >
                     <span className="block text-sm font-bold">{label}</span>
                     <span className={`mt-1 block text-xs ${selected ? "text-slate-800" : "text-slate-500"}`}>{description}</span>
                   </button>
@@ -240,9 +351,10 @@ export default function PostSessionReflectionDialog({
               <textarea
                 value={draft[currentStep.id]}
                 maxLength={300}
+                disabled={isSaving || isAdvancing || showFinishConfirm}
                 onChange={(event) => updateDraft({ [currentStep.id]: event.target.value })}
                 rows={4}
-                className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-emerald-400/50"
+                className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className="mt-1 block text-right text-[10px] text-slate-500">{draft[currentStep.id].length}/300</span>
             </label>
@@ -255,6 +367,8 @@ export default function PostSessionReflectionDialog({
           )}
         </div>
 
+        </div>
+
         {showFinishConfirm && (
           <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4">
             <p className="text-sm font-bold text-amber-100">Finish without completing the remaining reflection?</p>
@@ -262,27 +376,43 @@ export default function PostSessionReflectionDialog({
               Your study session and any answers already provided will still be saved. Unanswered reflection items will remain blank.
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <button type="button" onClick={() => setShowFinishConfirm(false)} className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200">Continue Reflection</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowFinishConfirm(false);
+                  closeRef.current?.focus();
+                }}
+                className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200"
+              >
+                Continue Reflection
+              </button>
               <button type="button" onClick={() => saveReflection(true)} disabled={isSaving} className="rounded-xl bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-60">Finish Session</button>
             </div>
           </div>
         )}
 
-        <div className="mt-7 flex flex-col gap-2 sm:flex-row">
-          <button type="button" onClick={() => (stepIndex === 0 ? onCancel() : setStepIndex((previous) => previous - 1))} disabled={isSaving} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800 disabled:opacity-60">
-            {stepIndex === 0 ? "Return to Workspace" : "Back"}
-          </button>
-          {currentStep.type !== "rating" && currentStep.type !== "complete" && (
-            <button type="button" onClick={() => setStepIndex((previous) => Math.min(previous + 1, steps.length - 1))} disabled={isSaving} className="flex-1 rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-emerald-300 disabled:opacity-60">
-              Continue
+        {isOrdinaryStep ? (
+          <div className="mt-7 flex justify-end px-9 sm:px-10">
+            <button
+              ref={closeRef}
+              type="button"
+              onClick={requestFinishWithoutReflection}
+              disabled={isSaving || isAdvancing || showFinishConfirm}
+              className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-white/5 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Finish Without Reflection
             </button>
-          )}
-          {currentStep.type === "complete" && (
+          </div>
+        ) : (
+          <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={goBack} disabled={isSaving || isAdvancing} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800 disabled:opacity-60">
+              Back
+            </button>
             <button type="button" onClick={() => saveReflection(false)} disabled={isSaving} className="flex-1 rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-70">
               {isSaving ? "Saving..." : "Save and View Dashboard"}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </section>
     </div>
   );

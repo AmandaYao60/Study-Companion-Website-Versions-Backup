@@ -18,6 +18,16 @@ import {
   BREAK_MODE_REGULAR,
   TIMING_MODE_DEBUG,
 } from "../../services/session/automaticBreakSuggestionState.js";
+import {
+  AUTO_ADVANCE_IDLE_MS,
+  NAV_DIRECTION,
+  QUESTION_TRANSITION_MS,
+  REDUCED_MOTION_TRANSITION_MS,
+  TRANSITION_PHASE,
+  getCircularNavButtonClass,
+  getQuestionTransitionClass,
+  isSingleChoiceAutoAdvanceStep,
+} from "./questionnaireNavigation.js";
 
 const targetOptions = [
   { label: "25 min", value: 25 },
@@ -202,9 +212,25 @@ export default function SessionSetupForm() {
   const [isStarting, setIsStarting] = useState(false);
   const [isSkipDialogOpen, setIsSkipDialogOpen] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState(NAV_DIRECTION.FORWARD);
+  const [transitionPhase, setTransitionPhase] = useState(TRANSITION_PHASE.IDLE);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const advanceTimerRef = useRef(null);
+  const transitionTimerRef = useRef(null);
+  const pendingStepIdRef = useRef(null);
 
-  useEffect(() => () => window.clearTimeout(advanceTimerRef.current), []);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery?.matches === true);
+    updatePreference();
+    mediaQuery?.addEventListener?.("change", updatePreference);
+    return () => mediaQuery?.removeEventListener?.("change", updatePreference);
+  }, []);
+
+  useEffect(() => () => {
+    window.clearTimeout(advanceTimerRef.current);
+    window.clearTimeout(transitionTimerRef.current);
+  }, []);
 
   const isRegularBreakMode = draft.breakMode === BREAK_MODE_REGULAR;
   const selectedCustomTargetMs = isDebugMode
@@ -300,25 +326,51 @@ export default function SessionSetupForm() {
     updateDraft(updates);
   };
 
-  const goToNextOptional = () => {
-    setOptionalIndex((previous) => {
-      if (previous >= optionalSteps.length - 1) {
-        setStage("ready");
-        return previous;
-      }
-      return previous + 1;
-    });
+  const cancelPendingAdvance = () => {
+    window.clearTimeout(advanceTimerRef.current);
+    pendingStepIdRef.current = null;
   };
 
-  const scheduleAdvance = () => {
+  const navigateOptional = (direction) => {
     if (isAdvancing) return;
+    cancelPendingAdvance();
     setIsAdvancing(true);
+    setTransitionDirection(direction);
+    setTransitionPhase(TRANSITION_PHASE.EXITING);
+    const transitionMs = prefersReducedMotion ? REDUCED_MOTION_TRANSITION_MS : QUESTION_TRANSITION_MS;
+    window.clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = window.setTimeout(() => {
+      if (direction === NAV_DIRECTION.BACKWARD) {
+        if (optionalIndex === 0) {
+          setStage("setup");
+        } else {
+          setOptionalIndex((previous) => Math.max(0, previous - 1));
+        }
+      } else if (optionalIndex >= optionalSteps.length - 1) {
+        setStage("ready");
+      } else {
+        setOptionalIndex((previous) => Math.min(optionalSteps.length - 1, previous + 1));
+      }
+      setTransitionPhase(TRANSITION_PHASE.ENTERING);
+      window.clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = window.setTimeout(() => {
+        setTransitionPhase(TRANSITION_PHASE.IDLE);
+        setIsAdvancing(false);
+      }, transitionMs);
+    }, transitionMs);
+  };
+
+  const goToNextOptional = () => navigateOptional(NAV_DIRECTION.FORWARD);
+  const goToPreviousOptional = () => navigateOptional(NAV_DIRECTION.BACKWARD);
+
+  const scheduleAdvance = (stepId) => {
     window.clearTimeout(advanceTimerRef.current);
-    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    pendingStepIdRef.current = stepId;
     advanceTimerRef.current = window.setTimeout(() => {
-      setIsAdvancing(false);
-      goToNextOptional();
-    }, prefersReducedMotion ? 0 : 240);
+      if (pendingStepIdRef.current !== stepId || currentOptionalStep?.id !== stepId || isAdvancing) return;
+      pendingStepIdRef.current = null;
+      navigateOptional(NAV_DIRECTION.FORWARD);
+    }, AUTO_ADVANCE_IDLE_MS);
   };
 
   const validateSetup = () => {
@@ -342,6 +394,7 @@ export default function SessionSetupForm() {
     setError("");
     setStage("optional");
     setOptionalIndex(0);
+    setTransitionPhase(TRANSITION_PHASE.IDLE);
   };
 
   const buildSessionInput = () => {
@@ -373,6 +426,7 @@ export default function SessionSetupForm() {
     }
 
     setIsStarting(true);
+    cancelPendingAdvance();
     setError("");
     try {
       if (activeSession) {
@@ -394,10 +448,10 @@ export default function SessionSetupForm() {
   const handleChoice = (step, value) => {
     if (step.id === "subject") {
       updateDraft({ subject: value, customSubject: value === "other" ? draft.customSubject : "" });
-      if (value !== "other") scheduleAdvance();
+      if (isSingleChoiceAutoAdvanceStep(step, value)) scheduleAdvance(step.id);
     } else {
       updateDraft({ taskType: value, customTaskType: value === "other" ? draft.customTaskType : "" });
-      if (value !== "other") scheduleAdvance();
+      if (isSingleChoiceAutoAdvanceStep(step, value)) scheduleAdvance(step.id);
     }
   };
 
@@ -582,9 +636,37 @@ export default function SessionSetupForm() {
 
   const renderOptional = () => {
     const step = currentOptionalStep;
+    const transitionClass = getQuestionTransitionClass({
+      direction: transitionDirection,
+      phase: transitionPhase,
+      reducedMotion: prefersReducedMotion,
+    });
     const progress = `Optional check-in · ${optionalIndex + 1} of ${optionalSteps.length}`;
     return (
-      <section className="rounded-3xl border border-white/10 bg-slate-950/55 p-6 shadow-2xl backdrop-blur-xl">
+      <section className="relative rounded-3xl border border-white/10 bg-slate-950/55 p-6 shadow-2xl backdrop-blur-xl">
+        <button
+          type="button"
+          aria-label="Previous question"
+          onClick={goToPreviousOptional}
+          disabled={isAdvancing || isStarting || isSkipDialogOpen}
+          className={`${getCircularNavButtonClass({ theme: "cyan" })} left-2 sm:-left-5`}
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+            <path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          aria-label="Next question"
+          onClick={goToNextOptional}
+          disabled={isAdvancing || isStarting || isSkipDialogOpen}
+          className={`${getCircularNavButtonClass({ theme: "cyan" })} right-2 sm:-right-5`}
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+            <path d="m7.5 4.5 5.5 5.5-5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <div className={`px-9 sm:px-10 ${transitionClass}`}>
         <p className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-300">Theory-informed session check-in and reflection</p>
         <p className="mt-3 text-xs text-slate-500">Optional - your answers can help you better understand your learning patterns over time.</p>
         <p className="mt-2 text-xs font-bold uppercase tracking-wider text-slate-500" aria-live="polite">{progress}</p>
@@ -653,7 +735,7 @@ export default function SessionSetupForm() {
                       aria-label={ratingLabel(step, value)}
                       onClick={() => {
                         updateCheckIn(step.id, value);
-                        scheduleAdvance();
+                        scheduleAdvance(step.id);
                       }}
                       className={`rounded-xl border px-3 py-4 text-lg font-black transition-all ${selected ? "border-cyan-400 bg-cyan-400 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-cyan-400/40"}`}
                     >
@@ -669,25 +751,20 @@ export default function SessionSetupForm() {
           )}
         </div>
 
-        <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+        </div>
+
+        <div className="mt-7 flex justify-end px-9 sm:px-10">
           <button
             type="button"
             onClick={() => {
-              if (optionalIndex === 0) setStage("setup");
-              else setOptionalIndex((previous) => previous - 1);
+              cancelPendingAdvance();
+              setIsSkipDialogOpen(true);
             }}
-            className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800"
+            disabled={isAdvancing || isStarting}
+            className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-white/5 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Back
-          </button>
-          <button type="button" onClick={() => setIsSkipDialogOpen(true)} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800">
             Skip
           </button>
-          {(step.type === "text" || draft[step.id] === "other") && (
-            <button type="button" onClick={goToNextOptional} className="flex-1 rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-cyan-300">
-              Continue
-            </button>
-          )}
         </div>
       </section>
     );
