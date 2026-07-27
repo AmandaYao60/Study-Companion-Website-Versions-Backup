@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 const features = [
   ["Local browser AI", "MediaPipe and ONNX inference run in the browser during study sessions."],
@@ -19,44 +20,69 @@ const previews = [
 export default function LandingHero() {
   return (
     <div className="bg-slate-950">
-      <section className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl grid-cols-1 items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.28em] text-cyan-300">AI Study Companion</p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-black tracking-tight text-white sm:text-6xl">
-            Study with a private, local AI companion.
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
-            AegisMind helps students run focused study sessions, monitor attention and fatigue, and review completed sessions without uploading camera images or face crops.
-          </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/signup" className="rounded-xl bg-cyan-400 px-5 py-3 text-center text-sm font-bold text-slate-950 transition-all hover:bg-cyan-300">
-              Get Started
-            </Link>
-            <Link href="/login" className="rounded-xl border border-white/10 bg-slate-900/60 px-5 py-3 text-center text-sm font-semibold text-slate-200 transition-all hover:bg-slate-800">
-              Log In
-            </Link>
+      <section className="relative isolate overflow-hidden border-b border-white/5">
+        {/* Hero background image */}
+        <Image
+          aria-hidden="true"
+          src="/background/glowing-flowers.png"
+          alt=""
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full select-none object-cover object-[68%_center] brightness-[0.82] saturate-[0.92] lg:object-center"
+        />
+
+        {/* Slight overall darkening for text and preview readability */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-10 bg-slate-950/10"
+        />
+
+
+        <div className="relative z-20 mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl grid-cols-1 items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.28em] text-cyan-300">
+              AI Study Companion
+            </p>
+
+            <h1 className="mt-4 max-w-3xl text-4xl font-black tracking-tight text-white sm:text-6xl">
+              Study with a AI companion.
+            </h1>
+
+            <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
+              AegisMind helps students run focused study sessions, monitor attention and fatigue, C
+              and review completed sessions without uploading camera images or face crops.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/signup"
+                className="rounded-xl bg-cyan-400 px-5 py-3 text-center text-sm font-bold text-slate-950 transition-all hover:bg-cyan-300"
+              >
+                Get Started
+              </Link>
+
+              <Link
+                href="/login"
+                className="rounded-xl border border-white/15 bg-slate-950/55 px-5 py-3 text-center text-sm font-semibold text-slate-200 backdrop-blur-md transition-all hover:bg-slate-900/80"
+              >
+                Log In
+              </Link>
+            </div>
+
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-slate-900/35 p-5 shadow-2xl backdrop-blur-xl">
-          <div className="rounded-2xl border border-cyan-400/20 bg-slate-950 p-4">
-            <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Product Preview</span>
-              <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-300">Local Demo</span>
-            </div>
-            <div className="grid grid-cols-5 gap-3">
-              <div className="col-span-3 aspect-[4/3] rounded-xl border border-white/10 bg-gradient-to-br from-cyan-400/15 via-slate-900 to-emerald-400/10" />
-              <div className="col-span-2 space-y-3">
-                <div className="h-16 rounded-xl border border-white/10 bg-slate-900" />
-                <div className="h-16 rounded-xl border border-white/10 bg-slate-900" />
-                <div className="h-16 rounded-xl border border-white/10 bg-slate-900" />
-              </div>
-            </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full w-2/3 rounded-full bg-cyan-300" />
-            </div>
-          </div>
-        </div>
+        {/* Transparent foreground vegetation */}
+        <Image
+          aria-hidden="true"
+          src="/background/glowing-flowers-front.png"
+          alt=""
+          className="pointer-events-none absolute inset-0 z-30 h-full w-full select-none object-cover object-[68%_center] lg:object-center"
+        />
+        
+        {/* Small transition only at the bottom */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-24 bg-gradient-to-b from-transparent to-slate-950/80"
+        />
       </section>
 
       <section id="features" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
