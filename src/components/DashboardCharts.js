@@ -6,6 +6,7 @@ import { useMonitoring, useSession } from "../context/AppContext";
 import {
   selectDashboardMetricCards,
   selectDashboardSessionSource,
+  selectLongTermSessionPatterns,
   selectSessionHistoryRows,
   selectSessionScopedMetricSamples,
 } from "../services/session/index.js";
@@ -13,7 +14,7 @@ import BehavioralEngagementChart from "./dashboard/BehavioralEngagementChart";
 import DashboardMetricCards from "./dashboard/DashboardMetricCards";
 import EmotionalEngagementChart from "./dashboard/EmotionalEngagementChart";
 import LearnerObservedSignalsPanel from "./dashboard/LearnerObservedSignalsPanel";
-import LongTermTrendsPlaceholder from "./dashboard/LongTermTrendsPlaceholder";
+import LongTermPatternsPanel from "./dashboard/LongTermPatternsPanel";
 import MetricStreamTable from "./dashboard/MetricStreamTable";
 import SessionHistoryList from "./dashboard/SessionHistoryList";
 import SessionHistoryModal from "./dashboard/SessionHistoryModal";
@@ -47,6 +48,9 @@ export default function DashboardCharts() {
 
   const historyRows = useMemo(() => (
     selectSessionHistoryRows(completedSessions)
+  ), [completedSessions]);
+  const longTermPatterns = useMemo(() => (
+    selectLongTermSessionPatterns(completedSessions)
   ), [completedSessions]);
 
   const latestCompletedSessionId = source.kind === "latest-completed" ? source.session?.id || null : null;
@@ -188,6 +192,8 @@ export default function DashboardCharts() {
         </>
       )}
 
+      <LongTermPatternsPanel model={longTermPatterns} />
+
       <SessionHistoryList rows={historyRows} onSelectSession={openHistoryModal} />
 
       <SessionHistoryModal
@@ -196,8 +202,6 @@ export default function DashboardCharts() {
         isLoading={isHistoryModalLoading}
         onClose={closeHistoryModal}
       />
-
-      <LongTermTrendsPlaceholder />
     </div>
   );
 }

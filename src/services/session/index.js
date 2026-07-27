@@ -7,6 +7,7 @@ export * from "./automaticBreakSuggestionState.js";
 export * from "./metricAggregation.js";
 export * from "./sessionStatistics.js";
 export * from "./sessionSummary.js";
+export * from "./sessionPatterns.js";
 export * from "./sessionSelectors.js";
 export * from "./repositories/sessionRepository.js";
 export * from "./repositories/memorySessionRepository.js";

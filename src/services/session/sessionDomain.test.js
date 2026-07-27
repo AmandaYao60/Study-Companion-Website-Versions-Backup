@@ -27,6 +27,7 @@ import {
   createStudySession,
   generateSessionSummary,
   getNextScheduledBreak,
+  classifySessionDaypart,
   isValidDebugBreakDuration,
   isValidDebugBreakFocusDuration,
   isValidBreakDuration,
@@ -41,6 +42,7 @@ import {
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
   selectLearnerObservedSignalComparison,
+  selectLongTermSessionPatterns,
   selectSessionScopedMetricSamples,
   selectSessionSelfReportAnalysis,
   selectSessionSummaryPresentation,
@@ -790,6 +792,224 @@ test("evidence-aware summary generation is deterministic for the same saved inpu
   });
   assert.equal(JSON.stringify(session), sessionBefore);
   assert.equal(JSON.stringify(summary), summaryBefore);
+});
+
+const patternSession = (id, overrides = {}) => ({
+  id,
+  status: SESSION_STATUS.COMPLETED,
+  taskName: `Session ${id}`,
+  taskDescription: `Session ${id}`,
+  startedAt: `2026-01-0${id}T09:00:00.000Z`,
+  endedAt: `2026-01-0${id}T10:00:00.000Z`,
+  actualDurationMs: id * 60000,
+  targetDurationMs: 90 * 60000,
+  subject: "mathematics",
+  taskType: "review",
+  postSessionCheckOut: {},
+  preSessionCheckIn: {},
+  ...overrides,
+});
+
+test("long-term patterns report empty, building, and available eligibility states", () => {
+  const empty = selectLongTermSessionPatterns([]);
+  const building = selectLongTermSessionPatterns([
+    patternSession(1),
+    patternSession(2),
+    patternSession(3, { status: SESSION_STATUS.ACTIVE }),
+    patternSession(4, { status: SESSION_STATUS.PAUSED }),
+  ]);
+  const available = selectLongTermSessionPatterns([
+    patternSession(1),
+    patternSession(2),
+    patternSession(3),
+  ]);
+
+  assert.equal(empty.status, "empty");
+  assert.equal(empty.eligibility.completedSessionCount, 0);
+  assert.equal(building.status, "building");
+  assert.equal(building.eligibility.completedSessionCount, 2);
+  assert.equal(available.status, "available");
+  assert.equal(available.eligibility.completedSessionCount, 3);
+});
+
+test("long-term overview uses valid actual durations and chronological start timestamps without mutation", () => {
+  const sessions = [
+    patternSession(3, { startedAt: "bad-date", actualDurationMs: 20 * 60000 }),
+    patternSession(1, { startedAt: "2026-01-03T09:00:00.000Z", actualDurationMs: 0, targetDurationMs: 99 * 60000 }),
+    patternSession(2, { startedAt: "2026-01-01T09:00:00.000Z", actualDurationMs: 40 * 60000 }),
+    patternSession(4, { startedAt: "2026-01-02T09:00:00.000Z", actualDurationMs: Number.NaN, targetDurationMs: 120 * 60000 }),
+  ];
+  const before = JSON.stringify(sessions);
+  const model = selectLongTermSessionPatterns(sessions);
+
+  assert.equal(model.overview.totalStudyDuration, 60 * 60000);
+  assert.equal(model.overview.medianSessionDuration, 20 * 60000);
+  assert.equal(model.overview.sessionsWithValidDuration, 3);
+  assert.equal(model.overview.dateRange.start, "2026-01-01T09:00:00.000Z");
+  assert.equal(model.overview.dateRange.end, "2026-01-03T09:00:00.000Z");
+  assert.doesNotMatch(JSON.stringify(model), /Invalid Date|NaN|Infinity/);
+  assert.equal(JSON.stringify(sessions), before);
+});
+
+test("long-term context breakdowns preserve custom labels, classify dayparts, and avoid single winners on ties", () => {
+  assert.deepEqual(classifySessionDaypart("2026-01-01T05:00:00.000"), { key: "morning", label: "Morning" });
+  assert.deepEqual(classifySessionDaypart("2026-01-01T12:00:00.000"), { key: "afternoon", label: "Afternoon" });
+  assert.deepEqual(classifySessionDaypart("2026-01-01T17:00:00.000"), { key: "evening", label: "Evening" });
+  assert.deepEqual(classifySessionDaypart("2026-01-01T22:00:00.000"), { key: "night", label: "Night" });
+  assert.deepEqual(classifySessionDaypart("2026-01-01T04:59:00.000"), { key: "night", label: "Night" });
+
+  const model = selectLongTermSessionPatterns([
+    patternSession(1, {
+      startedAt: "2026-01-01T05:00:00.000",
+      subject: "other",
+      customSubject: "Very Long Custom Subject Label That Should Remain Intact",
+      taskType: "other",
+      customTaskType: "Custom Research Memo",
+      postSessionCheckOut: { strategiesUsed: ["none_or_unsure"], primaryStrategy: null },
+    }),
+    patternSession(2, {
+      startedAt: "2026-01-01T12:00:00.000",
+      subject: "physics",
+      taskType: "reading",
+      postSessionCheckOut: { strategiesUsed: ["organization"], primaryStrategy: "organization" },
+    }),
+    patternSession(3, {
+      startedAt: "2026-01-01T17:00:00.000",
+      subject: "physics",
+      taskType: "reading",
+      postSessionCheckOut: { strategiesUsed: ["organization"], primaryStrategy: "organization" },
+    }),
+    patternSession(4, {
+      startedAt: "2026-01-01T22:00:00.000",
+      subject: "mathematics",
+      taskType: "review",
+    }),
+    patternSession(5, {
+      startedAt: "2026-01-02T05:00:00.000",
+      subject: "mathematics",
+      taskType: "review",
+    }),
+  ]);
+
+  assert.ok(model.contextBreakdowns.subjects.rows.some((row) => row.label === "Very Long Custom Subject Label That Should Remain Intact"));
+  assert.ok(model.contextBreakdowns.taskTypes.rows.some((row) => row.label === "Custom Research Memo"));
+  assert.equal(model.contextBreakdowns.dayparts.mostFrequent, null);
+  assert.ok(model.contextBreakdowns.primaryStrategies.rows.some((row) => row.key === "none_or_unsure" && row.label === "None / Not sure"));
+});
+
+test("long-term learner history uses median ratings on the 1-5 scale and omits sparse metrics", () => {
+  const model = selectLongTermSessionPatterns([
+    patternSession(1, { postSessionCheckOut: { goalAttainment: 1, perceivedAttention: 0, sessionMood: null } }),
+    patternSession(2, { postSessionCheckOut: { goalAttainment: 5, sessionMood: 4 } }),
+    patternSession(3, { postSessionCheckOut: { goalAttainment: 3, sessionMood: 5 } }),
+    patternSession(4, { postSessionCheckOut: { goalAttainment: null, sessionMood: 3 } }),
+  ]);
+  const goal = model.learnerReported.metrics.find((metric) => metric.key === "goalAttainment");
+  const attention = model.learnerReported.metrics.find((metric) => metric.key === "perceivedAttention");
+  const mood = model.learnerReported.metrics.find((metric) => metric.key === "sessionMood");
+
+  assert.equal(goal.medianRating, 3);
+  assert.equal(goal.responseCount, 3);
+  assert.equal(goal.scaleLabel, "1-5 learner rating");
+  assert.equal(attention, undefined);
+  assert.equal(mood.medianRating, 4);
+  assert.deepEqual(model.learnerReported.series.goalAttainment.map((point) => point.value), [1, 5, 3]);
+});
+
+test("long-term model history uses persisted statistics, keeps scales, and preserves finite zero values", () => {
+  const model = selectLongTermSessionPatterns([
+    patternSession(1, { statistics: { attention: { mean: 0 }, fatigue: { mean: 10 }, valence: { mean: 0 }, arousal: { mean: 0.2 }, dataCoverage: 0.5 } }),
+    patternSession(2, { statistics: { attention: { mean: 50 }, fatigue: { mean: 20 }, valence: { mean: 0.5 }, arousal: { mean: 0.4 }, dataCoverage: 0.6 } }),
+    patternSession(3, { statistics: { attention: { mean: 100 }, fatigue: { mean: 30 }, valence: { mean: -0.5 }, arousal: { mean: 0 }, dataCoverage: 0.7 } }),
+    patternSession(4, { statistics: { attention: { mean: Number.NaN }, fatigue: { mean: null }, valence: { mean: Infinity }, arousal: { mean: undefined }, dataCoverage: 0.8 } }),
+  ]);
+  const attention = model.modelObserved.metrics.find((metric) => metric.key === "attention");
+  const valence = model.modelObserved.metrics.find((metric) => metric.key === "valence");
+
+  assert.equal(attention.meanValue, 50);
+  assert.equal(attention.sessionCount, 3);
+  assert.equal(attention.scaleLabel, "0-100 estimated signal");
+  assert.deepEqual(model.modelObserved.series.attention.map((point) => point.value), [0, 50, 100]);
+  assert.equal(valence.meanValue, 0);
+  assert.equal(valence.scaleLabel, "-1 to 1 estimated signal");
+  assert.doesNotMatch(JSON.stringify(model), /NaN|Infinity/);
+});
+
+test("zero coverage blocks model patterns while missing coverage remains distinguishable", () => {
+  const zeroCoverage = selectLongTermSessionPatterns([
+    patternSession(1, { dataCoverage: 0, statistics: { attention: { mean: 0 } } }),
+    patternSession(2, { dataCoverage: 0, statistics: { attention: { mean: 50 } } }),
+    patternSession(3, { dataCoverage: 0, statistics: { attention: { mean: 100 } } }),
+  ]);
+  const missingCoverage = selectLongTermSessionPatterns([
+    patternSession(1, { dataCoverage: null, statistics: { attention: { mean: 0 } } }),
+    patternSession(2, { dataCoverage: null, statistics: { attention: { mean: 50 } } }),
+    patternSession(3, { dataCoverage: null, statistics: { attention: { mean: 100 } } }),
+  ]);
+
+  assert.deepEqual(zeroCoverage.modelObserved.metrics, []);
+  assert.equal(zeroCoverage.modelObserved.coverage.zeroCoverageCount, 3);
+  assert.equal(missingCoverage.modelObserved.metrics.find((metric) => metric.key === "attention").meanValue, 50);
+  assert.equal(missingCoverage.modelObserved.coverage.unknownCount, 3);
+  assert.equal(missingCoverage.modelObserved.coverage.knownCount, 0);
+});
+
+test("coverage alone and missing statistics do not remove useful session-record or learner history", () => {
+  const recordOnly = selectLongTermSessionPatterns([
+    patternSession(1, { dataCoverage: 0 }),
+    patternSession(2, { dataCoverage: 0 }),
+    patternSession(3, { dataCoverage: 0 }),
+  ]);
+  const learnerOnly = selectLongTermSessionPatterns([
+    patternSession(1, { postSessionCheckOut: { perceivedFatigue: 1 } }),
+    patternSession(2, { postSessionCheckOut: { perceivedFatigue: 3 } }),
+    patternSession(3, { postSessionCheckOut: { perceivedFatigue: 5 } }),
+  ]);
+
+  assert.equal(recordOnly.status, "available");
+  assert.equal(recordOnly.contextBreakdowns.subjects.rows.length > 0, true);
+  assert.deepEqual(recordOnly.modelObserved.metrics, []);
+  assert.equal(learnerOnly.learnerReported.metrics.find((metric) => metric.key === "perceivedFatigue").medianRating, 3);
+  assert.deepEqual(learnerOnly.modelObserved.metrics, []);
+});
+
+test("long-term patterns contain no combined scores, deltas, correlations, predictions, or composite fields", () => {
+  const model = selectLongTermSessionPatterns([
+    patternSession(1, { postSessionCheckOut: { goalAttainment: 1 }, statistics: { attention: { mean: 0 }, dataCoverage: 0.5 } }),
+    patternSession(2, { postSessionCheckOut: { goalAttainment: 3 }, statistics: { attention: { mean: 50 }, dataCoverage: 0.5 } }),
+    patternSession(3, { postSessionCheckOut: { goalAttainment: 5 }, statistics: { attention: { mean: 100 }, dataCoverage: 0.5 } }),
+  ]);
+  const keys = collectObjectKeys(model);
+  const forbiddenKeys = [
+    "agreement",
+    "alignment",
+    "delta",
+    "difference",
+    "normalizedScore",
+    "compositeScore",
+    "discrepancy",
+    "correlation",
+    "regression",
+    "prediction",
+  ];
+
+  forbiddenKeys.forEach((key) => {
+    assert.equal(keys.includes(key), false);
+  });
+  assert.equal(new Set(model.modelObserved.series.attention.map((point) => point.sessionId)).size, 3);
+  assert.doesNotMatch(JSON.stringify(model), /agreement score|alignment score|correlation|regression|prediction|composite learning score|best study time|best strategy/i);
+});
+
+test("long-term pattern derivation is deterministic and does not mutate input", () => {
+  const sessions = [
+    patternSession(2, { postSessionCheckOut: { goalAttainment: 5 } }),
+    patternSession(1, { postSessionCheckOut: { goalAttainment: 1 } }),
+    patternSession(3, { postSessionCheckOut: { goalAttainment: 3 } }),
+  ];
+  const before = JSON.stringify(sessions);
+
+  assert.deepEqual(selectLongTermSessionPatterns(sessions), selectLongTermSessionPatterns(sessions));
+  assert.equal(JSON.stringify(sessions), before);
 });
 
 test("learner-observed comparison maps full learner report to persisted session statistics", () => {
