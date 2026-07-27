@@ -38,6 +38,7 @@ import {
   selectDashboardSessionSource,
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
+  selectSessionScopedMetricSamples,
   selectSessionSelfReportAnalysis,
   skipBreak,
   startBreakExtension,
@@ -166,6 +167,25 @@ test("dashboard completed card latest values and trends use chronological sample
   assert.equal(attention.currentValue, 30);
   assert.equal(attention.trend, "increasing");
   assert.equal(valence.trend, "stable");
+});
+
+test("session-scoped metric sample selector rejects stale samples from another session", () => {
+  const currentSamples = [
+    { id: "current-1", sessionId: "current-session", attention: 80 },
+    { id: "current-2", sessionId: "current-session", attention: 70 },
+  ];
+  const staleSamples = [
+    { id: "stale-1", sessionId: "previous-session", attention: 30 },
+  ];
+  const mixedSamples = [
+    ...currentSamples,
+    { id: "mixed-stale", sessionId: "previous-session", attention: 10 },
+  ];
+
+  assert.deepEqual(selectSessionScopedMetricSamples(currentSamples, "current-session"), currentSamples);
+  assert.deepEqual(selectSessionScopedMetricSamples(staleSamples, "current-session"), []);
+  assert.deepEqual(selectSessionScopedMetricSamples(mixedSamples, "current-session"), []);
+  assert.deepEqual(selectSessionScopedMetricSamples(currentSamples, null), []);
 });
 
 test("session trend thresholds have one exported source of truth", () => {
@@ -374,16 +394,20 @@ test("complete pre/post self-report data produces a structured analysis view mod
     "targetDurationMs",
     "actualDurationMs",
   ]);
-  assert.deepEqual(analysis.goalOutcome.outcomeItems.map((item) => item.key), [
-    "goalAttainment",
-    "learningReflection",
-    "nextSessionAdjustment",
-  ]);
+  assert.deepEqual(analysis.goalOutcome.outcomeItems.map((item) => item.key), ["goalAttainment"]);
   assert.equal(analysis.expectationExperience.difficulty.comparison.outcome, "higher");
   assert.match(analysis.expectationExperience.difficulty.comparison.caution, /not be interpreted directly as a learning gain/i);
   assert.equal(analysis.motivationalContext.available, true);
   assert.equal(analysis.learningStrategy.primaryStrategy, "organization");
   assert.deepEqual(analysis.learningStrategy.otherStrategies, ["rehearsal", "elaboration"]);
+  assert.deepEqual(analysis.learningStrategy.items.map((item) => item.key), [
+    "primaryStrategy",
+    "primaryStrategyEffectiveness",
+    "otherStrategies",
+    "primaryLearningActivity",
+    "learningReflection",
+    "nextSessionAdjustment",
+  ]);
 });
 
 test("difficulty comparison reports lower, equal, and higher experience outcomes", () => {
@@ -405,6 +429,71 @@ test("difficulty comparison reports lower, equal, and higher experience outcomes
   assert.equal(higher.expectationExperience.difficulty.comparison.description, "The task felt harder than expected.");
 });
 
+test("pre-session-only data does not generate post-session comparison analysis", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession({
+    preSessionCheckIn: {
+      expectedDifficulty: 4,
+      taskConfidence: 3,
+      mood: 2,
+      energy: 5,
+      taskValue: 4,
+    },
+    postSessionCheckOut: {
+      sessionEnergy: null,
+      sessionMood: null,
+      perceivedFatigue: null,
+      perceivedAttention: null,
+      perceivedDifficulty: null,
+      goalAttainment: null,
+      strategiesUsed: [],
+      primaryStrategy: null,
+      primaryStrategyEffectiveness: null,
+      primaryLearningActivity: null,
+      learningReflection: null,
+      nextSessionAdjustment: null,
+    },
+  }));
+
+  assert.equal(analysis.hasPreSessionData, true);
+  assert.equal(analysis.hasPostSessionReflection, false);
+  assert.equal(analysis.expectationExperience.difficulty.expected, 4);
+  assert.equal(analysis.expectationExperience.difficulty.perceived, null);
+  assert.equal(analysis.expectationExperience.difficulty.comparison, null);
+  assert.equal(analysis.expectationExperience.confidenceGoal.goalAttainment, null);
+  assert.doesNotMatch(JSON.stringify(analysis.expectationExperience), /Unavailable|NaN|0\/5|3\/5/i);
+});
+
+test("single-sided ratings stay as one saved value without fabricated paired values", () => {
+  const onlyPerceived = selectSessionSelfReportAnalysis(selfReportSession({
+    preSessionCheckIn: {
+      expectedDifficulty: null,
+      taskConfidence: null,
+      mood: null,
+      energy: null,
+      taskValue: null,
+    },
+    postSessionCheckOut: {
+      perceivedDifficulty: 5,
+      sessionMood: 2,
+      sessionEnergy: null,
+      strategiesUsed: [],
+    },
+  }));
+
+  assert.equal(onlyPerceived.expectationExperience.difficulty.expected, null);
+  assert.equal(onlyPerceived.expectationExperience.difficulty.perceived, 5);
+  assert.equal(onlyPerceived.expectationExperience.difficulty.comparison, null);
+  assert.deepEqual(onlyPerceived.expectationExperience.mood, {
+    beforeSession: null,
+    overallSessionExperience: 2,
+  });
+  assert.deepEqual(onlyPerceived.expectationExperience.energy, {
+    beforeSession: null,
+    overallSessionExperience: null,
+  });
+  assert.doesNotMatch(JSON.stringify(onlyPerceived.expectationExperience), /Unavailable|NaN|improved|declined|\+1|-1|percentage change/i);
+});
+
 test("mood and energy remain before-session and overall-experience values without deltas", () => {
   const analysis = selectSessionSelfReportAnalysis(selfReportSession());
 
@@ -421,6 +510,22 @@ test("mood and energy remain before-session and overall-experience values withou
   assert.doesNotMatch(JSON.stringify(analysis.expectationExperience), /improved|declined|\+1|-1|percentage change/i);
 });
 
+test("none or not sure strategy selection remains neutral without strategy cards", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession({
+    postSessionCheckOut: {
+      strategiesUsed: ["none_or_unsure"],
+      primaryStrategy: null,
+      primaryStrategyEffectiveness: null,
+    },
+  }));
+
+  assert.equal(analysis.learningStrategy.available, true);
+  assert.equal(analysis.learningStrategy.primaryStrategy, null);
+  assert.deepEqual(analysis.learningStrategy.otherStrategies, []);
+  assert.equal(analysis.learningStrategy.items.length, 0);
+  assert.match(analysis.learningStrategy.note, /no negative judgment/i);
+});
+
 test("primary strategy is excluded from other strategies", () => {
   const analysis = selectSessionSelfReportAnalysis(selfReportSession({
     postSessionCheckOut: {
@@ -433,6 +538,21 @@ test("primary strategy is excluded from other strategies", () => {
   assert.equal(analysis.learningStrategy.primaryStrategy, "organization");
   assert.deepEqual(analysis.learningStrategy.otherStrategies, ["elaboration", "rehearsal"]);
   assert.equal(analysis.learningStrategy.otherStrategies.includes("organization"), false);
+});
+
+test("custom subject and task type values remain available in self-report analysis", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession({
+    subject: "other",
+    customSubject: "Astronomy lab",
+    taskType: "other",
+    customTaskType: "Poster critique",
+  }));
+
+  const subject = analysis.goalOutcome.contextItems.find((item) => item.key === "subject");
+  const taskType = analysis.goalOutcome.contextItems.find((item) => item.key === "taskType");
+
+  assert.equal(subject.value, "Astronomy lab");
+  assert.equal(taskType.value, "Poster critique");
 });
 
 test("skipping the reflection returns an unavailable post-session state without failure semantics", () => {

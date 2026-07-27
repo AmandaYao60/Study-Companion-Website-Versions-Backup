@@ -81,7 +81,7 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
           <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/40 p-8 text-center text-sm text-slate-400">Loading session history...</div>
         ) : (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {detailRows.map(([label, value]) => (
                 <div key={label} className="rounded-xl border border-white/10 bg-slate-900/45 p-3">
                   <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
@@ -89,8 +89,6 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
                 </div>
               ))}
             </div>
-
-            <SessionSelfReportPanel session={session} variant="modal" />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <BehavioralEngagementChart samples={samples} mode="historical" />
@@ -128,6 +126,8 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
                 <span>Summary: {session.summaryAlgorithmVersion}</span>
               </div>
             </div>
+
+            <SessionSelfReportPanel session={session} variant="modal" />
           </div>
         )}
       </section>

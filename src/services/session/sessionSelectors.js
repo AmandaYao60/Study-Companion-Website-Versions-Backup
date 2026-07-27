@@ -185,6 +185,14 @@ export const selectMetricAverages = (samples = []) => ({
   arousal: meanFinite(samples.map((sample) => sample.arousal)),
 });
 
+/** Return samples only when they all belong to the requested session. @param {Array<Object>} samples @param {string|null} sessionId */
+export const selectSessionScopedMetricSamples = (samples = [], sessionId = null) => {
+  if (!sessionId) return [];
+  const rows = Array.isArray(samples) ? samples : [];
+  if (rows.length === 0) return [];
+  return rows.every((sample) => sample?.sessionId === sessionId) ? rows : [];
+};
+
 /** @param {Array<Object>} samples */
 export const selectEmotionalMeanPoint = (samples = []) => {
   const trajectory = selectEmotionalTrajectory(samples);
@@ -302,8 +310,6 @@ export const selectSessionSelfReportAnalysis = (session = null) => {
   ]);
   const goalOutcomeItems = isCompleted ? compactItems([
     analysisItem("goalAttainment", "Goal attainment - learner-reported", goalAttainment, "rating"),
-    analysisItem("learningReflection", "Learning reflection", cleanText(post.learningReflection), "longText"),
-    analysisItem("nextSessionAdjustment", "Next-session adjustment", cleanText(post.nextSessionAdjustment), "longText"),
   ]) : [];
   const initialCheckInItems = compactItems([
     analysisItem("expectedDifficulty", "Expected difficulty", expectedDifficulty, "rating"),

@@ -484,7 +484,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 <button
                   type="button"
                   onClick={() => setShowCameraDialog(true)}
-                  className="mt-4 rounded-lg  from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400 focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                  className="mt-4 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400 focus:outline-none focus:ring-2 focus:ring-cyan-300"
                 >
                   Enable Camera
                 </button>

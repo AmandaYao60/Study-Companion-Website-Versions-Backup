@@ -15,7 +15,7 @@ const isProvided = (value) => (
   && !(Array.isArray(value) && value.length === 0)
 );
 
-const formatRating = (value) => (Number.isInteger(value) ? `${value}/5` : "Unavailable");
+const formatRating = (value) => (Number.isInteger(value) ? `${value}/5` : null);
 
 const formatValue = (item) => {
   if (!item) return null;
@@ -35,9 +35,10 @@ const formatValue = (item) => {
 
 function Section({ title, subtitle, children, variant = "default" }) {
   const padding = variant === "modal" ? "p-4" : "p-5";
+  const HeadingTag = variant === "modal" ? "h3" : "h2";
   return (
     <section className={`rounded-2xl border border-white/10 bg-slate-950/40 ${padding} shadow-2xl backdrop-blur-xl`}>
-      <h2 className="text-sm font-bold uppercase tracking-wider text-white">{title}</h2>
+      <HeadingTag className="text-sm font-bold uppercase tracking-wider text-white">{title}</HeadingTag>
       {subtitle && <p className="mt-1 text-xs leading-relaxed text-slate-500">{subtitle}</p>}
       <div className="mt-4 space-y-3">{children}</div>
     </section>
@@ -86,18 +87,23 @@ function FieldGrid({ items, highlightKeys = [] }) {
 
 function RatingPair({ title, before, overall }) {
   if (!Number.isInteger(before) && !Number.isInteger(overall)) return null;
+  const columns = Number.isInteger(before) && Number.isInteger(overall) ? "sm:grid-cols-2" : "sm:grid-cols-1";
   return (
     <div className="rounded-xl border border-white/10 bg-slate-900/45 p-3">
       <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{title}</p>
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Before session</p>
-          <p className="mt-1 text-sm font-semibold text-slate-100">{formatRating(before)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Overall session experience</p>
-          <p className="mt-1 text-sm font-semibold text-slate-100">{formatRating(overall)}</p>
-        </div>
+      <div className={`mt-3 grid grid-cols-1 gap-3 ${columns}`}>
+        {Number.isInteger(before) && (
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Before session</p>
+            <p className="mt-1 text-sm font-semibold text-slate-100">{formatRating(before)}</p>
+          </div>
+        )}
+        {Number.isInteger(overall) && (
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Overall session experience</p>
+            <p className="mt-1 text-sm font-semibold text-slate-100">{formatRating(overall)}</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -128,7 +134,7 @@ export default function SessionSelfReportPanel({ session, variant = "default" })
       <Section
         title="Session Goal & Outcome"
         subtitle={analysis.isCompleted
-          ? "Learner-reported goal and reflection details for this completed session."
+          ? "Task context and learner-reported goal outcome for this completed session."
           : "Current task context and available initial check-in details for this session."}
         variant={variant}
       >

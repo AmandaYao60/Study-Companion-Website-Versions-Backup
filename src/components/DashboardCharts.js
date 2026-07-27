@@ -7,6 +7,7 @@ import {
   selectDashboardMetricCards,
   selectDashboardSessionSource,
   selectSessionHistoryRows,
+  selectSessionScopedMetricSamples,
 } from "../services/session/index.js";
 import BehavioralEngagementChart from "./dashboard/BehavioralEngagementChart";
 import DashboardMetricCards from "./dashboard/DashboardMetricCards";
@@ -117,12 +118,17 @@ export default function DashboardCharts() {
   }, []);
 
   const isCurrentSessionSource = source.kind === "active" || source.kind === "paused";
+  const completedSourceMatchesLatest = completedSourceSession?.id === latestCompletedSessionId;
   const sessionForPanels = isCurrentSessionSource
     ? activeSession
-    : completedSourceSession?.id === latestCompletedSessionId
+    : completedSourceMatchesLatest
       ? completedSourceSession
       : source.session;
-  const sourceSamples = isCurrentSessionSource ? activeSessionSamples : completedSourceSamples;
+  const sourceSamples = isCurrentSessionSource
+    ? activeSessionSamples
+    : completedSourceMatchesLatest
+      ? selectSessionScopedMetricSamples(completedSourceSamples, latestCompletedSessionId)
+      : [];
   const currentMetrics = source.kind === "active"
     ? {
       attention,
@@ -159,8 +165,6 @@ export default function DashboardCharts() {
 
       {sessionForPanels && (
         <>
-          <SessionSelfReportPanel session={sessionForPanels} />
-
           <DashboardMetricCards cards={metricCards} />
 
           <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
@@ -176,6 +180,8 @@ export default function DashboardCharts() {
           <MetricStreamTable rows={sourceSamples} mode={chartMode} />
 
           <SessionSummaryPanel session={sessionForPanels} sourceLabel={source.label} />
+
+          <SessionSelfReportPanel session={sessionForPanels} />
         </>
       )}
 
