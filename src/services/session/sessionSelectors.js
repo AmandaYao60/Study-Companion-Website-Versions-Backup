@@ -1,4 +1,9 @@
-import { DEFAULT_METRIC_TREND_THRESHOLDS, EMOTION_LABELS, SESSION_STATUS } from "./sessionConstants.js";
+import {
+  DEFAULT_METRIC_TREND_THRESHOLDS,
+  EMOTION_LABELS,
+  SESSION_STATUS,
+  SESSION_SUMMARY_ALGORITHM_VERSION,
+} from "./sessionConstants.js";
 import { calculateMetricStatistics, calculateSessionStatistics } from "./sessionStatistics.js";
 import {
   formatLearningActivityLabel,
@@ -558,19 +563,72 @@ export const selectDashboardMetricCards = ({ session = null, samples = [], curre
   });
 };
 
-/** Return structured summary sections in a stable render order. @param {Object|null} session */
+const evidenceAwareSummaryKeys = Object.freeze([
+  ["goalOutcome", "Goal & Outcome"],
+  ["experienceDifficulty", "Experience & Difficulty"],
+  ["observedStudySignals", "Observed Study Signals"],
+  ["learningApproach", "Learning Approach"],
+  ["reflectionNextSession", "Reflection & Next Session"],
+  ["summaryUnavailable", "Summary Unavailable"],
+]);
+const legacySummaryKeys = Object.freeze([
+  ["behavioralEngagement", "Behavioral Engagement"],
+  ["fatiguePattern", "Fatigue Pattern"],
+  ["emotionalEngagement", "Emotional Engagement"],
+  ["dataReliability", "Data Reliability"],
+  ["overallStatus", "Overall Status"],
+]);
+const isEvidenceAwareSummary = (summary = null) => (
+  summary?.summaryVersion === 2 && summary?.algorithmVersion === SESSION_SUMMARY_ALGORITHM_VERSION
+);
+
+/** Return summary sections in a stable render order while preserving saved legacy summaries. @param {Object|null} session */
 export const selectSessionSummarySections = (session = null) => {
   const summary = session?.summary;
   if (!summary) return [];
-  return [
-    ["behavioralEngagement", "Behavioral Engagement"],
-    ["fatiguePattern", "Fatigue Pattern"],
-    ["emotionalEngagement", "Emotional Engagement"],
-    ["dataReliability", "Data Reliability"],
-    ["overallStatus", "Overall Status"],
-  ]
+  const orderedKeys = isEvidenceAwareSummary(summary) ? evidenceAwareSummaryKeys : legacySummaryKeys;
+  return orderedKeys
     .map(([key, fallbackTitle]) => ({ key, fallbackTitle, section: summary[key] }))
     .filter((item) => item.section);
+};
+
+/** Return presentation metadata for saved, provisional, and legacy summaries. @param {Object|null} session */
+export const selectSessionSummaryPresentation = (session = null) => {
+  const sections = selectSessionSummarySections(session);
+  const isActive = session?.status === SESSION_STATUS.ACTIVE || session?.status === SESSION_STATUS.PAUSED;
+  const summary = session?.summary || null;
+  const isEvidenceAware = isEvidenceAwareSummary(summary);
+  const hasLegacySummary = Boolean(summary) && !isEvidenceAware;
+
+  if (isActive) {
+    return {
+      title: "Provisional Observed Study Signals",
+      subtitle: "This session is still in progress. Final observed-signal summary is generated after ending the session.",
+      emptyMessage: "This session is still in progress. A reliable final summary will appear after the session is ended.",
+      kind: "provisional",
+      sections: [],
+    };
+  }
+
+  if (isEvidenceAware) {
+    return {
+      title: "Evidence-aware Session Summary",
+      subtitle: "Deterministic summary that separates Session records, learner reports, model observations, cautious interpretations, and data limitations.",
+      emptyMessage: "No evidence-aware summary is available for this completed session.",
+      kind: "evidence-aware",
+      sections,
+    };
+  }
+
+  return {
+    title: "Observed Study Signals",
+    subtitle: hasLegacySummary
+      ? "Legacy model-estimated signal summary saved with this Session; it is not presented as an evidence-aware Summary v2."
+      : "No saved evidence-aware Summary v2 is available for this Session.",
+    emptyMessage: session ? "No completed session summary is available yet." : "No completed session summary is available yet.",
+    kind: hasLegacySummary ? "legacy" : "unknown",
+    sections,
+  };
 };
 
 /** Build newest-first rows for the future Session History table. @param {Array<Object>} sessions */

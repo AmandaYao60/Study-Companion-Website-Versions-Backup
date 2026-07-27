@@ -9,6 +9,8 @@ import {
   INDEXED_DB_SESSION_DATABASE,
   INTERRUPTION_REASON,
   SESSION_STATUS,
+  SESSION_SUMMARY_ALGORITHM_VERSION,
+  SUMMARY_EVIDENCE_TYPE,
   aggregateMetricObservations,
   calculateMetricStatistics,
   calculateSessionStatistics,
@@ -41,6 +43,8 @@ import {
   selectLearnerObservedSignalComparison,
   selectSessionScopedMetricSamples,
   selectSessionSelfReportAnalysis,
+  selectSessionSummaryPresentation,
+  selectSessionSummarySections,
   skipBreak,
   startBreakExtension,
   sortSessionsByNewest,
@@ -207,11 +211,15 @@ test("session trend thresholds have one exported source of truth", () => {
   assert.equal(statistics.valence.trend, "stable");
 });
 
-test("summary generation becomes cautious when coverage is insufficient", () => {
+test("summary generation marks observed signals as limited when coverage is insufficient", () => {
   const statistics = calculateSessionStatistics([], { id: "session-1" });
   const summary = generateSessionSummary({ statistics, now: () => baseTime });
-  assert.equal(summary.overallStatus.confidence, "insufficient");
-  assert.match(summary.overallStatus.message, /not enough valid data/i);
+  assert.equal(summary.summaryVersion, 2);
+  assert.equal(summary.observedStudySignals.confidence, "insufficient");
+  assert.ok(summary.observedStudySignals.evidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION
+    && /below the existing minimum threshold|statistics are unavailable/i.test(item.message)
+  )));
 });
 
 test("memory repository separates session summaries from samples and deletes samples with sessions", async () => {
@@ -404,6 +412,261 @@ const collectObjectKeys = (value) => {
   if (Array.isArray(value)) return value.flatMap(collectObjectKeys);
   return Object.entries(value).flatMap(([key, nested]) => [key, ...collectObjectKeys(nested)]);
 };
+
+const summaryStatistics = (overrides = {}) => ({
+  dataCoverage: 0.72,
+  attention: { mean: 76 },
+  fatigue: { mean: 24 },
+  valence: { mean: 0.15 },
+  arousal: { mean: -0.1 },
+  ...overrides,
+});
+
+const summaryEvidenceItems = (summary) => Object.values(summary)
+  .filter((value) => value && typeof value === "object" && Array.isArray(value.evidence))
+  .flatMap((section) => section.evidence);
+
+test("evidence-aware summary v2 maps session records, learner reports, model observations, and limitations", () => {
+  const summary = generateSessionSummary({
+    statistics: summaryStatistics({ dataCoverage: 0.4 }),
+    session: selfReportSession(),
+    now: () => baseTime,
+  });
+  const sections = selectSessionSummarySections({
+    status: SESSION_STATUS.COMPLETED,
+    summary,
+  });
+  const evidenceTypes = new Set(summaryEvidenceItems(summary).map((item) => item.type));
+
+  assert.equal(summary.summaryVersion, 2);
+  assert.equal(summary.algorithmVersion, SESSION_SUMMARY_ALGORITHM_VERSION);
+  assert.deepEqual(sections.map((item) => item.key), [
+    "goalOutcome",
+    "experienceDifficulty",
+    "observedStudySignals",
+    "learningApproach",
+    "reflectionNextSession",
+  ]);
+  assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.SESSION_RECORD), true);
+  assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.LEARNER_REPORT), true);
+  assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION), true);
+  assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.CAUTIOUS_INTERPRETATION), true);
+  assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION), true);
+});
+
+test("evidence-aware summary preserves goal, outcome, custom labels, and stored model scales", () => {
+  const summary = generateSessionSummary({
+    statistics: summaryStatistics({
+      attention: { mean: 0 },
+      fatigue: { mean: Number.NaN },
+      valence: { mean: null },
+      arousal: { mean: 0 },
+    }),
+    session: selfReportSession({
+      subject: "other",
+      customSubject: "Astronomy lab",
+      taskType: "other",
+      customTaskType: "Poster critique",
+    }),
+    now: () => baseTime,
+  });
+  const goalEvidence = summary.goalOutcome.evidence;
+  const observedText = JSON.stringify(summary.observedStudySignals);
+
+  assert.ok(goalEvidence.some((item) => item.label === "Subject" && /Astronomy lab/.test(item.message)));
+  assert.ok(goalEvidence.some((item) => item.label === "Task type" && /Poster critique/.test(item.message)));
+  assert.ok(goalEvidence.some((item) => item.label === "Goal attainment" && /4\/5/.test(item.message)));
+  assert.match(observedText, /0%/);
+  assert.match(observedText, /0\.00/);
+  assert.doesNotMatch(observedText, /NaN|undefined|Infinity/);
+});
+
+test("evidence-aware summary includes difficulty context only when both ratings exist", () => {
+  const paired = generateSessionSummary({
+    statistics: null,
+    session: selfReportSession({
+      preSessionCheckIn: { expectedDifficulty: 4 },
+      postSessionCheckOut: { perceivedDifficulty: 2 },
+    }),
+    now: () => baseTime,
+  });
+  const oneSided = generateSessionSummary({
+    statistics: null,
+    session: selfReportSession({
+      preSessionCheckIn: { expectedDifficulty: 4 },
+      postSessionCheckOut: { perceivedDifficulty: null },
+    }),
+    now: () => baseTime,
+  });
+
+  assert.ok(paired.experienceDifficulty.evidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.CAUTIOUS_INTERPRETATION
+    && /easier than expected/i.test(item.message)
+  )));
+  assert.equal(oneSided.experienceDifficulty.evidence.some((item) => item.label === "Difficulty context"), false);
+});
+
+test("evidence-aware summary handles self-report-only and observed-only sessions descriptively", () => {
+  const selfReportOnly = generateSessionSummary({
+    statistics: null,
+    session: selfReportSession(),
+    now: () => baseTime,
+  });
+  const observedOnly = generateSessionSummary({
+    statistics: summaryStatistics(),
+    session: {
+      id: "observed-only",
+      status: SESSION_STATUS.COMPLETED,
+    },
+    now: () => baseTime,
+  });
+
+  assert.ok(selfReportOnly.goalOutcome);
+  assert.ok(selfReportOnly.learningApproach);
+  assert.ok(selfReportOnly.reflectionNextSession);
+  assert.ok(selfReportOnly.observedStudySignals.evidence.some((item) => item.type === SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION));
+  assert.ok(observedOnly.observedStudySignals.evidence.some((item) => item.type === SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION));
+  assert.ok(observedOnly.experienceDifficulty.evidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION
+    && /No learner-reported experience ratings/i.test(item.message)
+  )));
+});
+
+test("skipped reflection remains a neutral limitation in evidence-aware summaries", () => {
+  const summary = generateSessionSummary({
+    statistics: summaryStatistics(),
+    session: selfReportSession({
+      postSessionCheckOut: {
+        sessionEnergy: null,
+        sessionMood: null,
+        perceivedFatigue: null,
+        perceivedAttention: null,
+        perceivedDifficulty: null,
+        goalAttainment: null,
+        strategiesUsed: [],
+        primaryStrategy: null,
+        primaryStrategyEffectiveness: null,
+        primaryLearningActivity: null,
+        learningReflection: null,
+        nextSessionAdjustment: null,
+      },
+    }),
+    now: () => baseTime,
+  });
+  const reflectionText = JSON.stringify(summary.reflectionNextSession);
+
+  assert.match(reflectionText, /No learner reflection or next-session adjustment was saved/i);
+  assert.doesNotMatch(reflectionText, /fail|failure|disengaged|poor performance/i);
+});
+
+test("strategy evidence remains neutral and does not duplicate the primary strategy as another strategy", () => {
+  const summary = generateSessionSummary({
+    statistics: null,
+    session: selfReportSession({
+      postSessionCheckOut: {
+        strategiesUsed: ["none_or_unsure", "organization", "rehearsal"],
+        primaryStrategy: "organization",
+        primaryStrategyEffectiveness: 4,
+        primaryLearningActivity: "reviewed_material",
+      },
+    }),
+    now: () => baseTime,
+  });
+  const otherStrategyEvidence = summary.learningApproach.evidence.find((item) => item.label === "Other strategies");
+
+  assert.match(JSON.stringify(summary.learningApproach), /no negative judgment/i);
+  assert.ok(otherStrategyEvidence);
+  assert.doesNotMatch(otherStrategyEvidence.message, /Organization/i);
+});
+
+test("evidence-aware summary returns one neutral unavailable section when no usable evidence exists", () => {
+  const summary = generateSessionSummary({
+    statistics: null,
+    session: {},
+    now: () => baseTime,
+  });
+  const sections = selectSessionSummarySections({
+    status: SESSION_STATUS.COMPLETED,
+    summary,
+  });
+
+  assert.equal(summary.summaryVersion, 2);
+  assert.deepEqual(sections.map((item) => item.key), ["summaryUnavailable"]);
+  assert.match(sections[0].section.message, /does not contain enough saved evidence/i);
+});
+
+test("summary presentation distinguishes v2, legacy, missing, and provisional summaries without mutation", () => {
+  const v2Summary = generateSessionSummary({
+    statistics: summaryStatistics(),
+    session: selfReportSession(),
+    now: () => baseTime,
+  });
+  const legacySummary = {
+    algorithmVersion: "session-summary-v1",
+    behavioralEngagement: {
+      title: "Behavioral engagement",
+      message: "Legacy saved summary.",
+      confidence: "moderate",
+    },
+  };
+  const legacySession = {
+    id: "legacy-summary",
+    status: SESSION_STATUS.COMPLETED,
+    summary: legacySummary,
+    summaryAlgorithmVersion: "session-summary-v1",
+  };
+  const before = JSON.stringify(legacySession);
+
+  assert.equal(selectSessionSummaryPresentation({
+    status: SESSION_STATUS.COMPLETED,
+    summary: v2Summary,
+  }).kind, "evidence-aware");
+  assert.equal(selectSessionSummaryPresentation(legacySession).kind, "legacy");
+  assert.deepEqual(selectSessionSummarySections(legacySession).map((item) => item.key), ["behavioralEngagement"]);
+  assert.equal(JSON.stringify(legacySession), before);
+  assert.equal(selectSessionSummaryPresentation({ status: SESSION_STATUS.COMPLETED }).kind, "unknown");
+  assert.equal(selectSessionSummaryPresentation({
+    status: SESSION_STATUS.ACTIVE,
+    summary: v2Summary,
+  }).kind, "provisional");
+  assert.deepEqual(selectSessionSummaryPresentation({
+    status: SESSION_STATUS.PAUSED,
+    summary: v2Summary,
+  }).sections, []);
+});
+
+test("evidence-aware summary contains no comparison scores or causal diagnostic claims", () => {
+  const summary = generateSessionSummary({
+    statistics: summaryStatistics(),
+    session: selfReportSession(),
+    now: () => baseTime,
+  });
+  const keys = collectObjectKeys(summary);
+  const forbiddenKeys = [
+    "agreement",
+    "alignment",
+    "delta",
+    "difference",
+    "normalizedScore",
+    "compositeScore",
+    "discrepancy",
+  ];
+
+  forbiddenKeys.forEach((key) => {
+    assert.equal(keys.includes(key), false);
+  });
+  assert.doesNotMatch(JSON.stringify(summary), /diagnos|objective assessment|ground truth|this caused|because of the learner|agreement score|alignment score|composite learning score/i);
+});
+
+test("evidence-aware summary generation is deterministic for the same saved inputs", () => {
+  const input = {
+    statistics: summaryStatistics(),
+    session: selfReportSession(),
+    now: () => baseTime,
+  };
+
+  assert.deepEqual(generateSessionSummary(input), generateSessionSummary(input));
+});
 
 test("learner-observed comparison maps full learner report to persisted session statistics", () => {
   const comparison = selectLearnerObservedSignalComparison(signalComparisonSession());

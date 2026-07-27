@@ -428,7 +428,11 @@ export const createSessionRuntime = (options = {}) => {
       const samples = await repository.getMetricSamples(activeSession.id);
       const statistics = calculateSessionStatistics(samples, sessionForStats);
       const summary = generateSessionSummary({ statistics, session: sessionForStats, now });
-      const completed = createCompletedStudySession(sessionForStats, {
+      const sessionForCompletion = {
+        ...sessionForStats,
+        summaryAlgorithmVersion: summary.algorithmVersion,
+      };
+      const completed = createCompletedStudySession(sessionForCompletion, {
         endedAt,
         actualDurationMs,
         monitoredDurationMs: statistics.monitoredDurationMs,
