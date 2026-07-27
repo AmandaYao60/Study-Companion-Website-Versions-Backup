@@ -5,7 +5,8 @@ import { selectSessionSummarySections } from "../../services/session/index.js";
 import BehavioralEngagementChart from "./BehavioralEngagementChart";
 import EmotionalEngagementChart from "./EmotionalEngagementChart";
 import MetricStreamTable from "./MetricStreamTable";
-import { formatCoverage, formatDateTime, formatDuration, formatMetricValue, formatTargetDuration, formatTask } from "./dashboardFormatters";
+import SessionSelfReportPanel from "./SessionSelfReportPanel";
+import { formatCoverage, formatDateTime, formatMetricValue, formatTask } from "./dashboardFormatters";
 
 const averageFromStats = (session, key) => session?.statistics?.[key]?.mean ?? null;
 
@@ -37,9 +38,6 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
 
   const detailRows = session ? [
     ["Date and time", formatDateTime(session.endedAt || session.startedAt)],
-    ["Study task", formatTask(session.taskDescription)],
-    ["Target duration", formatTargetDuration(session.targetDurationMs)],
-    ["Actual duration", formatDuration(session.actualDurationMs)],
     ["Data coverage", formatCoverage(session.dataCoverage)],
     ["Attention average", `${formatMetricValue(averageFromStats(session, "attention"), "percentage")}${Number.isFinite(averageFromStats(session, "attention")) ? "%" : ""}`],
     ["Fatigue average", `${formatMetricValue(averageFromStats(session, "fatigue"), "percentage")}${Number.isFinite(averageFromStats(session, "fatigue")) ? "%" : ""}`],
@@ -91,6 +89,8 @@ export default function SessionHistoryModal({ session, samples = [], isLoading, 
                 </div>
               ))}
             </div>
+
+            <SessionSelfReportPanel session={session} variant="modal" />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <BehavioralEngagementChart samples={samples} mode="historical" />

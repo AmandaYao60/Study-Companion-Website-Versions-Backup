@@ -38,6 +38,7 @@ import {
   selectDashboardSessionSource,
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
+  selectSessionSelfReportAnalysis,
   skipBreak,
   startBreakExtension,
   sortSessionsByNewest,
@@ -323,6 +324,173 @@ test("post-session reflection normalization preserves partial answers", () => {
   assert.equal(reflection.primaryStrategy, "organization");
   assert.equal(reflection.learningReflection, "Finished chapter notes.");
   assert.equal(reflection.nextSessionAdjustment, null);
+});
+
+const selfReportSession = (overrides = {}) => ({
+  id: "self-report-analysis",
+  status: SESSION_STATUS.COMPLETED,
+  taskName: "Read chapter 8",
+  taskDescription: "Read chapter 8",
+  subject: "computer_science",
+  taskType: "reading",
+  sessionGoal: "Understand dynamic programming examples.",
+  targetDurationMs: 45 * 60000,
+  actualDurationMs: 42 * 60000,
+  preSessionCheckIn: {
+    expectedDifficulty: 3,
+    taskConfidence: 4,
+    mood: 3,
+    energy: 2,
+    taskValue: 5,
+  },
+  postSessionCheckOut: {
+    sessionEnergy: 3,
+    sessionMood: 4,
+    perceivedFatigue: 2,
+    perceivedAttention: 4,
+    perceivedDifficulty: 4,
+    goalAttainment: 4,
+    strategiesUsed: ["rehearsal", "organization", "elaboration"],
+    primaryStrategy: "organization",
+    primaryStrategyEffectiveness: 5,
+    primaryLearningActivity: "generated_new_understanding",
+    learningReflection: "The recurrence relation is clearer now.",
+    nextSessionAdjustment: "Practice two more examples.",
+  },
+  ...overrides,
+});
+
+test("complete pre/post self-report data produces a structured analysis view model", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession());
+
+  assert.equal(analysis.isCompleted, true);
+  assert.equal(analysis.hasPreSessionData, true);
+  assert.equal(analysis.hasPostSessionReflection, true);
+  assert.deepEqual(analysis.goalOutcome.contextItems.map((item) => item.key), [
+    "taskName",
+    "subject",
+    "taskType",
+    "sessionGoal",
+    "targetDurationMs",
+    "actualDurationMs",
+  ]);
+  assert.deepEqual(analysis.goalOutcome.outcomeItems.map((item) => item.key), [
+    "goalAttainment",
+    "learningReflection",
+    "nextSessionAdjustment",
+  ]);
+  assert.equal(analysis.expectationExperience.difficulty.comparison.outcome, "higher");
+  assert.match(analysis.expectationExperience.difficulty.comparison.caution, /not be interpreted directly as a learning gain/i);
+  assert.equal(analysis.motivationalContext.available, true);
+  assert.equal(analysis.learningStrategy.primaryStrategy, "organization");
+  assert.deepEqual(analysis.learningStrategy.otherStrategies, ["rehearsal", "elaboration"]);
+});
+
+test("difficulty comparison reports lower, equal, and higher experience outcomes", () => {
+  const lower = selectSessionSelfReportAnalysis(selfReportSession({
+    preSessionCheckIn: { expectedDifficulty: 4 },
+    postSessionCheckOut: { perceivedDifficulty: 2 },
+  }));
+  const equal = selectSessionSelfReportAnalysis(selfReportSession({
+    preSessionCheckIn: { expectedDifficulty: 3 },
+    postSessionCheckOut: { perceivedDifficulty: 3 },
+  }));
+  const higher = selectSessionSelfReportAnalysis(selfReportSession({
+    preSessionCheckIn: { expectedDifficulty: 2 },
+    postSessionCheckOut: { perceivedDifficulty: 5 },
+  }));
+
+  assert.equal(lower.expectationExperience.difficulty.comparison.description, "The task felt easier than expected.");
+  assert.equal(equal.expectationExperience.difficulty.comparison.description, "The experienced difficulty was close to the initial expectation.");
+  assert.equal(higher.expectationExperience.difficulty.comparison.description, "The task felt harder than expected.");
+});
+
+test("mood and energy remain before-session and overall-experience values without deltas", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession());
+
+  assert.deepEqual(analysis.expectationExperience.mood, {
+    beforeSession: 3,
+    overallSessionExperience: 4,
+  });
+  assert.deepEqual(analysis.expectationExperience.energy, {
+    beforeSession: 2,
+    overallSessionExperience: 3,
+  });
+  assert.equal(Object.hasOwn(analysis.expectationExperience.mood, "delta"), false);
+  assert.equal(Object.hasOwn(analysis.expectationExperience.energy, "change"), false);
+  assert.doesNotMatch(JSON.stringify(analysis.expectationExperience), /improved|declined|\+1|-1|percentage change/i);
+});
+
+test("primary strategy is excluded from other strategies", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession({
+    postSessionCheckOut: {
+      strategiesUsed: ["organization", "elaboration", "organization", "rehearsal"],
+      primaryStrategy: "organization",
+      primaryStrategyEffectiveness: 4,
+    },
+  }));
+
+  assert.equal(analysis.learningStrategy.primaryStrategy, "organization");
+  assert.deepEqual(analysis.learningStrategy.otherStrategies, ["elaboration", "rehearsal"]);
+  assert.equal(analysis.learningStrategy.otherStrategies.includes("organization"), false);
+});
+
+test("skipping the reflection returns an unavailable post-session state without failure semantics", () => {
+  const analysis = selectSessionSelfReportAnalysis(selfReportSession({
+    postSessionCheckOut: {
+      sessionEnergy: null,
+      sessionMood: null,
+      perceivedFatigue: null,
+      perceivedAttention: null,
+      perceivedDifficulty: null,
+      goalAttainment: null,
+      strategiesUsed: [],
+      primaryStrategy: null,
+      primaryStrategyEffectiveness: null,
+      primaryLearningActivity: null,
+      learningReflection: null,
+      nextSessionAdjustment: null,
+    },
+  }));
+
+  assert.equal(analysis.hasPostSessionReflection, false);
+  assert.equal(analysis.goalOutcome.outcomeItems.length, 0);
+  assert.match(analysis.goalOutcome.postUnavailableMessage, /reflection was not completed/i);
+  assert.doesNotMatch(analysis.goalOutcome.postUnavailableMessage, /fail|failure/i);
+});
+
+test("older sessions without self-report fields do not throw or fabricate defaults", () => {
+  assert.doesNotThrow(() => selectSessionSelfReportAnalysis({
+    id: "legacy",
+    status: SESSION_STATUS.COMPLETED,
+    taskDescription: "Legacy session",
+  }));
+
+  const analysis = selectSessionSelfReportAnalysis({
+    id: "legacy",
+    status: SESSION_STATUS.COMPLETED,
+    taskDescription: "Legacy session",
+  });
+  assert.equal(analysis.hasPreSessionData, false);
+  assert.equal(analysis.hasPostSessionReflection, false);
+  assert.equal(analysis.initialCheckIn.items.length, 0);
+  assert.equal(analysis.expectationExperience.difficulty.expected, null);
+  assert.equal(analysis.expectationExperience.difficulty.perceived, null);
+});
+
+test("active and paused sessions do not produce completed-only outcome analysis", () => {
+  [SESSION_STATUS.ACTIVE, SESSION_STATUS.PAUSED].forEach((status) => {
+    const analysis = selectSessionSelfReportAnalysis(selfReportSession({
+      status,
+      accumulatedStudyMs: 5000,
+    }));
+
+    assert.equal(analysis.isCompleted, false);
+    assert.equal(analysis.goalOutcome.outcomeItems.length, 0);
+    assert.equal(analysis.expectationExperience.available, false);
+    assert.equal(analysis.learningStrategy.available, false);
+    assert.match(analysis.goalOutcome.currentSessionMessage, /after the session is completed/i);
+  });
 });
 
 test("session plan normalizes legacy sessions and derives planned break count in milliseconds", () => {

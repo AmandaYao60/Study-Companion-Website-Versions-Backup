@@ -8,6 +8,18 @@ import {
 } from "./sessionSelfReport.js";
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+const isProvided = (value) => (
+  value !== null
+  && value !== undefined
+  && value !== ""
+  && !(Array.isArray(value) && value.length === 0)
+);
+const isIntegerRating = (value) => Number.isInteger(value) && value >= 1 && value <= 5;
+const cleanText = (value) => {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+};
 const timestampMs = (value) => {
   const time = Date.parse(value || "");
   return Number.isFinite(time) ? time : 0;
@@ -23,6 +35,73 @@ const meanFinite = (values = []) => {
   const numbers = values.filter(isFiniteNumber);
   if (numbers.length === 0) return null;
   return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+};
+const ratingValue = (value) => (isIntegerRating(value) ? value : null);
+const hasAnyProvidedValue = (values = []) => values.some(isProvided);
+const compactItems = (items = []) => items.filter((item) => item && isProvided(item.value));
+const analysisItem = (key, label, value, valueKind = "text") => (
+  isProvided(value) ? { key, label, value, valueKind } : null
+);
+const subjectLabel = (session) => {
+  if (session?.subject === "other") return cleanText(session.customSubject) || "Other";
+  if (!session?.subject) return null;
+  const label = formatSubjectLabel(session.subject);
+  return label === "Not provided" ? null : label;
+};
+const taskTypeLabel = (session) => {
+  if (session?.taskType === "other") return cleanText(session.customTaskType) || "Other";
+  if (!session?.taskType) return null;
+  const label = formatTaskTypeLabel(session.taskType);
+  return label === "Not provided" ? null : label;
+};
+const selectedStrategies = (post = {}) => {
+  if (!Array.isArray(post.strategiesUsed)) return [];
+  return Array.from(new Set(post.strategiesUsed.filter((strategy) => (
+    strategy && formatStrategyLabel(strategy) !== "Not provided"
+  ))));
+};
+const postReflectionValues = (post = {}) => [
+  post.sessionEnergy,
+  post.sessionMood,
+  post.perceivedFatigue,
+  post.perceivedAttention,
+  post.perceivedDifficulty,
+  post.goalAttainment,
+  post.primaryStrategy,
+  post.primaryStrategyEffectiveness,
+  post.primaryLearningActivity,
+  post.learningReflection,
+  post.nextSessionAdjustment,
+  selectedStrategies(post),
+];
+const preSessionValues = (pre = {}) => [
+  pre.expectedDifficulty,
+  pre.taskConfidence,
+  pre.mood,
+  pre.energy,
+  pre.taskValue,
+];
+const difficultyComparison = (expectedDifficulty, perceivedDifficulty) => {
+  if (!isIntegerRating(expectedDifficulty) || !isIntegerRating(perceivedDifficulty)) return null;
+  if (perceivedDifficulty < expectedDifficulty) {
+    return {
+      outcome: "lower",
+      description: "The task felt easier than expected.",
+      caution: "This difference may reflect expectation calibration, task conditions, or support received. It should not be interpreted directly as a learning gain or a change in ability.",
+    };
+  }
+  if (perceivedDifficulty > expectedDifficulty) {
+    return {
+      outcome: "higher",
+      description: "The task felt harder than expected.",
+      caution: "This difference may reflect expectation calibration, task conditions, or support received. It should not be interpreted directly as a learning gain or a change in ability.",
+    };
+  }
+  return {
+    outcome: "equal",
+    description: "The experienced difficulty was close to the initial expectation.",
+    caution: "This difference may reflect expectation calibration, task conditions, or support received. It should not be interpreted directly as a learning gain or a change in ability.",
+  };
 };
 
 /** Sort sessions newest first without mutating the input. @param {Array<Object>} sessions */
@@ -180,6 +259,150 @@ export const selectSessionContext = (session = null) => {
     ["Task Type", session.taskType === "other" ? session.customTaskType : formatTaskTypeLabel(session.taskType)],
     ["Session Goal", session.sessionGoal ?? null],
   ];
+};
+
+/** Build a single-session self-report analysis view model without comparing it to model-observed metrics. @param {Object|null} session */
+export const selectSessionSelfReportAnalysis = (session = null) => {
+  if (!session) return null;
+
+  const pre = session.preSessionCheckIn || {};
+  const post = session.postSessionCheckOut || {};
+  const isCompleted = session.status === SESSION_STATUS.COMPLETED;
+  const strategies = selectedStrategies(post);
+  const primaryStrategy = post.primaryStrategy && post.primaryStrategy !== "none_or_unsure"
+    ? post.primaryStrategy
+    : null;
+  const otherStrategies = strategies.filter((strategy) => (
+    strategy !== "none_or_unsure" && strategy !== primaryStrategy
+  ));
+  const selectedNoneOrUnsure = strategies.includes("none_or_unsure");
+  const expectedDifficulty = ratingValue(pre.expectedDifficulty);
+  const perceivedDifficulty = ratingValue(post.perceivedDifficulty);
+  const initialMood = ratingValue(pre.mood);
+  const sessionMood = ratingValue(post.sessionMood);
+  const initialEnergy = ratingValue(pre.energy);
+  const sessionEnergy = ratingValue(post.sessionEnergy);
+  const initialConfidence = ratingValue(pre.taskConfidence);
+  const goalAttainment = ratingValue(post.goalAttainment);
+  const hasPreSessionData = hasAnyProvidedValue(preSessionValues(pre));
+  const hasPostSessionReflection = hasAnyProvidedValue(postReflectionValues(post));
+
+  const goalContextItems = compactItems([
+    analysisItem("taskName", "Task name", cleanText(session.taskName || session.taskDescription)),
+    analysisItem("subject", "Subject", subjectLabel(session)),
+    analysisItem("taskType", "Task type", taskTypeLabel(session)),
+    analysisItem("sessionGoal", "Session goal", cleanText(session.sessionGoal), "longText"),
+    analysisItem("targetDurationMs", "Target duration", session.targetDurationMs, "targetDuration"),
+    analysisItem(
+      "actualDurationMs",
+      isCompleted ? "Actual duration" : "Elapsed duration",
+      session.actualDurationMs ?? session.accumulatedStudyMs,
+      "duration"
+    ),
+  ]);
+  const goalOutcomeItems = isCompleted ? compactItems([
+    analysisItem("goalAttainment", "Goal attainment - learner-reported", goalAttainment, "rating"),
+    analysisItem("learningReflection", "Learning reflection", cleanText(post.learningReflection), "longText"),
+    analysisItem("nextSessionAdjustment", "Next-session adjustment", cleanText(post.nextSessionAdjustment), "longText"),
+  ]) : [];
+  const initialCheckInItems = compactItems([
+    analysisItem("expectedDifficulty", "Expected difficulty", expectedDifficulty, "rating"),
+    analysisItem("taskConfidence", "Initial task confidence", initialConfidence, "rating"),
+    analysisItem("mood", "Initial mood", initialMood, "rating"),
+    analysisItem("energy", "Initial energy", initialEnergy, "rating"),
+    analysisItem("taskValue", "Task value", ratingValue(pre.taskValue), "rating"),
+  ]);
+
+  const expectationExperience = isCompleted ? {
+    available: hasAnyProvidedValue([
+      expectedDifficulty,
+      perceivedDifficulty,
+      initialMood,
+      sessionMood,
+      initialEnergy,
+      sessionEnergy,
+      initialConfidence,
+      goalAttainment,
+    ]),
+    difficulty: {
+      expected: expectedDifficulty,
+      perceived: perceivedDifficulty,
+      comparison: difficultyComparison(expectedDifficulty, perceivedDifficulty),
+    },
+    mood: {
+      beforeSession: initialMood,
+      overallSessionExperience: sessionMood,
+    },
+    energy: {
+      beforeSession: initialEnergy,
+      overallSessionExperience: sessionEnergy,
+    },
+    confidenceGoal: {
+      initialConfidence,
+      goalAttainment,
+      context: isIntegerRating(initialConfidence) && isIntegerRating(goalAttainment)
+        ? "Initial confidence and learner-reported goal attainment describe different constructs within this individual session. Their relationship cannot establish stable overconfidence, underconfidence, or confidence improvement; identifying a stable pattern requires multiple comparable sessions."
+        : null,
+    },
+  } : {
+    available: false,
+    difficulty: { expected: expectedDifficulty, perceived: null, comparison: null },
+    mood: { beforeSession: initialMood, overallSessionExperience: null },
+    energy: { beforeSession: initialEnergy, overallSessionExperience: null },
+    confidenceGoal: { initialConfidence, goalAttainment: null, context: null },
+  };
+
+  const motivationalContextItems = compactItems([
+    analysisItem("taskValue", "Task value", ratingValue(pre.taskValue), "rating"),
+    analysisItem("expectedDifficulty", "Expected difficulty", expectedDifficulty, "rating"),
+    analysisItem("taskConfidence", "Initial task confidence", initialConfidence, "rating"),
+  ]);
+
+  const learningStrategyItems = isCompleted ? compactItems([
+    analysisItem("primaryStrategy", "Primary strategy", primaryStrategy, "strategy"),
+    analysisItem("primaryStrategyEffectiveness", "Primary strategy effectiveness", primaryStrategy ? ratingValue(post.primaryStrategyEffectiveness) : null, "rating"),
+    analysisItem("otherStrategies", "Other strategies used", otherStrategies, "strategyList"),
+    analysisItem("primaryLearningActivity", "Reported primary learning activity", post.primaryLearningActivity, "learningActivity"),
+    analysisItem("learningReflection", "Learning reflection", cleanText(post.learningReflection), "longText"),
+    analysisItem("nextSessionAdjustment", "Next-session adjustment", cleanText(post.nextSessionAdjustment), "longText"),
+  ]) : [];
+
+  return {
+    isCompleted,
+    hasPreSessionData,
+    hasPostSessionReflection,
+    goalOutcome: {
+      contextItems: goalContextItems,
+      outcomeItems: goalOutcomeItems,
+      postUnavailableMessage: isCompleted && !hasPostSessionReflection
+        ? "Post-session reflection was not completed, so learner-reported outcome details are unavailable."
+        : null,
+      currentSessionMessage: !isCompleted
+        ? "Post-session outcome and reflection details become available after the session is completed."
+        : null,
+    },
+    initialCheckIn: {
+      available: hasPreSessionData,
+      items: initialCheckInItems,
+      unavailableMessage: "Initial check-in responses are unavailable for this session.",
+    },
+    expectationExperience,
+    motivationalContext: {
+      available: motivationalContextItems.length > 0,
+      items: motivationalContextItems,
+      context: "These initial appraisals provide context for interpreting the session experience, but they do not determine the cause of the learner's emotions or performance.",
+    },
+    learningStrategy: {
+      available: learningStrategyItems.length > 0 || selectedNoneOrUnsure,
+      primaryStrategy,
+      otherStrategies,
+      selectedNoneOrUnsure,
+      items: learningStrategyItems,
+      note: selectedNoneOrUnsure
+        ? "The learner selected None / Not sure for strategies used; no negative judgment is inferred from that response."
+        : null,
+    },
+  };
 };
 
 export const selectPreSessionCheckIn = (session = null) => session?.preSessionCheckIn || null;

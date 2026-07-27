@@ -159,6 +159,8 @@ export default function DashboardCharts() {
 
       {sessionForPanels && (
         <>
+          <SessionSelfReportPanel session={sessionForPanels} />
+
           <DashboardMetricCards cards={metricCards} />
 
           <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
@@ -174,8 +176,6 @@ export default function DashboardCharts() {
           <MetricStreamTable rows={sourceSamples} mode={chartMode} />
 
           <SessionSummaryPanel session={sessionForPanels} sourceLabel={source.label} />
-
-          <SessionSelfReportPanel session={sessionForPanels} />
         </>
       )}
 
