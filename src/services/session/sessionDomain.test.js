@@ -211,15 +211,14 @@ test("session trend thresholds have one exported source of truth", () => {
   assert.equal(statistics.valence.trend, "stable");
 });
 
-test("summary generation marks observed signals as limited when coverage is insufficient", () => {
+test("empty session statistics alone return the neutral unavailable summary state", () => {
   const statistics = calculateSessionStatistics([], { id: "session-1" });
   const summary = generateSessionSummary({ statistics, now: () => baseTime });
   assert.equal(summary.summaryVersion, 2);
-  assert.equal(summary.observedStudySignals.confidence, "insufficient");
-  assert.ok(summary.observedStudySignals.evidence.some((item) => (
-    item.type === SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION
-    && /below the existing minimum threshold|statistics are unavailable/i.test(item.message)
-  )));
+  assert.equal(summary.algorithmVersion, SESSION_SUMMARY_ALGORITHM_VERSION);
+  assert.equal(summary.summaryUnavailable.confidence, "insufficient");
+  assert.equal(summary.observedStudySignals, undefined);
+  assert.deepEqual(Object.keys(summary).filter((key) => key.endsWith("Signals")), []);
 });
 
 test("memory repository separates session summaries from samples and deletes samples with sessions", async () => {
@@ -436,10 +435,23 @@ test("evidence-aware summary v2 maps session records, learner reports, model obs
     status: SESSION_STATUS.COMPLETED,
     summary,
   });
+  const presentation = selectSessionSummaryPresentation({
+    status: SESSION_STATUS.COMPLETED,
+    summary,
+  });
   const evidenceTypes = new Set(summaryEvidenceItems(summary).map((item) => item.type));
 
   assert.equal(summary.summaryVersion, 2);
   assert.equal(summary.algorithmVersion, SESSION_SUMMARY_ALGORITHM_VERSION);
+  assert.equal(presentation.interpretiveBoundary.title, "Interpretive boundary");
+  assert.deepEqual(presentation.interpretiveBoundary.evidence.map((item) => item.type), [
+    SUMMARY_EVIDENCE_TYPE.CAUTIOUS_INTERPRETATION,
+  ]);
+  assert.match(presentation.interpretiveBoundary.evidence[0].message, /descriptive context|provide context/i);
+  assert.match(presentation.interpretiveBoundary.evidence[0].message, /does not establish clinical conclusions/i);
+  assert.match(presentation.interpretiveBoundary.evidence[0].message, /stable personal patterns/i);
+  assert.match(presentation.interpretiveBoundary.evidence[0].message, /future performance/i);
+  assert.match(presentation.interpretiveBoundary.evidence[0].message, /which evidence source is correct/i);
   assert.deepEqual(sections.map((item) => item.key), [
     "goalOutcome",
     "experienceDifficulty",
@@ -447,6 +459,8 @@ test("evidence-aware summary v2 maps session records, learner reports, model obs
     "learningApproach",
     "reflectionNextSession",
   ]);
+  assert.equal(sections.length, 5);
+  assert.equal(sections.some((item) => item.key === "overallStatus"), false);
   assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.SESSION_RECORD), true);
   assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.LEARNER_REPORT), true);
   assert.equal(evidenceTypes.has(SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION), true);
@@ -478,6 +492,10 @@ test("evidence-aware summary preserves goal, outcome, custom labels, and stored 
   assert.ok(goalEvidence.some((item) => item.label === "Goal attainment" && /4\/5/.test(item.message)));
   assert.match(observedText, /0%/);
   assert.match(observedText, /0\.00/);
+  assert.ok(summary.observedStudySignals.evidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION
+    && /0%|0\.00/.test(item.message)
+  )));
   assert.doesNotMatch(observedText, /NaN|undefined|Infinity/);
 });
 
@@ -529,6 +547,59 @@ test("evidence-aware summary handles self-report-only and observed-only sessions
   assert.ok(observedOnly.experienceDifficulty.evidence.some((item) => (
     item.type === SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION
     && /No learner-reported experience ratings/i.test(item.message)
+  )));
+});
+
+test("evidence-aware summary preserves factual metadata without treating empty statistics as model evidence", () => {
+  const metadataOnly = generateSessionSummary({
+    statistics: {
+      dataCoverage: 0,
+      attention: { mean: null },
+      fatigue: { mean: null },
+      valence: { mean: null },
+      arousal: { mean: null },
+    },
+    session: {
+      id: "metadata-only",
+      status: SESSION_STATUS.COMPLETED,
+      taskName: "Review proofs",
+    },
+    now: () => baseTime,
+  });
+  const observedEvidence = metadataOnly.observedStudySignals.evidence;
+
+  assert.ok(metadataOnly.goalOutcome.evidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.SESSION_RECORD
+    && /Review proofs/.test(item.message)
+  )));
+  assert.ok(observedEvidence.every((item) => item.type === SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION));
+  assert.doesNotMatch(JSON.stringify(metadataOnly), /NaN|undefined|Infinity/);
+});
+
+test("finite model statistics with missing coverage remain useful and add a coverage limitation", () => {
+  const summary = generateSessionSummary({
+    statistics: {
+      attention: { mean: 0 },
+      fatigue: { mean: 25 },
+      valence: { mean: 0 },
+      arousal: { mean: -0.2 },
+    },
+    session: {
+      id: "model-no-coverage",
+      status: SESSION_STATUS.COMPLETED,
+    },
+    now: () => baseTime,
+  });
+  const observedEvidence = summary.observedStudySignals.evidence;
+
+  assert.ok(observedEvidence.some((item) => item.label === "Coverage unavailable"));
+  assert.ok(observedEvidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION
+    && /0%/.test(item.message)
+  )));
+  assert.ok(observedEvidence.some((item) => (
+    item.type === SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION
+    && /0\.00/.test(item.message)
   )));
 });
 
@@ -595,6 +666,38 @@ test("evidence-aware summary returns one neutral unavailable section when no usa
   assert.match(sections[0].section.message, /does not contain enough saved evidence/i);
 });
 
+test("data coverage alone is not substantive evidence for Summary v2", () => {
+  const summaries = [
+    generateSessionSummary({
+      statistics: {},
+      session: {},
+      now: () => baseTime,
+    }),
+    generateSessionSummary({
+      statistics: {
+        dataCoverage: 0,
+        attention: { mean: null },
+        fatigue: { mean: null },
+        valence: { mean: Number.NaN },
+        arousal: { mean: Number.POSITIVE_INFINITY },
+      },
+      session: {},
+      now: () => baseTime,
+    }),
+  ];
+
+  summaries.forEach((summary) => {
+    const sections = selectSessionSummarySections({
+      status: SESSION_STATUS.COMPLETED,
+      summary,
+    });
+    assert.deepEqual(sections.map((item) => item.key), ["summaryUnavailable"]);
+    assert.equal(summary.observedStudySignals, undefined);
+    assert.equal(summary.experienceDifficulty, undefined);
+    assert.doesNotMatch(JSON.stringify(summary), /NaN|undefined|Infinity/);
+  });
+});
+
 test("summary presentation distinguishes v2, legacy, missing, and provisional summaries without mutation", () => {
   const v2Summary = generateSessionSummary({
     statistics: summaryStatistics(),
@@ -617,22 +720,33 @@ test("summary presentation distinguishes v2, legacy, missing, and provisional su
   };
   const before = JSON.stringify(legacySession);
 
-  assert.equal(selectSessionSummaryPresentation({
+  const v2Presentation = selectSessionSummaryPresentation({
     status: SESSION_STATUS.COMPLETED,
     summary: v2Summary,
-  }).kind, "evidence-aware");
-  assert.equal(selectSessionSummaryPresentation(legacySession).kind, "legacy");
-  assert.deepEqual(selectSessionSummarySections(legacySession).map((item) => item.key), ["behavioralEngagement"]);
-  assert.equal(JSON.stringify(legacySession), before);
-  assert.equal(selectSessionSummaryPresentation({ status: SESSION_STATUS.COMPLETED }).kind, "unknown");
-  assert.equal(selectSessionSummaryPresentation({
+  });
+  const legacyPresentation = selectSessionSummaryPresentation(legacySession);
+  const missingPresentation = selectSessionSummaryPresentation({ status: SESSION_STATUS.COMPLETED });
+  const activePresentation = selectSessionSummaryPresentation({
     status: SESSION_STATUS.ACTIVE,
     summary: v2Summary,
-  }).kind, "provisional");
-  assert.deepEqual(selectSessionSummaryPresentation({
+  });
+  const pausedPresentation = selectSessionSummaryPresentation({
     status: SESSION_STATUS.PAUSED,
     summary: v2Summary,
-  }).sections, []);
+  });
+
+  assert.equal(v2Presentation.kind, "evidence-aware");
+  assert.ok(v2Presentation.interpretiveBoundary);
+  assert.equal(legacyPresentation.kind, "legacy");
+  assert.equal(legacyPresentation.interpretiveBoundary, null);
+  assert.deepEqual(selectSessionSummarySections(legacySession).map((item) => item.key), ["behavioralEngagement"]);
+  assert.equal(JSON.stringify(legacySession), before);
+  assert.equal(missingPresentation.kind, "unknown");
+  assert.equal(missingPresentation.interpretiveBoundary, null);
+  assert.equal(activePresentation.kind, "provisional");
+  assert.equal(activePresentation.interpretiveBoundary, null);
+  assert.deepEqual(pausedPresentation.sections, []);
+  assert.equal(pausedPresentation.interpretiveBoundary, null);
 });
 
 test("evidence-aware summary contains no comparison scores or causal diagnostic claims", () => {
@@ -659,13 +773,23 @@ test("evidence-aware summary contains no comparison scores or causal diagnostic 
 });
 
 test("evidence-aware summary generation is deterministic for the same saved inputs", () => {
+  const session = selfReportSession();
+  const sessionBefore = JSON.stringify(session);
   const input = {
     statistics: summaryStatistics(),
-    session: selfReportSession(),
+    session,
     now: () => baseTime,
   };
+  const summary = generateSessionSummary(input);
+  const summaryBefore = JSON.stringify(summary);
 
-  assert.deepEqual(generateSessionSummary(input), generateSessionSummary(input));
+  assert.deepEqual(summary, generateSessionSummary(input));
+  selectSessionSummaryPresentation({
+    status: SESSION_STATUS.COMPLETED,
+    summary,
+  });
+  assert.equal(JSON.stringify(session), sessionBefore);
+  assert.equal(JSON.stringify(summary), summaryBefore);
 });
 
 test("learner-observed comparison maps full learner report to persisted session statistics", () => {

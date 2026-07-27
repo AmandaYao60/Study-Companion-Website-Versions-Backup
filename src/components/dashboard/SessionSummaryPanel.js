@@ -29,6 +29,34 @@ export default function SessionSummaryPanel({ session, sourceLabel, variant = "d
         ) : null}
       </div>
 
+      {presentation.interpretiveBoundary ? (
+        <div className="mb-4 rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-200">
+            {presentation.interpretiveBoundary.title}
+          </p>
+          {presentation.interpretiveBoundary.message ? (
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              {presentation.interpretiveBoundary.message}
+            </p>
+          ) : null}
+          <ul className="mt-3 space-y-2">
+            {presentation.interpretiveBoundary.evidence.map((item, index) => (
+              <li key={`${item.label || item.type || "boundary"}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/35 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-cyan-300/30 bg-slate-950/50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-100">
+                    {evidenceTypeLabel(item.type)}
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+                    {item.label}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-200">{item.message}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {sections.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/30 p-5 text-sm text-slate-400">
           {presentation.emptyMessage}

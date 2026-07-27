@@ -44,6 +44,9 @@ const metricMean = (statistics, key) => {
   const value = statistics?.[key]?.mean;
   return isFiniteNumber(value) ? value : null;
 };
+const hasFiniteModelStatistic = (statistics) => (
+  ["attention", "fatigue", "valence", "arousal"].some((key) => isFiniteNumber(metricMean(statistics, key)))
+);
 const formatMetric = (value, valueKind = "percentage") => {
   if (!isFiniteNumber(value)) return null;
   if (valueKind === "affect") return value.toFixed(2);
@@ -175,11 +178,13 @@ const buildObservedSignalsSection = (statistics, thresholdProfile, { includeLimi
   const coverageLabel = formatCoverage(coverage);
   const hasModelStatistic = [attention, fatigue, valence, arousal].some(isFiniteNumber);
 
-  if (coverageLabel) {
+  if (coverageLabel && hasModelStatistic) {
     items.push(evidence(SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION, "Data coverage", `Model-data coverage was ${coverageLabel}.`));
     if (coverage < thresholdProfile.minimumCoverage) {
       items.push(evidence(SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION, "Coverage limitation", "Coverage was below the existing minimum threshold, so model-estimated signals should be read as limited descriptive context."));
     }
+  } else if (coverageLabel && includeLimitations) {
+    items.push(evidence(SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION, "Model statistics unavailable", `Model-data coverage was ${coverageLabel}, but no finite model-estimated session statistics were saved.`));
   } else if (includeLimitations) {
     items.push(evidence(SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION, "Coverage unavailable", "Model-data coverage is unavailable for this session."));
   }
@@ -189,7 +194,7 @@ const buildObservedSignalsSection = (statistics, thresholdProfile, { includeLimi
   if (isFiniteNumber(valence)) items.push(evidence(SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION, "Estimated facial valence", `The model-estimated facial valence average was ${formatMetric(valence, "affect")} on the stored affect scale.`));
   if (isFiniteNumber(arousal)) items.push(evidence(SUMMARY_EVIDENCE_TYPE.MODEL_OBSERVATION, "Estimated facial arousal", `The model-estimated facial arousal average was ${formatMetric(arousal, "affect")} on the stored affect scale.`));
 
-  if (!hasModelStatistic && includeLimitations) {
+  if (!hasModelStatistic && includeLimitations && !coverageLabel) {
     items.push(evidence(SUMMARY_EVIDENCE_TYPE.DATA_LIMITATION, "Model statistics unavailable", "Persisted model-estimated session statistics are unavailable for this session."));
   }
 
@@ -279,22 +284,24 @@ export const generateSessionSummary = ({
   const pre = session.preSessionCheckIn || {};
   const post = session.postSessionCheckOut || {};
   const generatedAt = now();
+  const hasModelEvidence = hasFiniteModelStatistic(statistics);
 
   const goalOutcome = buildGoalOutcomeSection(session, post);
-  const experienceDifficulty = buildExperienceSection(pre, post, {
-    includeLimitations: Boolean(statistics),
-  });
+  const experienceDifficulty = buildExperienceSection(pre, post);
   const learningApproach = buildLearningApproachSection(post);
-  const hasPrimaryEvidence = Boolean(goalOutcome || experienceDifficulty || learningApproach || statistics);
+  const hasSubstantiveEvidence = Boolean(goalOutcome || experienceDifficulty || learningApproach || hasModelEvidence);
+  const experienceWithLimitations = experienceDifficulty || buildExperienceSection(pre, post, {
+    includeLimitations: hasModelEvidence,
+  });
   const observedStudySignals = buildObservedSignalsSection(statistics, thresholdProfile, {
-    includeLimitations: hasPrimaryEvidence,
+    includeLimitations: hasSubstantiveEvidence,
   });
   const reflectionNextSession = buildReflectionSection(post, {
-    includeLimitations: hasPrimaryEvidence,
+    includeLimitations: hasSubstantiveEvidence,
   });
   const evidenceSections = [
     goalOutcome,
-    experienceDifficulty,
+    experienceWithLimitations,
     observedStudySignals,
     learningApproach,
     reflectionNextSession,
@@ -334,7 +341,7 @@ export const generateSessionSummary = ({
     summaryVersion: 2,
     overallStatus,
     ...(goalOutcome ? { goalOutcome } : {}),
-    ...(experienceDifficulty ? { experienceDifficulty } : {}),
+    ...(experienceWithLimitations ? { experienceDifficulty: experienceWithLimitations } : {}),
     ...(observedStudySignals ? { observedStudySignals } : {}),
     ...(learningApproach ? { learningApproach } : {}),
     ...(reflectionNextSession ? { reflectionNextSession } : {}),

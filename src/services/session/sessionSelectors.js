@@ -581,6 +581,27 @@ const legacySummaryKeys = Object.freeze([
 const isEvidenceAwareSummary = (summary = null) => (
   summary?.summaryVersion === 2 && summary?.algorithmVersion === SESSION_SUMMARY_ALGORITHM_VERSION
 );
+const selectEvidenceAwareInterpretiveBoundary = (summary = null) => {
+  if (!isEvidenceAwareSummary(summary)) return null;
+  const overallStatus = summary.overallStatus;
+  const boundaryEvidence = Array.isArray(overallStatus?.evidence)
+    ? overallStatus.evidence.filter((item) => (
+      item?.type === "cautious-interpretation"
+      && isProvided(item.message)
+    ))
+    : [];
+  if (boundaryEvidence.length === 0 || overallStatus?.label !== "evidence-aware-summary") return null;
+  return {
+    title: "Interpretive boundary",
+    message: overallStatus.message || null,
+    confidence: overallStatus.confidence || null,
+    evidence: boundaryEvidence.map((item) => ({
+      type: item.type,
+      label: item.label || "Cautious interpretation",
+      message: item.message,
+    })),
+  };
+};
 
 /** Return summary sections in a stable render order while preserving saved legacy summaries. @param {Object|null} session */
 export const selectSessionSummarySections = (session = null) => {
@@ -599,6 +620,7 @@ export const selectSessionSummaryPresentation = (session = null) => {
   const summary = session?.summary || null;
   const isEvidenceAware = isEvidenceAwareSummary(summary);
   const hasLegacySummary = Boolean(summary) && !isEvidenceAware;
+  const interpretiveBoundary = isActive ? null : selectEvidenceAwareInterpretiveBoundary(summary);
 
   if (isActive) {
     return {
@@ -607,6 +629,7 @@ export const selectSessionSummaryPresentation = (session = null) => {
       emptyMessage: "This session is still in progress. A reliable final summary will appear after the session is ended.",
       kind: "provisional",
       sections: [],
+      interpretiveBoundary: null,
     };
   }
 
@@ -617,6 +640,7 @@ export const selectSessionSummaryPresentation = (session = null) => {
       emptyMessage: "No evidence-aware summary is available for this completed session.",
       kind: "evidence-aware",
       sections,
+      interpretiveBoundary,
     };
   }
 
@@ -628,6 +652,7 @@ export const selectSessionSummaryPresentation = (session = null) => {
     emptyMessage: session ? "No completed session summary is available yet." : "No completed session summary is available yet.",
     kind: hasLegacySummary ? "legacy" : "unknown",
     sections,
+    interpretiveBoundary: null,
   };
 };
 
