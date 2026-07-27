@@ -12,6 +12,7 @@ import {
 import BehavioralEngagementChart from "./dashboard/BehavioralEngagementChart";
 import DashboardMetricCards from "./dashboard/DashboardMetricCards";
 import EmotionalEngagementChart from "./dashboard/EmotionalEngagementChart";
+import LearnerObservedSignalsPanel from "./dashboard/LearnerObservedSignalsPanel";
 import LongTermTrendsPlaceholder from "./dashboard/LongTermTrendsPlaceholder";
 import MetricStreamTable from "./dashboard/MetricStreamTable";
 import SessionHistoryList from "./dashboard/SessionHistoryList";
@@ -180,6 +181,8 @@ export default function DashboardCharts() {
           <MetricStreamTable rows={sourceSamples} mode={chartMode} />
 
           <SessionSummaryPanel session={sessionForPanels} sourceLabel={source.label} />
+
+          <LearnerObservedSignalsPanel session={sessionForPanels} />
 
           <SessionSelfReportPanel session={sessionForPanels} />
         </>

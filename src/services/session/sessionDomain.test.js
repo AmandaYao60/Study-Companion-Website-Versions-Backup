@@ -38,6 +38,7 @@ import {
   selectDashboardSessionSource,
   selectDominantEmotion,
   selectExpressionIntervalDistribution,
+  selectLearnerObservedSignalComparison,
   selectSessionScopedMetricSamples,
   selectSessionSelfReportAnalysis,
   skipBreak,
@@ -378,6 +379,197 @@ const selfReportSession = (overrides = {}) => ({
     nextSessionAdjustment: "Practice two more examples.",
   },
   ...overrides,
+});
+
+const signalComparisonSession = (overrides = {}) => selfReportSession({
+  id: "signal-comparison",
+  dataCoverage: 0.82,
+  statistics: {
+    attention: { mean: 78 },
+    fatigue: { mean: 22 },
+    valence: { mean: -0.25 },
+    arousal: { mean: 0.6 },
+  },
+  postSessionCheckOut: {
+    sessionEnergy: 3,
+    sessionMood: 4,
+    perceivedFatigue: 2,
+    perceivedAttention: 5,
+  },
+  ...overrides,
+});
+
+const collectObjectKeys = (value) => {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value.flatMap(collectObjectKeys);
+  return Object.entries(value).flatMap(([key, nested]) => [key, ...collectObjectKeys(nested)]);
+};
+
+test("learner-observed comparison maps full learner report to persisted session statistics", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession());
+
+  assert.equal(comparison.available, true);
+  assert.equal(comparison.dataCoverage, 0.82);
+  assert.deepEqual(comparison.rows.map((row) => row.key), ["attention", "fatigue", "moodValence", "energyArousal"]);
+
+  const attention = comparison.rows.find((row) => row.key === "attention");
+  const fatigue = comparison.rows.find((row) => row.key === "fatigue");
+  const mood = comparison.rows.find((row) => row.key === "moodValence");
+  const energy = comparison.rows.find((row) => row.key === "energyArousal");
+
+  assert.equal(attention.learner.label, "Perceived attention");
+  assert.equal(attention.learner.value, 5);
+  assert.equal(attention.model.label, "Estimated attention average");
+  assert.equal(attention.model.value, 78);
+  assert.equal(fatigue.learner.value, 2);
+  assert.equal(fatigue.model.value, 22);
+  assert.equal(mood.learner.value, 4);
+  assert.equal(mood.model.value, -0.25);
+  assert.equal(energy.learner.value, 3);
+  assert.equal(energy.model.value, 0.6);
+});
+
+test("learner ratings and model statistics keep their original scales", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession());
+  const attention = comparison.rows.find((row) => row.key === "attention");
+  const mood = comparison.rows.find((row) => row.key === "moodValence");
+
+  assert.equal(attention.learner.valueKind, "rating");
+  assert.equal(attention.learner.scaleLabel, "1-5 learner rating");
+  assert.equal(attention.model.valueKind, "percentage");
+  assert.equal(attention.model.scaleLabel, "0-100 estimated signal");
+  assert.equal(attention.model.value > 5, true);
+  assert.equal(mood.model.valueKind, "affect");
+  assert.equal(mood.model.scaleLabel, "-1 to 1 estimated signal");
+  assert.equal(mood.model.value, -0.25);
+});
+
+test("finite zero model statistics are preserved as valid paired values", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession({
+    statistics: {
+      attention: { mean: 0 },
+      fatigue: { mean: 0 },
+      valence: { mean: 0 },
+      arousal: { mean: 0 },
+    },
+  }));
+
+  assert.equal(comparison.rows.length, 4);
+  assert.ok(comparison.rows.every((row) => row.availability === "paired"));
+  assert.ok(comparison.rows.every((row) => row.model.value === 0));
+});
+
+test("learner-only comparison rows do not fabricate model values", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession({
+    statistics: {
+      attention: { mean: Number.NaN },
+      fatigue: { mean: null },
+      valence: {},
+      arousal: { mean: Number.POSITIVE_INFINITY },
+    },
+  }));
+
+  assert.equal(comparison.rows.length, 4);
+  assert.ok(comparison.rows.every((row) => row.availability === "learner-only"));
+  assert.ok(comparison.rows.every((row) => row.model.value === null));
+  assert.ok(comparison.rows.every((row) => /unavailable/i.test(row.model.unavailableMessage)));
+});
+
+test("missing learner fields do not generate model-only comparison rows", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession({
+    postSessionCheckOut: {
+      perceivedAttention: 4,
+      perceivedFatigue: null,
+      sessionMood: null,
+      sessionEnergy: null,
+    },
+  }));
+
+  assert.deepEqual(comparison.rows.map((row) => row.key), ["attention"]);
+  assert.equal(comparison.rows[0].model.value, 78);
+});
+
+test("partial learner responses produce only relevant comparison constructs", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession({
+    postSessionCheckOut: {
+      perceivedAttention: null,
+      perceivedFatigue: 3,
+      sessionMood: null,
+      sessionEnergy: 2,
+    },
+  }));
+
+  assert.deepEqual(comparison.rows.map((row) => row.key), ["fatigue", "energyArousal"]);
+});
+
+test("finish without reflection and statistics-only sessions return empty comparison state", () => {
+  const skipped = selectLearnerObservedSignalComparison(signalComparisonSession({
+    postSessionCheckOut: {
+      sessionEnergy: null,
+      sessionMood: null,
+      perceivedFatigue: null,
+      perceivedAttention: null,
+    },
+  }));
+  const statisticsOnly = selectLearnerObservedSignalComparison({
+    id: "statistics-only",
+    status: SESSION_STATUS.COMPLETED,
+    statistics: {
+      attention: { mean: 80 },
+      fatigue: { mean: 20 },
+      valence: { mean: 0.2 },
+      arousal: { mean: 0.4 },
+    },
+  });
+
+  assert.equal(skipped.available, false);
+  assert.deepEqual(skipped.rows, []);
+  assert.equal(statisticsOnly.available, false);
+  assert.deepEqual(statisticsOnly.rows, []);
+});
+
+test("learner reports with missing statistics and older sessions stay safe", () => {
+  const learnerOnly = selectLearnerObservedSignalComparison(signalComparisonSession({
+    statistics: null,
+  }));
+  const older = selectLearnerObservedSignalComparison({
+    id: "older-comparison-session",
+    status: SESSION_STATUS.COMPLETED,
+  });
+
+  assert.equal(learnerOnly.available, true);
+  assert.ok(learnerOnly.rows.every((row) => row.availability === "learner-only"));
+  assert.equal(older.available, false);
+  assert.deepEqual(older.rows, []);
+});
+
+test("active and paused sessions do not produce completed-only learner-observed comparisons", () => {
+  [SESSION_STATUS.ACTIVE, SESSION_STATUS.PAUSED].forEach((status) => {
+    const comparison = selectLearnerObservedSignalComparison(signalComparisonSession({ status }));
+
+    assert.equal(comparison.available, false);
+    assert.equal(comparison.eligibility, "completed-session-required");
+    assert.deepEqual(comparison.rows, []);
+  });
+});
+
+test("learner-observed comparison view model contains no score, delta, or agreement fields", () => {
+  const comparison = selectLearnerObservedSignalComparison(signalComparisonSession());
+  const keys = collectObjectKeys(comparison);
+  const forbiddenKeys = [
+    "agreement",
+    "alignment",
+    "delta",
+    "difference",
+    "normalizedScore",
+    "compositeScore",
+    "discrepancy",
+  ];
+
+  forbiddenKeys.forEach((key) => {
+    assert.equal(keys.includes(key), false);
+  });
+  assert.doesNotMatch(JSON.stringify(comparison), /agreement score|alignment score|difference value|delta value|composite learning score/i);
 });
 
 test("complete pre/post self-report data produces a structured analysis view model", () => {

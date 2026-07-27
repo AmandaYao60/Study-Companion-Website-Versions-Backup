@@ -103,6 +103,52 @@ const difficultyComparison = (expectedDifficulty, perceivedDifficulty) => {
     caution: "This difference may reflect expectation calibration, task conditions, or support received. It should not be interpreted directly as a learning gain or a change in ability.",
   };
 };
+const finiteStatisticMean = (session, key) => {
+  const value = session?.statistics?.[key]?.mean;
+  return isFiniteNumber(value) ? value : null;
+};
+const learnerObservedConstructs = Object.freeze([
+  {
+    key: "attention",
+    label: "Attention",
+    learnerLabel: "Perceived attention",
+    learnerField: "perceivedAttention",
+    modelLabel: "Estimated attention average",
+    modelMetric: "attention",
+    modelValueKind: "percentage",
+    note: "The learner rating describes overall perceived attention, while the model value aggregates available attention estimates. It does not directly measure concentration, learning quality, understanding, or cognitive engagement.",
+  },
+  {
+    key: "fatigue",
+    label: "Fatigue",
+    learnerLabel: "Perceived fatigue",
+    learnerField: "perceivedFatigue",
+    modelLabel: "Estimated fatigue average",
+    modelMetric: "fatigue",
+    modelValueKind: "percentage",
+    note: "Subjective fatigue and model-estimated fatigue are related perspectives, but they are not equivalent clinical or physiological measurements.",
+  },
+  {
+    key: "moodValence",
+    label: "Mood / Valence",
+    learnerLabel: "Overall session mood",
+    learnerField: "sessionMood",
+    modelLabel: "Estimated facial valence average",
+    modelMetric: "valence",
+    modelValueKind: "affect",
+    note: "Overall mood is broader than facial valence, and facial expression may not fully represent internal emotional experience.",
+  },
+  {
+    key: "energyArousal",
+    label: "Energy / Arousal",
+    learnerLabel: "Overall session energy",
+    learnerField: "sessionEnergy",
+    modelLabel: "Estimated facial arousal average",
+    modelMetric: "arousal",
+    modelValueKind: "affect",
+    note: "Subjective energy and model-estimated arousal are related but different constructs. High or low arousal is not automatically positive, negative, productive, fatigued, attentive, or disengaged.",
+  },
+]);
 
 /** Sort sessions newest first without mutating the input. @param {Array<Object>} sessions */
 export const sortSessionsByNewest = (sessions = []) => [...sessions].sort((a, b) => {
@@ -408,6 +454,59 @@ export const selectSessionSelfReportAnalysis = (session = null) => {
         ? "The learner selected None / Not sure for strategies used; no negative judgment is inferred from that response."
         : null,
     },
+  };
+};
+
+/** Build a descriptive learner-report vs model-observed signal comparison for one completed session. @param {Object|null} session */
+export const selectLearnerObservedSignalComparison = (session = null) => {
+  if (!session || session.status !== SESSION_STATUS.COMPLETED) {
+    return {
+      available: false,
+      eligibility: "completed-session-required",
+      rows: [],
+      dataCoverage: null,
+      note: "Learner report vs model observation is available only after a session is completed.",
+    };
+  }
+
+  const post = session.postSessionCheckOut || {};
+  const rows = learnerObservedConstructs
+    .map((construct) => {
+      const learnerValue = ratingValue(post[construct.learnerField]);
+      if (!isIntegerRating(learnerValue)) return null;
+
+      const modelValue = finiteStatisticMean(session, construct.modelMetric);
+      const hasModelValue = isFiniteNumber(modelValue);
+      return {
+        key: construct.key,
+        label: construct.label,
+        learner: {
+          label: construct.learnerLabel,
+          value: learnerValue,
+          valueKind: "rating",
+          scaleLabel: "1-5 learner rating",
+        },
+        model: {
+          label: construct.modelLabel,
+          value: hasModelValue ? modelValue : null,
+          valueKind: construct.modelValueKind,
+          scaleLabel: construct.modelValueKind === "percentage" ? "0-100 estimated signal" : "-1 to 1 estimated signal",
+          unavailableMessage: hasModelValue ? null : "The corresponding model-estimated signal is unavailable for this session.",
+        },
+        availability: hasModelValue ? "paired" : "learner-only",
+        note: construct.note,
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    available: rows.length > 0,
+    eligibility: "completed-session",
+    rows,
+    dataCoverage: isFiniteNumber(session.dataCoverage) ? session.dataCoverage : null,
+    note: rows.length > 0
+      ? "Two complementary views of the same Session, measured with different methods and scales. Side-by-side values do not determine which source is correct."
+      : "No learner-reported session experience ratings are available for comparison.",
   };
 };
 
