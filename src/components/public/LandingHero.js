@@ -26,6 +26,8 @@ export default function LandingHero() {
           aria-hidden="true"
           src="/background/glowing-flowers.png"
           alt=""
+          width={1456}
+          height={816}
           className="pointer-events-none absolute inset-0 z-0 h-full w-full select-none object-cover object-[68%_center] brightness-[0.82] saturate-[0.92] lg:object-center"
         />
 
@@ -75,13 +77,15 @@ export default function LandingHero() {
           aria-hidden="true"
           src="/background/glowing-flowers-front.png"
           alt=""
+          width={1456}
+          height={816}
           className="pointer-events-none absolute inset-0 z-30 h-full w-full select-none object-cover object-[68%_center] lg:object-center"
         />
         
         {/* Small transition only at the bottom */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-24 bg-gradient-to-b from-transparent to-slate-950/80"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-24 bg-linear-to-b from-transparent to-slate-950/80"
         />
       </section>
 
@@ -114,7 +118,7 @@ export default function LandingHero() {
       </section>
 
       <section id="privacy" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.04] p-8">
+        <div className="rounded-3xl border border-cyan-400/20 bg-cyan-400/4 p-8">
           <p className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-300">Privacy and local processing</p>
           <h2 className="mt-3 text-3xl font-black text-white">Camera images stay local.</h2>
           <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-300">

@@ -430,7 +430,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
         />
 
         {isDebugMode && isSensitiveDebugPreviewEnabled && !isFocusPanel && (
-          <span className="pointer-events-none absolute bottom-[7.5rem] right-2 z-30 rounded bg-red-950/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-300">
+          <span className="pointer-events-none absolute bottom-30 right-2 z-30 rounded bg-red-950/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-300">
             Affect Crop Debug
           </span>
         )}
@@ -484,7 +484,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 <button
                   type="button"
                   onClick={() => setShowCameraDialog(true)}
-                  className="mt-4 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400 focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                  className="mt-4 rounded-lg bg-linear-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:from-cyan-400 hover:to-blue-400 focus:outline-none focus:ring-2 focus:ring-cyan-300"
                 >
                   Enable Camera
                 </button>
@@ -528,7 +528,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
                 ? "cursor-not-allowed border border-white/5 bg-slate-900 text-slate-600"
                 : isMonitoring
                   ? "border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                  : "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400"
+                  : "bg-linear-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/10 hover:from-cyan-400 hover:to-blue-400"
             }`}
           >
             {isMonitoring ? "Pause Session" : isPreparedSession ? "Enable Camera" : isActiveWithoutMonitoring ? "Enable Monitoring" : "Resume Session"}

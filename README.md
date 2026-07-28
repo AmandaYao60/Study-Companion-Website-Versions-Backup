@@ -34,22 +34,40 @@ The project is documentation-driven: current behavior must be verified against t
 
 ## Installation
 
+### Prerequisites
+
+Make sure [Node.js](https://nodejs.org/) and npm are installed on your computer.
+
+### Setup
+
 ```bash
+# Clone the UI-Re-Design branch
+git clone --branch UI-Re-Design --single-branch https://github.com/AmandaYao60/Study-Companion-Website-Versions-Backup.git
+
+# Enter the project directory
+cd Study-Companion-Website-Versions-Backup
+
+# Install dependencies
 npm install
+
+# Start the development server
+npm run dev
+```
+
+Open http://localhost:3000 in your browser.
+
+Allow camera access when prompted to use the monitoring features. All camera and affect-analysis processing runs locally in the browser, so no separate Python backend or environment-variable configuration is currently required.
+
+### Optional Checks
+
+```bash
+npm run lint
+npm test
+npm run build
 ```
 
 The browser affect model is loaded from `public/models/emotieff/enet_b0_8_va_mtl.onnx`. No separate Python affect service is required for the current browser pipeline.
 
-## Development Commands
-
-```bash
-npm run dev
-npm run lint
-npm run build
-npm run start
-```
-
-Open `http://localhost:3000` after starting the development server.
 
 ## Privacy Approach
 

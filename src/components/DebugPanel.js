@@ -392,13 +392,13 @@ export default function DebugPanel() {
           setNow(Date.now());
           setIsOpenRequested(true);
         }}
-        className="fixed bottom-4 right-4 z-[60] rounded-full border border-cyan-400/30 bg-cyan-400 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-950 shadow-2xl shadow-cyan-950/40 transition-all hover:bg-cyan-300"
+        className="fixed bottom-4 right-4 z-60 rounded-full border border-cyan-400/30 bg-cyan-400 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-950 shadow-2xl shadow-cyan-950/40 transition-all hover:bg-cyan-300"
       >
         Diagnostics
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[65] bg-slate-950/45 backdrop-blur-sm" role="presentation">
+        <div className="fixed inset-0 z-65 bg-slate-950/45 backdrop-blur-sm" role="presentation">
           <aside
             ref={drawerRef}
             tabIndex={-1}
@@ -445,7 +445,7 @@ export default function DebugPanel() {
                   <div>{renderPreview(debugLiveMetrics, false)}</div>
                 </Subsection>
                 {isSimulationEnabled && (
-                  <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3">
+                  <div className="rounded-xl border border-amber-400/20 bg-amber-400/4 p-3">
                     <p className="text-[10px] font-black uppercase tracking-wider text-amber-200">Simulated display preview</p>
                     <div className="mt-3">{renderPreview(displayMetrics, true)}</div>
                   </div>
@@ -698,7 +698,7 @@ export default function DebugPanel() {
                     Advanced Controls
                   </summary>
                   <div className="mt-3 space-y-3">
-                    <label className="block rounded-xl border border-amber-400/15 bg-amber-400/[0.04] p-3">
+                    <label className="block rounded-xl border border-amber-400/15 bg-amber-400/4 p-3">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200">Live inference FPS</span>
                       <p className="mt-1 text-[10px] leading-relaxed text-amber-100/80">
                         Changes the live inference pipeline and may affect formal data quality.
@@ -738,7 +738,7 @@ export default function DebugPanel() {
                     setIsSensitiveSectionOpen(open);
                     if (!open) setSensitiveDebugPreviewEnabled(false);
                   }}
-                  className="rounded-xl border border-red-400/15 bg-red-400/[0.04] p-3"
+                  className="rounded-xl border border-red-400/15 bg-red-400/4 p-3"
                 >
                   <summary className="cursor-pointer text-[10px] font-black uppercase tracking-wider text-red-200">
                     Advanced / Sensitive Data
