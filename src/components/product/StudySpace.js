@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useDebug, useMonitoring, useSession } from "../../context/AppContext";
 import CameraFeed from "../CameraFeed";
@@ -111,8 +112,19 @@ export default function StudySpace() {
 
   if (!activeSession) {
     return (
-      <div className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-3xl items-center px-4 py-8 sm:px-6 lg:px-8">
-        <SessionSetupForm />
+      <div className="relative isolate min-h-[calc(100vh-4rem)] overflow-hidden">
+        <Image
+          src="/background/glowing-flowers.png"
+          alt=""
+          aria-hidden="true"
+          fill
+          sizes="100vw"
+          className="pointer-events-none z-0 object-cover object-[68%_center] lg:object-center"
+        />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 bg-slate-950/45" />
+        <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl items-center px-4 py-10 sm:px-6 lg:px-8">
+          <SessionSetupForm />
+        </div>
       </div>
     );
   }

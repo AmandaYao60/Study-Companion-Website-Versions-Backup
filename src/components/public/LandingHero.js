@@ -5,19 +5,43 @@ import Link from "next/link";
 import Image from "next/image";
 
 const features = [
-  ["Local browser AI", "On-device affective computing with MediaPipe and EmotiEffLib/ONNX runs in your browser."],
-  ["Study Space", "Set a study task, reflect before and after each session, and monitor attention and fatigue cues."],
-  ["Focus Space", "A calm visual environment with floating lights, fullscreen controls, a landmarks-only monitor, and break support."],
-  ["Analytics Dashboard", "Review session charts, summaries, and history saved locally in your browser."],
+  ["Local browser AI", "During camera-assisted study, MediaPipe and EmotiEffLib/ONNX process signals on your device to estimate attention, fatigue, valence, and arousal. Watch these cues as you study; camera images and face crops stay in your browser."],
+  ["Study Space", "Start here to name your task, choose a session length, and complete an optional check-in. Once you enable the camera, follow your session timer and study-state feedback, pause when needed, and reflect before finishing."],
+  ["Focus Space", "Enter Focus Space during a session for a calm forest backdrop with floating lights. Use the landmarks-only floating monitor, audio and fullscreen controls, and planned or suggested breaks while you work."],
+  ["Analytics Dashboard", "Open View Live Analytics during a session to inspect current study-state data, or revisit locally saved Session History before or after studying. With no current session, the main Dashboard shows your latest completed session: choose Expand Analysis under Emotional Engagement, then hover over trajectory points to inspect valence and arousal."],
 ];
 
-const previews = [
-  ["Study Space", "Choose a task, complete an optional check-in, and begin a camera-assisted study session."],
-  ["Focus Space", "Study with a forest backdrop and floating lights, session controls, and planned or suggested breaks."],
-  ["Dashboard", "Reflect after studying, then review session metrics and locally saved history."],
+const showcases = [
+  {
+    title: "Study Space",
+    body: "Prepare your task and optional check-in, then enable your camera to begin. Follow the timer, attention and fatigue cues, and session controls in one workspace. Open View Live Analytics whenever you want a closer look at your current session.",
+    src: "/screenshots/study-space.png",
+    width: 3072,
+    height: 1728,
+    alt: "Study workspace with session progress, pause and end controls, and a camera preview with face landmarks.",
+  },
+  {
+    title: "Focus Space",
+    body: "Move into a quiet forest scene with floating lights and a compact landmarks-only monitor. Keep your task and timer nearby, adjust audio, enter fullscreen, or take a planned or suggested break.",
+    src: "/screenshots/focus-space.png",
+    width: 3081,
+    height: 1733,
+    alt: "Forest focus environment with a session timer, break prompt, audio and fullscreen controls, and floating landmark monitor.",
+  },
+  {
+    title: "Dashboard",
+    body: "Inspect attention, fatigue, and affect charts during your session, then revisit reflections and locally saved Session History afterward. For the latest completed session on the main Dashboard, use Expand Analysis in Emotional Engagement and hover over trajectory points to see their valence and arousal values.",
+    src: "/screenshots/dashboard.png",
+    width: 3086,
+    height: 1736,
+    alt: "Analytics dashboard showing attention, fatigue, valence and arousal cards, behavioral trends, and an emotional engagement trajectory.",
+  },
 ];
 
 export default function LandingHero() {
+  const isDebugAvailable = process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_ENABLE_DEBUG_MODE === "true";
+
   return (
     <div className="bg-slate-950">
       <section className="relative isolate overflow-hidden border-b border-white/5">
@@ -94,24 +118,57 @@ export default function LandingHero() {
           <h2 className="text-3xl font-black text-white">Main features</h2>
           <p className="mt-3 text-sm leading-relaxed text-slate-400">Plan a focused study session, take breaks, and reflect on your progress. No account is required.</p>
         </div>
-        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {features.map(([title, body]) => (
-            <article key={title} className="rounded-2xl border border-white/10 bg-slate-900/35 p-5">
-              <h3 className="text-sm font-bold text-white">{title}</h3>
-              <p className="mt-2 text-xs leading-relaxed text-slate-400">{body}</p>
+            <article key={title} className="min-w-0 rounded-2xl border border-white/10 bg-slate-900/35 p-6">
+              <h3 className="text-base font-bold text-white">{title}</h3>
+              <p className="mt-3 text-sm leading-relaxed text-slate-300">{body}</p>
             </article>
           ))}
         </div>
+
+        {isDebugAvailable && (
+          <aside aria-labelledby="technical-demo-title" className="mt-6 rounded-3xl border border-cyan-400/25 bg-cyan-400/5 p-6 sm:p-8">
+            <h3 id="technical-demo-title" className="text-xl font-black text-cyan-200">Technical Demo</h3>
+            <p className="mt-2 text-base font-semibold text-white">Explore the full workflow in a few minutes.</p>
+            <ol className="mt-5 list-decimal space-y-4 pl-5 text-sm leading-relaxed text-slate-300 marker:font-bold marker:text-cyan-300">
+              <li><strong className="text-white">Turn on Technical Demo.</strong> Open the study companion and switch Technical Demo to On in the upper-right navbar before starting a new session.</li>
+              <li><strong className="text-white">Choose a short session.</strong> Select Start a New Study Session, enter a Task Name, then choose Custom under Target Duration. Set Custom seconds to 60 for a one-minute session. Complete or skip the optional check-in, then enable your camera when prompted to begin.</li>
+              <li><strong className="text-white">See the system at work.</strong> After starting, open Diagnostics in the lower-right corner. System Status and Live Metrics show what the app is observing.</li>
+              <li><strong className="text-white">Preview different study states.</strong> In Safe Simulation Controls, select Demo Simulation and try the presets or sliders. These previews do not change your saved session data. Select Live Input to return to live displays.</li>
+              <li><strong className="text-white">Reflect and review.</strong> Use End Session when ready, complete or skip the reflection, and explore the Dashboard and Session History saved in this browser.</li>
+            </ol>
+            <Link href="/app" className="mt-6 inline-flex rounded-xl bg-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 transition-all hover:bg-cyan-300">
+              Open Study Companion
+            </Link>
+          </aside>
+        )}
       </section>
 
       <section id="how-it-works" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <h2 className="text-3xl font-black text-white">How it works</h2>
-        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {previews.map(([title, body]) => (
-            <article key={title} className="rounded-2xl border border-white/10 bg-slate-900/35 p-5">
-              <div className="mb-4 aspect-video rounded-xl border border-white/10 bg-slate-950" />
-              <h3 className="text-sm font-bold text-white">{title}</h3>
-              <p className="mt-2 text-xs leading-relaxed text-slate-400">{body}</p>
+        <div className="mt-8 space-y-10 sm:space-y-14">
+          {showcases.map(({ title, body, src, width, height, alt }) => (
+            <article key={title} className="mx-auto w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/35">
+              <div className="p-5 sm:p-7">
+                <h3 className="text-2xl font-black text-white">{title}</h3>
+                <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-300 sm:text-base">{body}</p>
+              </div>
+              <figure>
+                <Image
+                  src={src}
+                  alt={alt}
+                  width={width}
+                  height={height}
+                  sizes="(max-width: 1279px) 100vw, 1216px"
+                  className="h-auto w-full object-contain"
+                />
+                <figcaption className="border-t border-white/10 px-5 py-3 sm:px-7">
+                  <a href={src} target="_blank" rel="noreferrer" className="text-xs font-semibold text-cyan-300 underline underline-offset-4 hover:text-cyan-100">
+                    Open full-size {title} screenshot
+                  </a>
+                </figcaption>
+              </figure>
             </article>
           ))}
         </div>
