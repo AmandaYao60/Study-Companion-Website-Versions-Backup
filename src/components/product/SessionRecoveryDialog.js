@@ -22,7 +22,7 @@ export default function SessionRecoveryDialog() {
     activeSession,
     isRecoveryPromptOpen,
     returnToRecoveredSession,
-    finishSession,
+    beginPostSessionReflection,
     discardSession,
   } = useSession();
   const {
@@ -83,8 +83,7 @@ export default function SessionRecoveryDialog() {
   };
 
   const handleFinish = async () => {
-    const completed = await runAction("finish", () => finishSession({ recoverySessionId: activeSession.id }));
-    if (completed) router.push("/app/dashboard");
+    await runAction("finish", () => beginPostSessionReflection({ recoverySessionId: activeSession.id }));
   };
 
   const handleDiscard = async () => {

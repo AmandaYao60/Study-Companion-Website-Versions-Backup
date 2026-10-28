@@ -1715,7 +1715,7 @@ export const AppProvider = ({ children }) => {
 
   const startSession = prepareSession;
 
-  const pauseSession = useCallback(async ({ silent = false, forReflection = false } = {}) => {
+  const pauseSession = useCallback(async ({ silent = false, forReflection = false, recoverySessionId = null } = {}) => {
     const active = activeSessionRef.current;
     if (!active) return null;
 
@@ -1729,7 +1729,7 @@ export const AppProvider = ({ children }) => {
     setIsMonitoring(false);
 
     monitoringRef.current = false;
-    await sessionRuntimeRef.current.pauseSession(elapsedMs, { forReflection });
+    await sessionRuntimeRef.current.pauseSession(elapsedMs, { forReflection, recoverySessionId });
     if (forReflection) {
       clearCameraStream();
       resetTransientInferenceState();
@@ -1795,10 +1795,16 @@ export const AppProvider = ({ children }) => {
     }
   }, []);
 
+  const beginPostSessionReflection = useCallback(async ({ recoverySessionId = null } = {}) => {
+    if (recoverySessionId !== null) await requireRecoverySession(recoverySessionId);
+    return pauseSession({ silent: true, forReflection: true, recoverySessionId });
+  }, [pauseSession, requireRecoverySession]);
+
   const returnToRecoveredSession = useCallback(async (recoverySessionId = null) => {
-    const active = activeSessionRef.current;
+    let active = activeSessionRef.current;
     if (!isStudySessionRecoveryPending(active)) return null;
-    await requireRecoverySession(recoverySessionId ?? active.id);
+    active = await sessionRuntimeRef.current.returnToRecoveredSession(recoverySessionId ?? active.id);
+    if (!active) return null;
 
     const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
       ? Math.max(0, active.accumulatedStudyMs)
@@ -1818,7 +1824,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Recovered study session returned to Study Space. Choose how to continue.", "info");
     return active;
-  }, [addLog, clearCameraStream, requireRecoverySession, resetTransientInferenceState, syncSessionState]);
+  }, [addLog, clearCameraStream, resetTransientInferenceState, syncSessionState]);
 
   const finishSession = useCallback(async ({ postSessionCheckOut = null, recoverySessionId = null } = {}) => {
     if (!activeSessionRef.current) return null;
@@ -2078,6 +2084,7 @@ export const AppProvider = ({ children }) => {
     pauseSession,
     resumeSession,
     returnToRecoveredSession,
+    beginPostSessionReflection,
     finishSession,
     discardSession,
     updateSessionTask,
@@ -2105,6 +2112,7 @@ export const AppProvider = ({ children }) => {
     activeSessionSamples,
     activatePreparedSession,
     automaticBreakSuggestionController,
+    beginPostSessionReflection,
     checkpointStatus,
     completedSessions,
     discardSession,

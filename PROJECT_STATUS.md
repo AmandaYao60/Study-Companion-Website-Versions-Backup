@@ -11,7 +11,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Camera permission flow using `navigator.mediaDevices.getUserMedia`.
 - Explicit Disable Webcam control that pauses video, clears `srcObject`, stops tracks, clears detection state, resets the session clock, and stops monitoring through `stopCamera`.
 - Canvas rendering stops when the camera is disabled or monitoring is paused.
-- Real face contour, eye, brow, lip, iris, mesh-dot, and hand skeleton rendering when detections exist.
+- Real face contour, eye, brow, lip, iris, mesh-dot, and hand skeleton rendering when detections exist. Visible overlays use intrinsic video dimensions and centered cover/crop projection into the rendered viewport.
 - React `No Face Detected` overlay when monitoring is active, camera is enabled, AI is loaded, and no face landmarks are returned.
 - Simple AI-loading fallback face plus loading/delayed-warning canvas messages before models are ready.
 - AppContext derives telemetry from face blendshapes, facial transformation matrices, gestures, face landmarks, and multi-hand landmarks without continuously storing raw coordinates in ordinary React state.
@@ -29,7 +29,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Dismissed, expired, or confirmed-continued automatic suggestions expose a persistent Focus Space `Start a Break` entry for the current suggestion cycle.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - The public landing page includes onboarding feature descriptions, a conditional Technical Demo walkthrough, and full-width Study Space, Focus Space, and Dashboard screenshots. The new-session welcome/setup/check-in flow uses the existing glowing-flowers background.
-- End Session atomically saves a paused checkpoint and pending reflection intent before opening the questionnaire. Pending reflections restore through the reflection dialog with saved answers/step and stopped timer/camera, independently of generic study recovery. Recovery actions validate the bound session and stored unfinished state before mutations; completion clears recovery intent and the draft.
+- Both End Session and Recovery Finish Session share the persisted reflection transition: they atomically save a paused checkpoint and pending reflection intent before opening the questionnaire. Pending reflections restore through the reflection dialog with saved answers/step and stopped timer/camera, independently of generic study recovery. Recovery actions validate the bound session and stored unfinished state before mutations; completion clears recovery intent and the draft.
 - Technical Demo is available in development or in production builds with `NEXT_PUBLIC_ENABLE_DEBUG_MODE=true`. Its diagnostics drawer includes read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
 - Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active, paused, and latest completed main Dashboard sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
 
@@ -42,7 +42,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 ## Next Tasks
 
 - Run browser QA with camera permissions on supported browsers.
-- QA `/focus` fullscreen behavior and floating monitor dragging across desktop/mobile layouts.
+- QA `/focus` fullscreen behavior and desktop monitor dragging. The compact monitor stays visible with a scrollable, safe-area-padded control panel and no camera/landmark preview.
 - Decide whether two visible hands should always reduce attention after sustained detection.
 - Add cooldowns or aggregation to gesture logs and metric effects.
 - QA interrupted-session recovery with real camera permissions across supported browsers.

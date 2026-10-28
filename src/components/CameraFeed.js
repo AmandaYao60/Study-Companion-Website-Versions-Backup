@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { useDebug, useMonitoring, useSession } from "../context/AppContext";
 import CameraPermissionDialog from "./CameraPermissionDialog";
+import { createCoverProjection } from "./cameraProjection.js";
 
 const FACE_CONTOUR = {
   leftEye: [33, 160, 158, 133, 153, 144, 33],
@@ -180,7 +181,16 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
     };
 
     const drawMesh = () => {
-      ctx.clearRect(0, 0, width, height);
+      const viewport = canvas.getBoundingClientRect();
+      const renderWidth = viewport.width || width;
+      const renderHeight = viewport.height || height;
+      const pixelRatio = window.devicePixelRatio || 1;
+      const backingWidth = Math.max(1, Math.round(renderWidth * pixelRatio));
+      const backingHeight = Math.max(1, Math.round(renderHeight * pixelRatio));
+      if (canvas.width !== backingWidth) canvas.width = backingWidth;
+      if (canvas.height !== backingHeight) canvas.height = backingHeight;
+      ctx.setTransform(canvas.width / renderWidth, 0, 0, canvas.height / renderHeight, 0, 0);
+      ctx.clearRect(0, 0, renderWidth, renderHeight);
 
       if (!isCameraAllowed || !isMonitoring) {
         ctx.shadowBlur = 0;
@@ -191,18 +201,19 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
       const detections = monitoringDetectionsRef.current;
       const faceIsDetected = detections?.face?.faceLandmarks?.length > 0;
 
-      if (faceIsDetected) {
+      const project = createCoverProjection(
+        videoRef.current?.videoWidth,
+        videoRef.current?.videoHeight,
+        renderWidth,
+        renderHeight
+      );
+      if (faceIsDetected && project) {
         const landmarks = detections.face.faceLandmarks[0];
         ctx.strokeStyle = "rgba(6, 182, 212, 0.85)";
         ctx.fillStyle = "rgba(6, 182, 212, 0.7)";
         ctx.shadowColor = "rgba(6, 182, 212, 0.5)";
         ctx.shadowBlur = 4;
         ctx.lineWidth = 1.5;
-
-        const project = (pt) => ({
-          x: (1 - pt.x) * width,
-          y: pt.y * height,
-        });
 
         const drawContour = (indices, options = {}) => {
           const {
@@ -286,6 +297,11 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
 
       const now = performance.now();
       const elapsedMs = aiLoadingStartRef.current ? now - aiLoadingStartRef.current : 0;
+      // Keep the existing loading illustration in its original logical coordinate space.
+      const fallbackScale = Math.min(renderWidth / width, renderHeight / height);
+      ctx.save();
+      ctx.translate((renderWidth - width * fallbackScale) / 2, (renderHeight - height * fallbackScale) / 2);
+      ctx.scale(fallbackScale, fallbackScale);
       drawFallbackFace();
 
       if (elapsedMs > 8000) {
@@ -302,6 +318,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
         );
       }
 
+      ctx.restore();
       ctx.shadowBlur = 0;
       animationRef.current = requestAnimationFrame(drawMesh);
     };
@@ -413,7 +430,7 @@ export default function CameraFeed({ presentation = "monitor", showControls = tr
 
         <canvas
           ref={canvasRef}
-          className="pointer-events-none absolute inset-0 z-10 h-full w-full object-cover"
+          className="pointer-events-none absolute inset-0 z-10 h-full w-full"
         />
 
         <canvas

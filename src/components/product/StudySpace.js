@@ -22,6 +22,7 @@ export default function StudySpace() {
     pauseSession,
     resumeSession,
     finishSession,
+    beginPostSessionReflection,
     discardSession,
     updatePostSessionReflectionDraft,
   } = useSession();
@@ -68,7 +69,7 @@ export default function StudySpace() {
   const handleEnd = async () => {
     setIsEnding(true);
     try {
-      await pauseSession({ silent: true, forReflection: true });
+      await beginPostSessionReflection();
       setIsDialogOpen(false);
       setIsReflectionOpen(true);
     } catch (error) {

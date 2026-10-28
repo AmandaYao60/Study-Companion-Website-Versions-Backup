@@ -7,7 +7,7 @@ export default function FocusStagePlaceholder({ stageRef, isBreakMode = false, c
   return (
     <section
       ref={stageRef}
-      className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-slate-950 text-white [&:fullscreen]:h-screen [&:fullscreen]:min-h-screen [&:fullscreen]:w-screen"
+      className="relative min-h-[calc(100dvh-4rem)] overflow-hidden md:min-h-[calc(100vh-4rem)] bg-slate-950 text-white [&:fullscreen]:h-screen [&:fullscreen]:min-h-screen [&:fullscreen]:w-screen"
     >
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"

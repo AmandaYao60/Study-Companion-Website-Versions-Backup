@@ -615,6 +615,8 @@ test("recovery actions reject an obsolete session binding", async () => {
   const runtime = createSessionRuntime({ repository, now });
   await runtime.initializeSessionState();
   const before = await repository.getSessionById("current-recovery");
+  await assert.rejects(() => runtime.pauseSession(5000, { forReflection: true, recoverySessionId: "old-session" }), /recovery|unfinished/i);
+  await assert.rejects(() => runtime.returnToRecoveredSession("old-session"), /recovery|unfinished/i);
   await assert.rejects(() => runtime.finishSession(5000, { recoverySessionId: "old-session" }), /recovery|unfinished/i);
   await assert.rejects(() => runtime.discardSession({ recoverySessionId: "old-session" }), /recovery|unfinished/i);
   assert.deepEqual(await repository.getSessionById(before.id), before);
@@ -635,6 +637,8 @@ test("stale runtime recovery controls cannot overwrite or delete a session compl
   await current.finishSession(5000, { postSessionCheckOut: { learningReflection: "Original completed answer" } });
   const before = await repository.getSessionById("completed-guard");
   const samplesBefore = await repository.getMetricSamples(before.id);
+  await assert.rejects(() => stale.pauseSession(99999, { forReflection: true, recoverySessionId: before.id }), /recovery|unfinished/i);
+  await assert.rejects(() => stale.returnToRecoveredSession(before.id), /recovery|unfinished/i);
   await assert.rejects(() => stale.finishSession(99999, { recoverySessionId: before.id }), /recovery|unfinished/i);
   await assert.rejects(() => stale.discardSession({ recoverySessionId: before.id }), /recovery|unfinished/i);
   await assert.rejects(() => stale.finishSession(99999), /recovery|unfinished/i);
@@ -697,3 +701,66 @@ test("queued reflection writes cannot reopen a successfully completed session", 
   assert.equal(stored.postSessionCheckOut.learningReflection, "Explicit final answer");
   assert.equal((await createSessionRuntime({ repository, now }).initializeSessionState()).recoveredSession, null);
 });
+
+test("Return to Session preserves a paused checkpoint for explicit resume without persisting a resume", async () => {
+  const repository = createMemorySessionRepository();
+  const first = createSessionRuntime({ repository, now, idFactory: () => "return-paused" });
+  await first.prepareSession({ taskDescription: "Return safely" });
+  await first.activatePreparedSession();
+  await first.checkpointActiveSession(5000);
+  const runtime = createSessionRuntime({ repository, now });
+  await runtime.initializeSessionState();
+  const before = await repository.getSessionById("return-paused");
+  await assert.rejects(() => runtime.returnToRecoveredSession(), /recovery|unfinished/i);
+  const returned = await runtime.returnToRecoveredSession(before.id);
+  assert.equal(returned.status, SESSION_STATUS.PAUSED);
+  assert.equal(returned.accumulatedStudyMs, 5000);
+  assert.equal(returned.recoveryPending, true);
+  assert.equal(returned.postSessionReflectionDraft, null);
+  assert.deepEqual(runtime.getSnapshot().activeSession, returned);
+  assert.deepEqual(await repository.getSessionById(before.id), before);
+});
+
+for (const outcome of ["complete", "skip"]) {
+  test(`Recovery Finish persists reflection across reload before explicit ${outcome}`, async () => {
+    const repository = createMemorySessionRepository();
+    setNow("2026-01-11T00:00:00.000Z");
+    const first = createSessionRuntime({ repository, now, idFactory: () => `recovery-reflection-${outcome}` });
+    const session = await first.prepareSession({ taskDescription: "Recover into reflection" });
+    await first.activatePreparedSession();
+    await first.checkpointActiveSession(5000);
+    if (outcome === "skip") await first.pauseSession(5000);
+    setNow("2026-01-11T02:00:00.000Z");
+    const recovered = createSessionRuntime({ repository, now });
+    await recovered.initializeSessionState();
+    assert.equal(isStudySessionRecoveryPending(recovered.getSnapshot().activeSession), true);
+    await recovered.pauseSession(999999, { forReflection: true, recoverySessionId: session.id });
+    const pending = await repository.getSessionById(session.id);
+    assert.equal(pending.status, SESSION_STATUS.PAUSED);
+    assert.equal(pending.accumulatedStudyMs, 5000);
+    assert.equal(pending.recoveryPending, false);
+    assert.equal(pending.postSessionReflectionDraft.status, "pending");
+    assert.deepEqual(await recovered.listCompletedSessions(), []);
+    await recovered.updatePostSessionReflectionDraft({
+      sessionId: session.id, currentStepId: "sessionMood", answers: { sessionEnergy: 4 },
+    });
+    setNow("2026-01-11T04:00:00.000Z");
+    const fresh = createSessionRuntime({ repository, now });
+    const restored = (await fresh.initializeSessionState()).recoveredSession;
+    assert.equal(restored.status, SESSION_STATUS.PAUSED);
+    assert.equal(restored.accumulatedStudyMs, 5000);
+    assert.equal(restored.postSessionReflectionDraft.currentStepId, "sessionMood");
+    assert.equal(restored.postSessionReflectionDraft.answers.sessionEnergy, 4);
+    assert.equal(isStudySessionRecoveryPending(restored), false);
+    const completed = await fresh.finishSession(5000, {
+      postSessionCheckOut: outcome === "complete"
+        ? { sessionEnergy: 4, sessionMood: 3, learningReflection: "Finished reflection" }
+        : { sessionEnergy: 4 },
+    });
+    assert.equal(completed.status, SESSION_STATUS.COMPLETED);
+    assert.equal(completed.postSessionReflectionDraft, null);
+    assert.equal(completed.recoveryPending, false);
+    assert.equal(completed.actualDurationMs, 5000);
+    assert.equal((await createSessionRuntime({ repository, now }).initializeSessionState()).recoveredSession, null);
+  });
+}

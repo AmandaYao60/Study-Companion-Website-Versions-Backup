@@ -103,7 +103,7 @@ export default function LandingHero() {
           alt=""
           width={1456}
           height={816}
-          className="pointer-events-none absolute inset-0 z-30 h-full w-full select-none object-cover object-[68%_center] lg:object-center"
+          className="pointer-events-none absolute inset-0 z-30 hidden h-full w-full select-none object-cover object-[68%_center] lg:block lg:object-center"
         />
         
         {/* Small transition only at the bottom */}

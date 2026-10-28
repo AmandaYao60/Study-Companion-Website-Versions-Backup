@@ -322,13 +322,13 @@ export const createSessionRuntime = (options = {}) => {
       };
     },
 
-    async pauseSession(accumulatedStudyMs = 0, { forReflection = false } = {}) {
+    async pauseSession(accumulatedStudyMs = 0, { forReflection = false, recoverySessionId = null } = {}) {
       if (!activeSession) return null;
       if (activeSession.status === SESSION_STATUS.PREPARED) return clone(activeSession);
       await flushPendingObservations({ force: true });
       return queueTimingWrite(async () => {
         if (!activeSession) return null;
-        await requireUnfinishedSession();
+        await requireUnfinishedSession(recoverySessionId);
         const checkpointedAt = now();
         const reflectionDraft = normalizePostSessionReflectionDraft(
           activeSession.postSessionReflectionDraft || (forReflection ? { sessionId: activeSession.id, answers: {} } : null),
@@ -336,12 +336,20 @@ export const createSessionRuntime = (options = {}) => {
         );
         activeSession = await repository.updateSession(activeSession.id, {
           status: SESSION_STATUS.PAUSED,
-          accumulatedStudyMs,
+          accumulatedStudyMs: recoverySessionId !== null ? activeSession.accumulatedStudyMs : accumulatedStudyMs,
           recoveryPending: !reflectionDraft,
           ...(forReflection ? { postSessionReflectionDraft: reflectionDraft } : {}),
           lastCheckpointAt: checkpointedAt,
           updatedAt: checkpointedAt,
         });
+        return clone(activeSession);
+      });
+    },
+
+    async returnToRecoveredSession(recoverySessionId) {
+      return queueTimingWrite(async () => {
+        if (!activeSession) return null;
+        await requireUnfinishedSession(recoverySessionId ?? "");
         return clone(activeSession);
       });
     },

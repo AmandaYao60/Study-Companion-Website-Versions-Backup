@@ -81,12 +81,12 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
       ref={panelRef}
       style={panelStyle}
       className={isCompact
-        ? "absolute inset-x-3 bottom-3 z-30 max-h-[82vh] overflow-hidden rounded-2xl border border-cyan-400/20 bg-slate-950/95 shadow-2xl backdrop-blur-xl"
+        ? "absolute inset-x-3 bottom-3 z-30 max-h-[calc(100dvh-6rem)] overflow-x-hidden overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)] rounded-2xl border border-cyan-400/20 bg-slate-950/95 shadow-2xl backdrop-blur-xl"
         : "absolute left-0 top-0 z-30 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-cyan-400/20 bg-slate-950/92 shadow-2xl backdrop-blur-xl"
       }
     >
       <div
-        className={`flex cursor-grab items-center justify-between border-b border-white/10 px-4 py-3 ${isDragging ? "cursor-grabbing" : ""}`}
+        className={`flex cursor-grab items-center justify-between border-b border-white/10 px-4 ${isCompact ? "py-2" : "py-3"} ${isDragging ? "cursor-grabbing" : ""}`}
         {...dragHandleProps}
       >
         <p className="text-[9px] font-bold uppercase tracking-[0.24em] text-cyan-300">Live Monitor</p>
@@ -100,7 +100,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
         </button>
       </div>
 
-      <div className="border-b border-white/10 px-3 py-3">
+      <div className={`border-b border-white/10 px-3 ${isCompact ? "py-2" : "py-3"}`}>
         <SessionProgress
           elapsedMs={isBreakMode ? breakElapsedMs : elapsedMs}
           targetDurationMs={isBreakMode ? (timedBreak.activeSegmentDurationMs || timedBreak.baseDurationMs) : activeSession?.targetDurationMs}
@@ -108,12 +108,12 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
         />
       </div>
 
-      <div className="space-y-3 p-3">
-        <CameraFeed presentation="focus-panel" showControls={false} />
+      <div className={isCompact ? "space-y-2 p-2.5" : "space-y-3 p-3"}>
+        {!isCompact && <CameraFeed presentation="focus-panel" showControls={false} />}
 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-slate-500">Current Task</p>
-          <p className="mt-1 text-xs text-slate-300">{activeSession?.taskDescription || "Task setup will be added in a later UI phase."}</p>
+          <p className={`mt-1 text-xs text-slate-300 ${isCompact ? "break-words" : ""}`}>{activeSession?.taskDescription || "Task setup will be added in a later UI phase."}</p>
         </div>
 
         <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.06] p-3">
@@ -142,7 +142,7 @@ export default function FocusMonitorWindow({ stageRef, onHide }) {
           {isBreakMode ? "End Break Early" : isMonitoring ? "Pause Session" : isToggling ? "Resuming..." : "Resume Session"}
         </button>
 
-        {!isBreakMode && (
+        {(!isBreakMode || isCompact) && (
           <Link
             href="/app"
             data-no-drag="true"
