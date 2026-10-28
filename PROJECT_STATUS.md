@@ -29,7 +29,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Dismissed, expired, or confirmed-continued automatic suggestions expose a persistent Focus Space `Start a Break` entry for the current suggestion cycle.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
-- Debug Mode exposes a development-only diagnostics drawer with read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
+- Technical Demo is available in development or in production builds with `NEXT_PUBLIC_ENABLE_DEBUG_MODE=true`. Its diagnostics drawer includes read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
 - Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active, paused, and latest completed main Dashboard sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
 
 ## In Progress

@@ -16,11 +16,8 @@ export default function PublicNavbar() {
           <Link href="/#privacy" className="transition-colors hover:text-white">Privacy</Link>
         </nav>
         <div className="flex items-center gap-2">
-          <Link href="/login" className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-900 hover:text-white">
-            Log In
-          </Link>
-          <Link href="/signup" className="rounded-xl bg-cyan-400 px-3 py-2 text-xs font-bold text-slate-950 transition-all hover:bg-cyan-300">
-            Get Started
+          <Link href="/app" className="rounded-xl bg-cyan-400 px-3 py-2 text-xs font-bold text-slate-950 transition-all hover:bg-cyan-300">
+            Explore Demo
           </Link>
         </div>
       </div>

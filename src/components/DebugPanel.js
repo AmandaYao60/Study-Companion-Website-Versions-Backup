@@ -324,8 +324,9 @@ export default function DebugPanel() {
     showCameraDialog,
   ]);
 
-  const isDeveloperDebugAvailable = process.env.NODE_ENV !== "production";
-  if (!isDeveloperDebugAvailable || !isDebugMode) return null;
+  const isDebugAvailable = process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_ENABLE_DEBUG_MODE === "true";
+  if (!isDebugAvailable || !isDebugMode) return null;
 
   const handleCopyLog = async () => {
     const text = formatSanitizedDebugLog(eventLog);
@@ -386,7 +387,7 @@ export default function DebugPanel() {
       <button
         ref={openButtonRef}
         type="button"
-        aria-label="Open developer diagnostics"
+        aria-label="Open technical demo diagnostics"
         aria-expanded={isOpen}
         onClick={() => {
           setNow(Date.now());
@@ -409,13 +410,13 @@ export default function DebugPanel() {
           >
             <header className="flex items-start justify-between gap-4 border-b border-white/10 p-4">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">Debug Mode</p>
-                <h2 id="debug-panel-title" className="mt-1 text-lg font-black text-white">Developer Diagnostics</h2>
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">Technical Demo</p>
+                <h2 id="debug-panel-title" className="mt-1 text-lg font-black text-white">Pipeline Diagnostics</h2>
                 <p className="mt-1 text-xs text-slate-500">Read-only pipeline status plus isolated UI simulation.</p>
               </div>
               <button
                 type="button"
-                aria-label="Close developer diagnostics"
+                aria-label="Close technical demo diagnostics"
                 onClick={handleClose}
                 className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 transition-all hover:bg-slate-800"
               >
@@ -519,7 +520,7 @@ export default function DebugPanel() {
                     onClick={() => setDebugSimulationEnabled(true)}
                     className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${isSimulationEnabled ? "bg-amber-300 text-slate-950" : "text-slate-400 hover:bg-slate-800"}`}
                   >
-                    Debug Simulation
+                    Demo Simulation
                   </button>
                 </div>
 

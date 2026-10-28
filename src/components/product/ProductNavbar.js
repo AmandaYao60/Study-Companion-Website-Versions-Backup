@@ -47,7 +47,8 @@ export default function ProductNavbar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isDebugMode, setIsDebugMode } = useDebug();
-  const isDeveloperDebugAvailable = process.env.NODE_ENV !== "production";
+  const isDebugAvailable = process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_ENABLE_DEBUG_MODE === "true";
   const isSettings = pathname.startsWith("/app/settings");
   const isAccount = pathname.startsWith("/app/account");
 
@@ -67,17 +68,18 @@ export default function ProductNavbar() {
         </Link>
 
         <div className="flex min-w-0 items-center justify-end gap-2">
-          {isDeveloperDebugAvailable && (
+          {isDebugAvailable && (
             <button
               type="button"
               onClick={() => setIsDebugMode(!isDebugMode)}
+              aria-pressed={isDebugMode}
               className={`rounded-full border px-3 py-2 text-xs font-semibold transition-all ${
                 isDebugMode
                   ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
                   : "border-white/10 bg-slate-900 text-slate-400 hover:text-white"
               }`}
             >
-              <span>{isDebugMode ? "Debug On" : "Debug Off"}</span>
+              <span>Technical Demo: {isDebugMode ? "On" : "Off"}</span>
             </button>
           )}
 

@@ -56,7 +56,22 @@ npm run dev
 
 Open http://localhost:3000 in your browser.
 
-Allow camera access when prompted to use the monitoring features. All camera and affect-analysis processing runs locally in the browser, so no separate Python backend or environment-variable configuration is currently required.
+Allow camera access when prompted to use the monitoring features. All camera and affect-analysis processing runs locally in the browser, so no separate Python backend or required environment variables are needed for the standard demo.
+
+### Production demo
+
+The public **Explore Demo** links open `/app` directly; no authentication or Supabase configuration is required. The existing `/login` and `/signup` routes remain future placeholders.
+
+Technical Demo (the existing Debug Mode diagnostics and isolated display simulation) is available automatically in development. Production hides it unless `NEXT_PUBLIC_ENABLE_DEBUG_MODE=true` is set **before `npm run build`**. Set this optional public flag in your deployment build environment or `.env.local`, then build and start:
+
+```bash
+npm run build
+npm run start
+```
+
+Next.js embeds `NEXT_PUBLIC_` values in the client bundle at build time. Changing the flag only when starting the server does not enable it; rebuild after changing it. Omit the flag or set it to `false` to hide Technical Demo in production. When available, the navbar toggle still starts off, sensitive previews remain disabled, raw landmark export still requires confirmation, and simulated values remain separate from persisted Session data.
+
+Deploy with HTTPS for camera access (localhost is suitable for local QA). Serve the tracked `public/models`, `public/background`, and `public/music` assets with the app. MediaPipe also downloads its versioned WASM runtime from jsDelivr and face/gesture model files from Google Storage; clients need access to those hosts. Model downloads do not upload camera images. ONNX Runtime Web assets are emitted by the Next.js build.
 
 ### Optional Checks
 
