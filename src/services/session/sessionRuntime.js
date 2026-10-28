@@ -30,9 +30,25 @@ const isUsefulObservation = (observation) => (
   Number.isFinite(observation.fatigue)
 );
 
+const isUnfinishedStudySession = (session) => (
+  session?.status === SESSION_STATUS.ACTIVE || session?.status === SESSION_STATUS.PAUSED
+);
+
+export const hasPendingSessionReflection = (session) => (
+  isUnfinishedStudySession(session) &&
+  normalizePostSessionReflectionDraft(session.postSessionReflectionDraft, { sessionId: session.id }) !== null
+);
+
+export const isStudySessionRecoveryPending = (session) => (
+  session?.status === SESSION_STATUS.PAUSED &&
+  session.recoveryPending === true &&
+  !hasPendingSessionReflection(session)
+);
+
 const isRecoverableSession = (session) => (
-  session.status === SESSION_STATUS.ACTIVE ||
-  session.status === SESSION_STATUS.PAUSED
+  session?.status === SESSION_STATUS.ACTIVE ||
+  (session?.status === SESSION_STATUS.PAUSED &&
+    (session.recoveryPending === true || hasPendingSessionReflection(session)))
 );
 
 const checkpointTime = (session) => {
@@ -143,6 +159,17 @@ export const createSessionRuntime = (options = {}) => {
     return run;
   };
 
+  // Re-read storage before mutations so stale recovery bindings cannot change completed history.
+  const requireUnfinishedSession = async (recoverySessionId = null, { allowPrepared = false } = {}) => {
+    const stored = await repository.getSessionById(activeSession.id);
+    const eligible = recoverySessionId !== null
+      ? activeSession.id === recoverySessionId && isStudySessionRecoveryPending(stored)
+      : isRecoverableSession(stored) || (allowPrepared && stored?.status === SESSION_STATUS.PREPARED);
+    if (!eligible) throw new Error("Session is no longer an unfinished session eligible for this recovery action.");
+    activeSession = stored;
+    return stored;
+  };
+
   const checkpointActiveSession = (accumulatedStudyMs = 0, input = {}) => queueTimingWrite(async () => {
     if (!activeSession || activeSession.status !== SESSION_STATUS.ACTIVE) return clone(activeSession);
     const checkpointedAt = input.checkpointedAt || now();
@@ -155,12 +182,14 @@ export const createSessionRuntime = (options = {}) => {
     return clone(activeSession);
   });
 
-  const loadRecoverableSession = async (session) => {
+  const loadRecoverableSession = async (candidate) => {
+    const session = await repository.getSessionById(candidate.id);
+    if (!isRecoverableSession(session)) return null;
     const checkpointedAt = session.lastCheckpointAt || session.updatedAt || now();
     const recovered = await repository.updateSession(session.id, {
       status: SESSION_STATUS.PAUSED,
       accumulatedStudyMs: session.accumulatedStudyMs || 0,
-      recoveryPending: true,
+      recoveryPending: !hasPendingSessionReflection(session),
       lastCheckpointAt: checkpointedAt,
       updatedAt: now(),
     });
@@ -293,19 +322,28 @@ export const createSessionRuntime = (options = {}) => {
       };
     },
 
-    async pauseSession(accumulatedStudyMs = 0) {
+    async pauseSession(accumulatedStudyMs = 0, { forReflection = false } = {}) {
       if (!activeSession) return null;
       if (activeSession.status === SESSION_STATUS.PREPARED) return clone(activeSession);
       await flushPendingObservations({ force: true });
-      const checkpointedAt = now();
-      activeSession = await queueTimingWrite(async () => repository.updateSession(activeSession.id, {
-        status: SESSION_STATUS.PAUSED,
-        accumulatedStudyMs,
-        recoveryPending: false,
-        lastCheckpointAt: checkpointedAt,
-        updatedAt: checkpointedAt,
-      }));
-      return clone(activeSession);
+      return queueTimingWrite(async () => {
+        if (!activeSession) return null;
+        await requireUnfinishedSession();
+        const checkpointedAt = now();
+        const reflectionDraft = normalizePostSessionReflectionDraft(
+          activeSession.postSessionReflectionDraft || (forReflection ? { sessionId: activeSession.id, answers: {} } : null),
+          { sessionId: activeSession.id }
+        );
+        activeSession = await repository.updateSession(activeSession.id, {
+          status: SESSION_STATUS.PAUSED,
+          accumulatedStudyMs,
+          recoveryPending: !reflectionDraft,
+          ...(forReflection ? { postSessionReflectionDraft: reflectionDraft } : {}),
+          lastCheckpointAt: checkpointedAt,
+          updatedAt: checkpointedAt,
+        });
+        return clone(activeSession);
+      });
     },
 
     async resumeSession() {
@@ -363,17 +401,24 @@ export const createSessionRuntime = (options = {}) => {
     },
 
     async updatePostSessionReflectionDraft(postSessionReflectionDraft = null, input = {}) {
-      if (!activeSession) return null;
-      const updatedAt = input.updatedAt || now();
-      const normalizedDraft = normalizePostSessionReflectionDraft(postSessionReflectionDraft, {
-        sessionId: activeSession.id,
+      return queueTimingWrite(async () => {
+        if (!activeSession) return null;
+        await requireUnfinishedSession();
+        if (activeSession.status !== SESSION_STATUS.PAUSED) return null;
+        const updatedAt = input.updatedAt || now();
+        const normalizedDraft = normalizePostSessionReflectionDraft(postSessionReflectionDraft, {
+          sessionId: activeSession.id,
+        });
+        if (postSessionReflectionDraft && !normalizedDraft) {
+          throw new Error("Reflection draft does not belong to this unfinished session.");
+        }
+        activeSession = await repository.updateSession(activeSession.id, {
+          postSessionReflectionDraft: normalizedDraft,
+          ...(normalizedDraft ? { recoveryPending: false, lastCheckpointAt: updatedAt } : {}),
+          updatedAt,
+        });
+        return clone(activeSession);
       });
-      activeSession = await repository.updateSession(activeSession.id, {
-        postSessionReflectionDraft: normalizedDraft,
-        ...(normalizedDraft ? { recoveryPending: true, lastCheckpointAt: updatedAt } : {}),
-        updatedAt,
-      });
-      return clone(activeSession);
     },
 
     async updateBreakEvents(breakEvents = [], input = {}) {
@@ -411,54 +456,59 @@ export const createSessionRuntime = (options = {}) => {
     },
 
     async finishSession(actualDurationMs = 0, completionInput = {}) {
-      if (!activeSession) return null;
-      await timingWritePromise.catch(() => null);
-      await flushPendingObservations({ force: true });
-      const endedAt = now();
-      const sessionForStats = {
-        ...activeSession,
-        status: SESSION_STATUS.COMPLETED,
-        endedAt,
-        actualDurationMs,
-        accumulatedStudyMs: actualDurationMs,
-        recoveryPending: false,
-        postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
-        postSessionReflectionDraft: null,
-      };
-      const samples = await repository.getMetricSamples(activeSession.id);
-      const statistics = calculateSessionStatistics(samples, sessionForStats);
-      const summary = generateSessionSummary({ statistics, session: sessionForStats, now });
-      const sessionForCompletion = {
-        ...sessionForStats,
-        summaryAlgorithmVersion: summary.algorithmVersion,
-      };
-      const completed = createCompletedStudySession(sessionForCompletion, {
-        endedAt,
-        actualDurationMs,
-        monitoredDurationMs: statistics.monitoredDurationMs,
-        statistics,
-        summary,
-        sampleCount: samples.length,
-        dataCoverage: statistics.dataCoverage,
-        postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
-      });
+      return queueTimingWrite(async () => {
+        if (!activeSession) return null;
+        await requireUnfinishedSession(completionInput.recoverySessionId ?? null);
+        await flushPendingObservations({ force: true });
+        const endedAt = now();
+        const sessionForStats = {
+          ...activeSession,
+          status: SESSION_STATUS.COMPLETED,
+          endedAt,
+          actualDurationMs,
+          accumulatedStudyMs: actualDurationMs,
+          recoveryPending: false,
+          postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
+          postSessionReflectionDraft: null,
+        };
+        const samples = await repository.getMetricSamples(activeSession.id);
+        const statistics = calculateSessionStatistics(samples, sessionForStats);
+        const summary = generateSessionSummary({ statistics, session: sessionForStats, now });
+        const sessionForCompletion = {
+          ...sessionForStats,
+          summaryAlgorithmVersion: summary.algorithmVersion,
+        };
+        const completed = createCompletedStudySession(sessionForCompletion, {
+          endedAt,
+          actualDurationMs,
+          monitoredDurationMs: statistics.monitoredDurationMs,
+          statistics,
+          summary,
+          sampleCount: samples.length,
+          dataCoverage: statistics.dataCoverage,
+          postSessionCheckOut: completionInput.postSessionCheckOut ?? activeSession.postSessionCheckOut,
+        });
 
-      const saved = await repository.completeSession(activeSession.id, completed);
-      activeSession = null;
-      activeSessionSamples = [];
-      resetPendingInterval();
-      await refreshCompletedSessions();
-      return clone(saved);
+        const saved = await repository.completeSession(activeSession.id, completed);
+        activeSession = null;
+        activeSessionSamples = [];
+        resetPendingInterval();
+        await refreshCompletedSessions();
+        return clone(saved);
+      });
     },
 
-    async discardSession() {
-      if (!activeSession) return false;
-      const sessionId = activeSession.id;
-      const deleted = await repository.deleteSession(sessionId);
-      activeSession = null;
-      activeSessionSamples = [];
-      resetPendingInterval();
-      return deleted;
+    async discardSession({ recoverySessionId = null } = {}) {
+      return queueTimingWrite(async () => {
+        if (!activeSession) return false;
+        await requireUnfinishedSession(recoverySessionId, { allowPrepared: true });
+        const sessionId = activeSession.id;
+        const deleted = await repository.deleteSession(sessionId);
+        activeSession = null;
+        activeSessionSamples = [];
+        resetPendingInterval();
+        return deleted;
+      });
     },
 
     async listCompletedSessions() {

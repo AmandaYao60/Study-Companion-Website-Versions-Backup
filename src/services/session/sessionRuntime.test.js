@@ -5,6 +5,9 @@ import {
   SESSION_STATUS,
   createMemorySessionRepository,
   createSessionRuntime,
+  createStudySession,
+  hasPendingSessionReflection,
+  isStudySessionRecoveryPending,
 } from "./index.js";
 
 let nowValue = "2026-01-01T00:00:00.000Z";
@@ -260,8 +263,9 @@ test("runtime rehydrates a manually paused session without counting paused or un
 
   const stored = await repository.getSessionById(prepared.id);
   assert.equal(stored.status, SESSION_STATUS.PAUSED);
-  assert.equal(stored.recoveryPending, false);
+  assert.equal(stored.recoveryPending, true);
   assert.equal(stored.accumulatedStudyMs, 18000);
+  assert.equal(isStudySessionRecoveryPending(stored), true);
 
   setNow("2026-01-03T05:00:00.000Z");
   const recoveredRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
@@ -445,7 +449,7 @@ test("runtime persists and recovers unfinished post-session reflection draft", a
   });
 
   assert.equal(withDraft.status, SESSION_STATUS.PAUSED);
-  assert.equal(withDraft.recoveryPending, true);
+  assert.equal(withDraft.recoveryPending, false);
   assert.equal(withDraft.postSessionReflectionDraft.currentStepId, "strategiesUsed");
   assert.equal(withDraft.postSessionReflectionDraft.answers.sessionEnergy, 4);
   assert.deepEqual(withDraft.postSessionReflectionDraft.answers.strategiesUsed, ["elaboration", "organization"]);
@@ -456,6 +460,11 @@ test("runtime persists and recovers unfinished post-session reflection draft", a
   assert.equal(recovered.recoveredSession.postSessionReflectionDraft.currentStepId, "strategiesUsed");
   assert.equal(recovered.recoveredSession.postSessionReflectionDraft.answers.primaryStrategy, "organization");
   assert.equal(recovered.recoverableSessionCount, 1);
+  assert.equal(recovered.recoveredSession.status, SESSION_STATUS.PAUSED);
+  assert.equal(recovered.recoveredSession.accumulatedStudyMs, 2400);
+  assert.equal(recovered.recoveredSession.recoveryPending, false);
+  assert.equal(hasPendingSessionReflection(recovered.recoveredSession), true);
+  assert.equal(isStudySessionRecoveryPending(recovered.recoveredSession), false);
 });
 
 test("runtime clears reflection draft only after successful completion", async () => {
@@ -486,6 +495,11 @@ test("runtime clears reflection draft only after successful completion", async (
   assert.equal(completed.status, SESSION_STATUS.COMPLETED);
   assert.equal(completed.postSessionReflectionDraft, null);
   assert.equal(completed.postSessionCheckOut.learningReflection, "Completed reflection.");
+  assert.equal(completed.recoveryPending, false);
+  const fresh = createSessionRuntime({ repository, now });
+  assert.equal((await fresh.initializeSessionState()).recoveredSession, null);
+  assert.equal(fresh.getSnapshot().activeSession, null);
+  assert.equal(fresh.getSnapshot().completedSessions[0].id, completed.id);
 });
 
 test("failed completion keeps post-session reflection draft recoverable", async () => {
@@ -522,4 +536,164 @@ test("failed completion keeps post-session reflection draft recoverable", async 
   const stored = await repository.getSessionById("runtime-session-reflection-fail");
   assert.equal(stored.postSessionReflectionDraft.currentStepId, "nextSessionAdjustment");
   assert.equal(stored.postSessionReflectionDraft.answers.nextSessionAdjustment, "Try again after failure.");
+});
+
+for (const count of [1, 3]) {
+  test(`initialization ignores ${count} stale paused record(s) without changing stored data`, async () => {
+    const repository = createMemorySessionRepository();
+    for (let index = 0; index < count; index += 1) {
+      await repository.createSession(createStudySession({
+        id: `stale-paused-${index}`,
+        status: SESSION_STATUS.PAUSED,
+        recoveryPending: false,
+        accumulatedStudyMs: 12000 + index,
+        lastCheckpointAt: `2026-01-01T00:00:0${index}.000Z`,
+      }, { now: () => `2026-01-01T00:00:0${index}.000Z` }));
+    }
+    const before = await repository.listSessionSummaries();
+    for (const timestamp of ["2026-02-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z"]) {
+      const runtime = createSessionRuntime({ repository, now: () => timestamp });
+      const initialized = await runtime.initializeSessionState();
+      assert.equal(initialized.recoveredSession, null);
+      assert.equal(initialized.recoverableSessionCount, 0);
+      assert.equal(runtime.getSnapshot().activeSession, null);
+      assert.equal(await runtime.finishSession(99999), null);
+      assert.equal(await runtime.discardSession(), false);
+      assert.deepEqual(await repository.listSessionSummaries(), before);
+    }
+  });
+}
+
+test("End Session persists reflection intent together with the paused checkpoint before any answers", async () => {
+  const repository = createMemorySessionRepository();
+  const runtime = createSessionRuntime({ repository, now, idFactory: () => "reflection-entry" });
+  setNow("2026-01-10T00:00:00.000Z");
+  await runtime.prepareSession({ taskDescription: "End for reflection" });
+  await runtime.activatePreparedSession();
+  setNow("2026-01-10T00:00:15.000Z");
+  await runtime.pauseSession(15000, { forReflection: true });
+  const stored = await repository.getSessionById("reflection-entry");
+  assert.equal(stored.status, SESSION_STATUS.PAUSED);
+  assert.equal(stored.recoveryPending, false);
+  assert.equal(stored.postSessionReflectionDraft.status, "pending");
+  assert.equal(stored.accumulatedStudyMs, 15000);
+
+  setNow("2026-01-10T02:00:00.000Z");
+  const fresh = createSessionRuntime({ repository, now });
+  const initialized = await fresh.initializeSessionState();
+  assert.equal(initialized.recoveredSession.id, stored.id);
+  assert.equal(initialized.recoveredSession.status, SESSION_STATUS.PAUSED);
+  assert.equal(initialized.recoveredSession.recoveryPending, false);
+  assert.equal(initialized.recoveredSession.accumulatedStudyMs, 15000);
+  assert.deepEqual(initialized.recoveredSession.postSessionReflectionDraft, stored.postSessionReflectionDraft);
+  assert.deepEqual(fresh.getSnapshot().completedSessions, []);
+});
+
+test("generic recovery actions reject a pending reflection without modifying its answers", async () => {
+  const repository = createMemorySessionRepository();
+  const runtime = createSessionRuntime({ repository, now, idFactory: () => "reflection-guard" });
+  await runtime.prepareSession({ taskDescription: "Keep reflection" });
+  await runtime.activatePreparedSession();
+  await runtime.pauseSession(5000);
+  await runtime.updatePostSessionReflectionDraft({
+    sessionId: "reflection-guard",
+    currentStepId: "learningReflection",
+    answers: { learningReflection: "Preserve my draft" },
+  });
+  const before = await repository.getSessionById("reflection-guard");
+  await assert.rejects(() => runtime.finishSession(5000, { recoverySessionId: before.id }), /recovery|unfinished/i);
+  await assert.rejects(() => runtime.discardSession({ recoverySessionId: before.id }), /recovery|unfinished/i);
+  assert.deepEqual(await repository.getSessionById(before.id), before);
+});
+
+test("recovery actions reject an obsolete session binding", async () => {
+  const repository = createMemorySessionRepository();
+  const first = createSessionRuntime({ repository, now, idFactory: () => "current-recovery" });
+  await first.prepareSession({ taskDescription: "Current task" });
+  await first.activatePreparedSession();
+  await first.checkpointActiveSession(5000);
+  const runtime = createSessionRuntime({ repository, now });
+  await runtime.initializeSessionState();
+  const before = await repository.getSessionById("current-recovery");
+  await assert.rejects(() => runtime.finishSession(5000, { recoverySessionId: "old-session" }), /recovery|unfinished/i);
+  await assert.rejects(() => runtime.discardSession({ recoverySessionId: "old-session" }), /recovery|unfinished/i);
+  assert.deepEqual(await repository.getSessionById(before.id), before);
+});
+
+test("stale runtime recovery controls cannot overwrite or delete a session completed elsewhere", async () => {
+  const repository = createMemorySessionRepository();
+  const first = createSessionRuntime({ repository, now, idFactory: () => "completed-guard", sampleIntervalMs: 1000 });
+  await first.prepareSession({ taskDescription: "History protection" });
+  await first.activatePreparedSession();
+  await first.appendObservation(createObservation(0));
+  await first.appendObservation(createObservation(1000));
+  await first.checkpointActiveSession(5000);
+  const stale = createSessionRuntime({ repository, now });
+  await stale.initializeSessionState();
+  const current = createSessionRuntime({ repository, now });
+  await current.initializeSessionState();
+  await current.finishSession(5000, { postSessionCheckOut: { learningReflection: "Original completed answer" } });
+  const before = await repository.getSessionById("completed-guard");
+  const samplesBefore = await repository.getMetricSamples(before.id);
+  await assert.rejects(() => stale.finishSession(99999, { recoverySessionId: before.id }), /recovery|unfinished/i);
+  await assert.rejects(() => stale.discardSession({ recoverySessionId: before.id }), /recovery|unfinished/i);
+  await assert.rejects(() => stale.finishSession(99999), /recovery|unfinished/i);
+  await assert.rejects(() => stale.discardSession(), /recovery|unfinished/i);
+  assert.deepEqual(await repository.getSessionById(before.id), before);
+  assert.deepEqual(await repository.getMetricSamples(before.id), samplesBefore);
+});
+
+for (const action of ["finish", "discard"]) {
+  test(`after ${action} of a legitimate recovery, stale paused history is not recovered next`, async () => {
+    const repository = createMemorySessionRepository();
+    const stale = await repository.createSession(createStudySession({
+      id: "stale-history", status: SESSION_STATUS.PAUSED, recoveryPending: false,
+    }, { now: () => "2026-01-01T00:00:00.000Z" }));
+    const first = createSessionRuntime({ repository, now, idFactory: () => "legitimate-recovery" });
+    await first.prepareSession({ taskDescription: "Legitimate unfinished session" });
+    await first.activatePreparedSession();
+    await first.checkpointActiveSession(5000);
+    const runtime = createSessionRuntime({ repository, now });
+    await runtime.initializeSessionState();
+    if (action === "finish") await runtime.finishSession(5000, { recoverySessionId: "legitimate-recovery" });
+    else await runtime.discardSession({ recoverySessionId: "legitimate-recovery" });
+    const fresh = createSessionRuntime({ repository, now });
+    assert.equal((await fresh.initializeSessionState()).recoveredSession, null);
+    assert.deepEqual(await repository.getSessionById(stale.id), stale);
+  });
+}
+
+test("recovery presentation separates study intent, reflection intent, and history", () => {
+  const paused = createStudySession({ id: "presentation-state", status: SESSION_STATUS.PAUSED, recoveryPending: true });
+  assert.equal(isStudySessionRecoveryPending(paused), true);
+  assert.equal(hasPendingSessionReflection(paused), false);
+  assert.equal(isStudySessionRecoveryPending({ ...paused, recoveryPending: false }), false);
+  for (const recoveryPending of [true, false]) {
+    const reflection = { ...paused, recoveryPending, postSessionReflectionDraft: { sessionId: paused.id, status: "pending", currentStepId: "sessionMood", answers: { sessionEnergy: 4 } } };
+    assert.equal(hasPendingSessionReflection(reflection), true);
+    assert.equal(isStudySessionRecoveryPending(reflection), false);
+    for (const status of [SESSION_STATUS.COMPLETED, SESSION_STATUS.DISCARDED]) {
+      assert.equal(hasPendingSessionReflection({ ...reflection, status }), false);
+      assert.equal(isStudySessionRecoveryPending({ ...reflection, status }), false);
+    }
+  }
+});
+
+test("queued reflection writes cannot reopen a successfully completed session", async () => {
+  const repository = createMemorySessionRepository();
+  const runtime = createSessionRuntime({ repository, now, idFactory: () => "reflection-write-order" });
+  await runtime.prepareSession({ taskDescription: "Save reflection once" });
+  await runtime.activatePreparedSession();
+  await runtime.pauseSession(5000, { forReflection: true });
+  const [completed, lateDraft] = await Promise.all([
+    runtime.finishSession(5000, { postSessionCheckOut: { learningReflection: "Explicit final answer" } }),
+    runtime.updatePostSessionReflectionDraft({ sessionId: "reflection-write-order", currentStepId: "sessionEnergy", answers: { sessionEnergy: 1 } }),
+  ]);
+  assert.equal(lateDraft, null);
+  assert.equal(completed.status, SESSION_STATUS.COMPLETED);
+  const stored = await repository.getSessionById(completed.id);
+  assert.equal(stored.postSessionReflectionDraft, null);
+  assert.equal(stored.recoveryPending, false);
+  assert.equal(stored.postSessionCheckOut.learningReflection, "Explicit final answer");
+  assert.equal((await createSessionRuntime({ repository, now }).initializeSessionState()).recoveredSession, null);
 });

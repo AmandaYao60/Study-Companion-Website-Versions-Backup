@@ -18,7 +18,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Debug Mode keeps a bounded telemetry table and opt-in sensitive raw-landmark CSV export for approximately the latest 50 captured frames.
 - Dashboard metric cards, five-second sample charts, current-session analysis, latest-completed analysis, historical report modal, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
-- Active study sessions save local timer checkpoints about every five seconds. Active and manually paused unfinished sessions are recovered after refresh as paused, recovery-pending sessions using saved study time; page-unloaded time is excluded.
+- Active study sessions save local timer checkpoints about every five seconds. Manual pauses explicitly persist recovery intent; active interruptions and marked unfinished pauses recover with saved study time and no unloaded time. Legacy unmarked paused records are ignored without mutation.
 - Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
 - App state is exposed through focused Session, Monitoring, and Debug contexts rather than a single monolithic consumer hook.
 - AppProvider remains the composition boundary while the timed-break controller, session-audio controller, timed-break presentation, and pure break-state helpers are split into dedicated modules.
@@ -29,7 +29,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Dismissed, expired, or confirmed-continued automatic suggestions expose a persistent Focus Space `Start a Break` entry for the current suggestion cycle.
 - Study Workspace now starts with a calm welcome/setup flow when no active session exists, then collects optional one-card-at-a-time check-in data before preparing the existing camera-gated session.
 - The public landing page includes onboarding feature descriptions, a conditional Technical Demo walkthrough, and full-width Study Space, Focus Space, and Dashboard screenshots. The new-session welcome/setup/check-in flow uses the existing glowing-flowers background.
-- Ending a study session opens an optional one-card-at-a-time reflection before the existing completion write; partial reflection answers are preserved and unanswered fields remain blank.
+- End Session atomically saves a paused checkpoint and pending reflection intent before opening the questionnaire. Pending reflections restore through the reflection dialog with saved answers/step and stopped timer/camera, independently of generic study recovery. Recovery actions validate the bound session and stored unfinished state before mutations; completion clears recovery intent and the draft.
 - Technical Demo is available in development or in production builds with `NEXT_PUBLIC_ENABLE_DEBUG_MODE=true`. Its diagnostics drawer includes read-only pipeline status, one-second memory-only diagnostic snapshots, live metric explanations, isolated simulated display metrics, sensitive-data safeguards, and a sanitized bounded event log.
 - Emotional Engagement charts use continuous VA trajectories without hardcoded discrete-expression regions. Active, paused, and latest completed main Dashboard sessions have an expanded analysis dialog with interval tooltips and expression distribution; historical reports remain static.
 

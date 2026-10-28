@@ -11,6 +11,7 @@ import ActiveSessionCard from "./ActiveSessionCard";
 import EndSessionDialog from "./EndSessionDialog";
 import PostSessionReflectionDialog from "./PostSessionReflectionDialog";
 import SuggestedBreakButton from "../session/SuggestedBreakButton";
+import { hasPendingSessionReflection } from "../../services/session/sessionRuntime.js";
 
 export default function StudySpace() {
   const router = useRouter();
@@ -42,8 +43,8 @@ export default function StudySpace() {
   const canEnterFocus = (activeSession?.status === "active" || activeSession?.status === "paused") && isCameraAllowed;
   const canViewAnalytics = activeSession?.status !== "prepared";
   const showManualStartBreak = automaticBreakSuggestion?.showManualStartBreak === true;
-  const hasPendingReflectionDraft = activeSession?.postSessionReflectionDraft?.status === "pending";
-  const isPostSessionReflectionOpen = Boolean(activeSession && (isReflectionOpen || hasPendingReflectionDraft));
+  const hasPendingReflectionDraft = hasPendingSessionReflection(activeSession);
+  const isPostSessionReflectionOpen = activeSession?.status === "paused" && (isReflectionOpen || hasPendingReflectionDraft);
 
   const handlePauseResume = async () => {
     if (!hasActivatedSession) return;
@@ -67,9 +68,7 @@ export default function StudySpace() {
   const handleEnd = async () => {
     setIsEnding(true);
     try {
-      if (activeSession?.status === "active" || isMonitoring) {
-        await pauseSession({ silent: true });
-      }
+      await pauseSession({ silent: true, forReflection: true });
       setIsDialogOpen(false);
       setIsReflectionOpen(true);
     } catch (error) {

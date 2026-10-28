@@ -14,6 +14,8 @@ import {
   BREAK_STATUS,
   createIndexedDbSessionRepository,
   createSessionRuntime,
+  hasPendingSessionReflection,
+  isStudySessionRecoveryPending,
   SESSION_STATUS,
   calculatePlannedBreakPositions,
   cancelBreak,
@@ -639,7 +641,9 @@ export const AppProvider = ({ children }) => {
           setIsCameraAllowed(false);
           cameraAllowedRef.current = false;
           setRecoveryPromptDismissedSessionId(null);
-          addLog("Interrupted study session recovered from local checkpoint.", "warning");
+          addLog(hasPendingSessionReflection(recovered)
+            ? "Pending post-session reflection restored from local storage."
+            : "Interrupted study session recovered from local checkpoint.", "warning");
         }
         if (result?.invalidRecoverableSessions?.length > 0) {
           addLog("Some unfinished local sessions could not be recovered.", "error");
@@ -1711,7 +1715,7 @@ export const AppProvider = ({ children }) => {
 
   const startSession = prepareSession;
 
-  const pauseSession = useCallback(async ({ silent = false } = {}) => {
+  const pauseSession = useCallback(async ({ silent = false, forReflection = false } = {}) => {
     const active = activeSessionRef.current;
     if (!active) return null;
 
@@ -1724,7 +1728,13 @@ export const AppProvider = ({ children }) => {
     const elapsedMs = freezeSessionClock();
     setIsMonitoring(false);
 
-    await sessionRuntimeRef.current.pauseSession(elapsedMs);
+    monitoringRef.current = false;
+    await sessionRuntimeRef.current.pauseSession(elapsedMs, { forReflection });
+    if (forReflection) {
+      clearCameraStream();
+      resetTransientInferenceState();
+    }
+    setRecoveryPromptDismissedSessionId(active.id);
     syncSessionState();
 
     if (!silent) {
@@ -1732,7 +1742,7 @@ export const AppProvider = ({ children }) => {
     }
 
     return sessionRuntimeRef.current.getSnapshot().activeSession;
-  }, [addLog, freezeSessionClock, resetSessionClock, syncSessionState]);
+  }, [addLog, clearCameraStream, freezeSessionClock, resetSessionClock, resetTransientInferenceState, syncSessionState]);
 
   const resumeSession = useCallback(async () => {
     const active = activeSessionRef.current;
@@ -1769,6 +1779,7 @@ export const AppProvider = ({ children }) => {
 
     if (shouldPause) {
       await sessionRuntimeRef.current.pauseSession(elapsedMs);
+      setRecoveryPromptDismissedSessionId(active.id);
       syncSessionState();
     }
 
@@ -1776,9 +1787,18 @@ export const AppProvider = ({ children }) => {
     return true;
   }, [addLog, clearCameraStream, freezeSessionClock, getSessionElapsedMs, resetTransientInferenceState, syncSessionState]);
 
-  const returnToRecoveredSession = useCallback(async () => {
+  const requireRecoverySession = useCallback(async (sessionId) => {
     const active = activeSessionRef.current;
-    if (!active || active.recoveryPending !== true) return null;
+    const stored = active ? await sessionRuntimeRef.current.getSessionById(active.id) : null;
+    if (active?.id !== sessionId || !isStudySessionRecoveryPending(active) || !isStudySessionRecoveryPending(stored)) {
+      throw new Error("This session is no longer available for study-session recovery.");
+    }
+  }, []);
+
+  const returnToRecoveredSession = useCallback(async (recoverySessionId = null) => {
+    const active = activeSessionRef.current;
+    if (!isStudySessionRecoveryPending(active)) return null;
+    await requireRecoverySession(recoverySessionId ?? active.id);
 
     const elapsedMs = Number.isFinite(active.accumulatedStudyMs)
       ? Math.max(0, active.accumulatedStudyMs)
@@ -1798,10 +1818,11 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Recovered study session returned to Study Space. Choose how to continue.", "info");
     return active;
-  }, [addLog, clearCameraStream, resetTransientInferenceState, syncSessionState]);
+  }, [addLog, clearCameraStream, requireRecoverySession, resetTransientInferenceState, syncSessionState]);
 
-  const finishSession = useCallback(async ({ postSessionCheckOut = null } = {}) => {
+  const finishSession = useCallback(async ({ postSessionCheckOut = null, recoverySessionId = null } = {}) => {
     if (!activeSessionRef.current) return null;
+    if (recoverySessionId !== null) await requireRecoverySession(recoverySessionId);
 
     const elapsedMs = getSessionElapsedMs();
     setIsMonitoring(false);
@@ -1818,7 +1839,7 @@ export const AppProvider = ({ children }) => {
       syncSessionState();
     }
 
-    const completed = await sessionRuntimeRef.current.finishSession(elapsedMs, { postSessionCheckOut });
+    const completed = await sessionRuntimeRef.current.finishSession(elapsedMs, { postSessionCheckOut, recoverySessionId });
     clearCameraStream();
     resetTransientInferenceState();
     resetSessionClock();
@@ -1831,16 +1852,17 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session finished and summarized.", "success");
     return completed;
-  }, [addLog, automaticBreakSuggestionController, clearCameraStream, getSessionElapsedMs, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
+  }, [addLog, automaticBreakSuggestionController, clearCameraStream, getSessionElapsedMs, requireRecoverySession, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
 
-  const discardSession = useCallback(async () => {
+  const discardSession = useCallback(async ({ recoverySessionId = null } = {}) => {
     if (!activeSessionRef.current) return false;
+    if (recoverySessionId !== null) await requireRecoverySession(recoverySessionId);
 
     setIsMonitoring(false);
     sessionAudio.stopAllSessionAudio();
     clearCameraStream();
     resetTransientInferenceState();
-    const discarded = await sessionRuntimeRef.current.discardSession();
+    const discarded = await sessionRuntimeRef.current.discardSession({ recoverySessionId });
     resetSessionClock();
     timedBreakController.reset();
     automaticBreakSuggestionController.reset();
@@ -1851,7 +1873,7 @@ export const AppProvider = ({ children }) => {
     syncSessionState();
     addLog("Study session discarded.", "warning");
     return discarded;
-  }, [addLog, automaticBreakSuggestionController, clearCameraStream, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
+  }, [addLog, automaticBreakSuggestionController, clearCameraStream, requireRecoverySession, resetSessionClock, resetTransientInferenceState, sessionAudio, syncSessionState, timedBreakController]);
 
   const updateSessionTask = useCallback(async (taskDescription) => {
     const session = await sessionRuntimeRef.current.updateSessionTask(taskDescription);
@@ -2076,8 +2098,7 @@ export const AppProvider = ({ children }) => {
       setMuted: sessionAudio.setMuted,
       enableAudio: sessionAudio.enableAudio,
     },
-    isRecoveryPromptOpen: activeSession?.recoveryPending === true &&
-      !activeSession?.postSessionReflectionDraft &&
+    isRecoveryPromptOpen: isStudySessionRecoveryPending(activeSession) &&
       recoveryPromptDismissedSessionId !== activeSession.id,
   }), [
     activeSession,

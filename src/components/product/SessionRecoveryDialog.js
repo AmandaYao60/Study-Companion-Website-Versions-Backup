@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useDebug, useSession } from "../../context/AppContext";
+import { isStudySessionRecoveryPending } from "../../services/session/sessionRuntime.js";
 import { formatElapsedTime } from "../../hooks/useSmoothSessionTimer";
 
 const formatCheckpointTime = (value) => {
@@ -32,7 +33,7 @@ export default function SessionRecoveryDialog() {
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  const isOpen = isRecoveryPromptOpen === true;
+  const isOpen = isRecoveryPromptOpen === true && isStudySessionRecoveryPending(activeSession);
   const studyTime = useMemo(() => (
     formatElapsedTime(activeSession?.accumulatedStudyMs || 0)
   ), [activeSession?.accumulatedStudyMs]);
@@ -77,12 +78,12 @@ export default function SessionRecoveryDialog() {
   };
 
   const handleReturn = async () => {
-    const session = await runAction("return to", returnToRecoveredSession);
+    const session = await runAction("return to", () => returnToRecoveredSession(activeSession.id));
     if (session) setConfirmDiscard(false);
   };
 
   const handleFinish = async () => {
-    const completed = await runAction("finish", finishSession);
+    const completed = await runAction("finish", () => finishSession({ recoverySessionId: activeSession.id }));
     if (completed) router.push("/app/dashboard");
   };
 
@@ -93,7 +94,7 @@ export default function SessionRecoveryDialog() {
       return;
     }
 
-    const discarded = await runAction("discard", discardSession);
+    const discarded = await runAction("discard", () => discardSession({ recoverySessionId: activeSession.id }));
     if (discarded) {
       setConfirmDiscard(false);
       router.push("/app");
