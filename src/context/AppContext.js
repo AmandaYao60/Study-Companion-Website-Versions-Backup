@@ -1021,10 +1021,10 @@ export const AppProvider = ({ children }) => {
 
       if (faceResults.facialTransformationMatrixes?.length > 0) {
         const matrix = faceResults.facialTransformationMatrixes[0].data;
-        const r01 = matrix[1];
+        const r01 = matrix[4];
         const r11 = matrix[5];
-        const r20 = matrix[8];
-        const r21 = matrix[9];
+        const r20 = matrix[2];
+        const r21 = matrix[6];
         const r22 = matrix[10];
 
         yawValue = parseFloat((Math.atan2(r20, r22) * (180 / Math.PI)).toFixed(1));
