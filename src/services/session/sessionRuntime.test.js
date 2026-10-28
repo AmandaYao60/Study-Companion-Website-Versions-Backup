@@ -220,6 +220,7 @@ test("runtime recovers interrupted active sessions as paused without adding refr
   assert.equal(recovered.recoveryPending, true);
   assert.equal(recovered.accumulatedStudyMs, 15000);
   assert.equal(recovered.lastCheckpointAt, "2026-01-03T00:00:15.000Z");
+  assert.deepEqual(recoveredRuntime.getSnapshot().activeSession, recovered);
 
   setNow("2026-01-03T02:00:00.000Z");
   const repeatedRefreshRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
@@ -235,6 +236,53 @@ test("runtime recovers interrupted active sessions as paused without adding refr
   assert.equal(resumed.status, SESSION_STATUS.ACTIVE);
   assert.equal(resumed.recoveryPending, false);
   assert.equal(resumed.accumulatedStudyMs, 15000);
+});
+
+test("runtime rehydrates a manually paused session without counting paused or unloaded time", async () => {
+  const repository = createMemorySessionRepository();
+  setNow("2026-01-03T03:00:00.000Z");
+  const firstRuntime = createSessionRuntime({
+    repository,
+    now,
+    idFactory: () => "runtime-session-paused-refresh",
+    sampleIntervalMs: 1000,
+  });
+
+  const prepared = await firstRuntime.prepareSession({ taskDescription: "Paused refresh" });
+  await firstRuntime.activatePreparedSession();
+  await firstRuntime.appendObservation(createObservation(0));
+  await firstRuntime.appendObservation(createObservation(1000));
+  await firstRuntime.checkpointActiveSession(15000, {
+    checkpointedAt: "2026-01-03T03:00:15.000Z",
+  });
+  setNow("2026-01-03T03:00:18.000Z");
+  await firstRuntime.pauseSession(18000);
+
+  const stored = await repository.getSessionById(prepared.id);
+  assert.equal(stored.status, SESSION_STATUS.PAUSED);
+  assert.equal(stored.recoveryPending, false);
+  assert.equal(stored.accumulatedStudyMs, 18000);
+
+  setNow("2026-01-03T05:00:00.000Z");
+  const recoveredRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
+  const initialization = await recoveredRuntime.initializeSessionState({ recoverInterrupted: true });
+  const recovered = initialization.recoveredSession;
+
+  assert.equal(initialization.recoverableSessionCount, 1);
+  assert.equal(recovered.id, prepared.id);
+  assert.equal(recovered.status, SESSION_STATUS.PAUSED);
+  assert.equal(recovered.recoveryPending, true);
+  assert.equal(recovered.accumulatedStudyMs, 18000);
+  assert.equal(recovered.lastCheckpointAt, "2026-01-03T03:00:18.000Z");
+  assert.deepEqual(recoveredRuntime.getSnapshot().activeSession, recovered);
+  assert.equal(recoveredRuntime.getSnapshot().activeSessionSamples.length, 1);
+
+  setNow("2026-01-03T06:00:00.000Z");
+  const repeatedRuntime = createSessionRuntime({ repository, now });
+  const repeated = await repeatedRuntime.initializeSessionState();
+  assert.equal(repeated.recoveredSession.status, SESSION_STATUS.PAUSED);
+  assert.equal(repeated.recoveredSession.recoveryPending, true);
+  assert.equal(repeated.recoveredSession.accumulatedStudyMs, 18000);
 });
 
 test("finish from recovered session preserves samples and excludes time away", async () => {
@@ -271,6 +319,9 @@ test("finish from recovered session preserves samples and excludes time away", a
   const laterRuntime = createSessionRuntime({ repository, now, sampleIntervalMs: 1000 });
   const laterInitialization = await laterRuntime.initializeSessionState();
   assert.equal(laterInitialization.recoveredSession, null);
+  assert.equal(laterInitialization.recoverableSessionCount, 0);
+  assert.equal(laterRuntime.getSnapshot().activeSession, null);
+  assert.equal(laterRuntime.getSnapshot().completedSessions[0].id, prepared.id);
   assert.equal((await laterRuntime.listCompletedSessions()).length, 1);
 });
 
@@ -309,6 +360,13 @@ test("recovered sessions continue sample numbering and discard cascades samples"
   assert.equal(discarded, true);
   assert.equal(await recoveredRuntime.getSessionById(prepared.id), null);
   assert.deepEqual(await recoveredRuntime.getMetricSamples(prepared.id), []);
+
+  const laterRuntime = createSessionRuntime({ repository, now });
+  const initialization = await laterRuntime.initializeSessionState();
+  assert.equal(initialization.recoveredSession, null);
+  assert.equal(initialization.recoverableSessionCount, 0);
+  assert.equal(laterRuntime.getSnapshot().activeSession, null);
+  assert.deepEqual(laterRuntime.getSnapshot().completedSessions, []);
 });
 
 test("runtime persists setup context and post-session reflection on completion", async () => {

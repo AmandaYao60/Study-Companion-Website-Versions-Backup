@@ -32,7 +32,7 @@ const isUsefulObservation = (observation) => (
 
 const isRecoverableSession = (session) => (
   session.status === SESSION_STATUS.ACTIVE ||
-  (session.status === SESSION_STATUS.PAUSED && session.recoveryPending === true)
+  session.status === SESSION_STATUS.PAUSED
 );
 
 const checkpointTime = (session) => {

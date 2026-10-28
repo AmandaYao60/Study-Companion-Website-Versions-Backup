@@ -18,7 +18,7 @@ Phase 2 shell: Phase 1 browser-local inference is frozen, and Focus Space now pr
 - Debug Mode keeps a bounded telemetry table and opt-in sensitive raw-landmark CSV export for approximately the latest 50 captured frames.
 - Dashboard metric cards, five-second sample charts, current-session analysis, latest-completed analysis, historical report modal, and summary statistics.
 - Completed study-session summaries and formal metric samples persist locally in browser IndexedDB on the same origin.
-- Active study sessions save local timer checkpoints about every five seconds and can be recovered after refresh as paused sessions.
+- Active study sessions save local timer checkpoints about every five seconds. Active and manually paused unfinished sessions are recovered after refresh as paused, recovery-pending sessions using saved study time; page-unloaded time is excluded.
 - Pausing an active session force-flushes useful pending observations into a final partial `MetricSample` before the Dashboard renders the paused current session.
 - App state is exposed through focused Session, Monitoring, and Debug contexts rather than a single monolithic consumer hook.
 - AppProvider remains the composition boundary while the timed-break controller, session-audio controller, timed-break presentation, and pure break-state helpers are split into dedicated modules.
